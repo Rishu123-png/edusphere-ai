@@ -1,157 +1,59 @@
-import React, { useState } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
-import { 
-  LayoutDashboard, Users, UserCheck, Award, Brain, BarChart3, Calendar, 
-  Settings, LogOut, Menu, X, Bell, Search, User 
-} from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
-import { Button } from './ui/button';
+import { Link, Outlet, useLocation, Navigate } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
+import { useTheme } from '@/contexts/ThemeContext';
+import { Button } from '@/components/ui/button';
+import { LayoutDashboard, Users, GraduationCap, ClipboardList, BarChart3, Bell, MessageCircle, Bus, Calendar, Settings, Sun, Moon, LogOut } from 'lucide-react';
 
 const navItems = [
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['*'] },
-  { to: '/students', label: 'Students', icon: Users, roles: ['superadmin','schooladmin','principal','teacher','parent'] },
-  { to: '/teachers', label: 'Teachers', icon: Users, roles: ['superadmin','schooladmin','principal'] },
-  { to: '/attendance', label: 'Attendance', icon: UserCheck, roles: ['*'] },
-  { to: '/marks', label: 'Marks', icon: Award, roles: ['*'] },
-  { to: '/ai-insights', label: 'AI Insights', icon: Brain, roles: ['superadmin','schooladmin','principal','teacher'] },
-  { to: '/reports', label: 'Reports', icon: BarChart3, roles: ['superadmin','schooladmin','principal','teacher'] },
-  { to: '/calendar', label: 'Calendar', icon: Calendar, roles: ['*'] },
-  { to: '/homework', label: 'Homework', icon: Award, roles: ['*'] },
-  { to: '/qr-scanner', label: 'QR Scanner', icon: UserCheck, roles: ['teacher','principal'] },
-  { to: '/parent-portal', label: 'Parent Portal', icon: Users, roles: ['parent','student'] },
-  { to: '/settings', label: 'Settings', icon: Settings, roles: ['*'] },
+  { to: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['super_admin','school_admin','principal','teacher','student','parent'] },
+  { to: '/students', label: 'Students', icon: GraduationCap, roles: ['school_admin','principal','teacher'] },
+  { to: '/teachers', label: 'Teachers', icon: Users, roles: ['school_admin','principal'] },
+  { to: '/attendance', label: 'Attendance', icon: ClipboardList, roles: ['school_admin','principal','teacher','student','parent'] },
+  { to: '/marks', label: 'Marks', icon: BarChart3, roles: ['school_admin','principal','teacher','student','parent'] },
+  { to: '/ai', label: 'AI Insights', icon: BarChart3, roles: ['school_admin','principal','teacher','parent','student'] },
+  { to: '/schedule', label: 'Schedule', icon: Calendar, roles: ['school_admin','principal','teacher'] },
+  { to: '/transport', label: 'Transport', icon: Bus, roles: ['school_admin','principal'] },
+  { to: '/notifications', label: 'Notify', icon: Bell, roles: ['school_admin','principal','teacher'] },
+  { to: '/whatsapp', label: 'WhatsApp', icon: MessageCircle, roles: ['school_admin','principal','teacher'] },
+  { to: '/settings', label: 'Settings', icon: Settings, roles: ['super_admin','school_admin','principal','teacher','student','parent'] },
 ];
 
-const Layout: React.FC = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { currentUser, logout } = useAuth();
-  const navigate = useNavigate();
+export default function Layout(){
+  const { profile, logout, loading } = useAuth();
+  const { theme, toggle } = useTheme();
+  const loc = useLocation();
 
-  const filteredNav = navItems.filter(item => 
-    item.roles.includes('*') || item.roles.includes(currentUser?.role || '')
-  );
+  if (loading) return <div className="p-10">Loading…</div>;
+  if (!profile) return <Navigate to="/login" replace />;
 
-  const handleLogout = async () => {
-    await logout();
-    navigate('/login');
-  };
+  const allowed = navItems.filter(n => n.roles.includes(profile.role));
 
-  return (
-    <div className="flex h-screen bg-background overflow-hidden">
-      {/* Mobile Sidebar Toggle */}
-      <div className="lg:hidden fixed top-4 left-4 z-50">
-        <Button 
-          variant="outline" 
-          size="icon" 
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-        >
-          {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
-        </Button>
-      </div>
-
-      {/* Sidebar */}
-      <div className={`
-        fixed lg:static inset-y-0 left-0 z-40 w-64 bg-card border-r border-border transform transition-transform duration-200 ease-in-out
-        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-      `}>
-        <div className="flex flex-col h-full">
-          {/* Logo */}
-          <div className="flex items-center gap-3 px-6 py-5 border-b">
-            <div className="w-9 h-9 bg-primary rounded-xl flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-xl">E</span>
-            </div>
-            <div>
-              <div className="font-bold text-xl tracking-tight">EduSphere</div>
-              <div className="text-[10px] text-muted-foreground -mt-1">AI School ERP</div>
-            </div>
-          </div>
-
-          {/* Navigation */}
-          <div className="flex-1 overflow-auto py-4 px-3">
-            <div className="space-y-1">
-              {filteredNav.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  onClick={() => setSidebarOpen(false)}
-                  className={({ isActive }) => 
-                    `sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${isActive ? 'active bg-primary text-primary-foreground' : 'hover:bg-accent'}`
-                  }
-                >
-                  <item.icon size={19} />
-                  {item.label}
-                </NavLink>
-              ))}
-            </div>
-          </div>
-
-          {/* User Profile */}
-          <div className="p-4 border-t mt-auto">
-            <div className="flex items-center gap-3 px-3 py-2 mb-3">
-              <div className="w-9 h-9 bg-muted rounded-full flex items-center justify-center">
-                <User size={18} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="font-medium text-sm truncate">{currentUser?.displayName}</div>
-                <div className="text-xs text-muted-foreground capitalize">{currentUser?.role}</div>
-              </div>
-            </div>
-            
-            <Button 
-              variant="ghost" 
-              className="w-full justify-start gap-2 text-destructive hover:text-destructive" 
-              onClick={handleLogout}
-            >
-              <LogOut size={16} /> Logout
-            </Button>
-          </div>
+  return <div className="min-h-screen grid grid-cols-[260px_1fr] bg-muted/30">
+    <aside className="bg-card border-r border-border p-5 flex flex-col">
+      <div className="text-2xl font-extrabold mb-6">EduSphere <span className="text-primary">AI</span></div>
+      <nav className="space-y-1 flex-1">
+        {allowed.map(n => (
+          <Link key={n.to} to={n.to}
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition ${loc.pathname===n.to ? 'bg-primary text-primary-foreground':'hover:bg-accent'}`}>
+            <n.icon size={18}/> {n.label}
+          </Link>
+        ))}
+      </nav>
+      <div className="text-xs text-muted-foreground px-2">Role: {profile.role}<br/>School: {profile.schoolId || '—'}</div>
+    </aside>
+    <div className="flex flex-col min-h-screen">
+      <header className="h-16 bg-card border-b border-border flex items-center justify-between px-6">
+        <div className="font-semibold">Welcome, {profile.name}</div>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" onClick={toggle} aria-label="toggle theme">
+            {theme === 'dark' ? <Sun size={18}/> : <Moon size={18}/>}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={logout}><LogOut size={16} className="mr-2"/>Logout</Button>
         </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Navigation */}
-        <header className="h-16 border-b bg-card flex items-center justify-between px-6 lg:px-8">
-          <div className="flex items-center gap-4">
-            <div className="hidden lg:block">
-              <h1 className="text-xl font-semibold tracking-tight">EduSphere AI</h1>
-            </div>
-            
-            {/* Global Search */}
-            <div className="hidden md:block relative w-72">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={17} />
-                <input 
-                  type="text" 
-                  placeholder="Search students, teachers, classes..." 
-                  className="w-full bg-muted pl-10 pr-4 py-2 text-sm rounded-full border border-border focus:outline-none focus:ring-2 focus:ring-primary/30"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <Button variant="outline" size="icon" className="relative">
-              <Bell size={18} />
-              <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[9px] flex items-center justify-center rounded-full">12</div>
-            </Button>
-            
-            <div className="flex items-center gap-2 text-sm">
-              <div className="text-right hidden md:block">
-                <div className="font-medium">{currentUser?.displayName}</div>
-                <div className="text-xs text-muted-foreground capitalize">{currentUser?.role}</div>
-              </div>
-            </div>
-          </div>
-        </header>
-
-        {/* Page Content */}
-        <main className="flex-1 overflow-auto p-6 lg:p-8 bg-background">
-          <Outlet />
-        </main>
-      </div>
+      </header>
+      <main className="p-6 lg:p-8 max-w-7xl w-full">
+        <Outlet/>
+      </main>
     </div>
-  );
-};
-
-export default Layout;
+  </div>
+}

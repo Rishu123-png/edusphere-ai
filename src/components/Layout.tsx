@@ -16,6 +16,8 @@ const navItems = [
   { to: '/ai-insights', label: 'AI Insights', icon: Brain, roles: ['superadmin','schooladmin','principal','teacher'] },
   { to: '/reports', label: 'Reports', icon: BarChart3, roles: ['superadmin','schooladmin','principal','teacher'] },
   { to: '/calendar', label: 'Calendar', icon: Calendar, roles: ['*'] },
+  { to: '/homework', label: 'Homework', icon: Award, roles: ['*'] },
+  { to: '/qr-scanner', label: 'QR Scanner', icon: UserCheck, roles: ['teacher','principal'] },
   { to: '/parent-portal', label: 'Parent Portal', icon: Users, roles: ['parent','student'] },
   { to: '/settings', label: 'Settings', icon: Settings, roles: ['*'] },
 ];

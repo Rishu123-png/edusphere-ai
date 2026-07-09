@@ -2,98 +2,51 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
-  --card: 0 0% 100%;
-  --card-foreground: 222.2 84% 4.9%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 222.2 84% 4.9%;
-  --primary: 222.2 47.4% 11.2%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 210 40% 96.1%;
-  --secondary-foreground: 222.2 47.4% 11.2%;
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
-  --accent: 210 40% 96.1%;
-  --accent-foreground: 222.2 47.4% 11.2%;
-  --destructive: 0 84.2% 60.2%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 222.2 84% 4.9%;
-  --radius: 0.75rem;
-}
-
-.dark {
-  --background: 222.2 84% 4.9%;
-  --foreground: 210 40% 98%;
-  --card: 222.2 84% 4.9%;
-  --card-foreground: 210 40% 98%;
-  --popover: 222.2 84% 4.9%;
-  --popover-foreground: 210 40% 98%;
-  --primary: 210 40% 98%;
-  --primary-foreground: 222.2 47.4% 11.2%;
-  --secondary: 217.2 32.6% 17.5%;
-  --secondary-foreground: 210 40% 98%;
-  --muted: 217.2 32.6% 17.5%;
-  --muted-foreground: 215 20.2% 65.1%;
-  --accent: 217.2 32.6% 17.5%;
-  --accent-foreground: 210 40% 98%;
-  --destructive: 0 62.8% 30.6%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 217.2 32.6% 17.5%;
-  --input: 217.2 32.6% 17.5%;
-  --ring: 212.7 26.8% 83.9%;
-}
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+@layer base {
+  :root {
+    --background: 250 250 255;
+    --foreground: 15 23 42;
+    --card: 255 255 255;
+    --card-foreground: 15 23 42;
+    --primary: 245 58% 58%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 15 23 42;
+    --muted: 220 14% 96%;
+    --muted-foreground: 100 7% 45%;
+    --accent: 220 14% 96%;
+    --accent-foreground: 15 23 42;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 245 58% 58%;
+    --radius: 1rem;
+  }
+  .dark {
+    --background: 224 35% 7%;
+    --foreground: 210 40% 98%;
+    --card: 224 32% 10%;
+    --card-foreground: 210 40% 98%;
+    --primary: 245 70% 65%;
+    --primary-foreground: 224 35% 7%;
+    --secondary: 222 32% 14%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 222 32% 14%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 222 32% 14%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 63% 45%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 222 32% 18%;
+    --input: 222 32% 18%;
+    --ring: 245 70% 65%;
+  }
 }
 
 @layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; font-family: 'Outfit', system-ui, sans-serif; }
 }
 
-/* Custom styles for EduSphere */
-.dashboard-card {
-  @apply bg-card border border-border rounded-xl shadow-sm hover:shadow-md transition-all duration-200;
-}
-
-.data-table {
-  @apply w-full border-collapse;
-}
-
-.data-table th {
-  @apply bg-muted/50 text-left p-3 font-semibold text-sm;
-}
-
-.data-table td {
-  @apply p-3 border-t border-border;
-}
-
-.modal {
-  @apply fixed inset-0 bg-black/50 flex items-center justify-center z-50;
-}
-
-.sidebar-link {
-  @apply flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-accent transition-colors;
-}
-
-.sidebar-link.active {
-  @apply bg-primary text-primary-foreground;
-}
-
-/* AI Cards */
-.ai-card {
-  @apply bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-blue-200 dark:border-blue-800;
-}
-
-.status-badge {
-  @apply px-3 py-1 rounded-full text-xs font-medium;
-}
+.card-soft { @apply bg-card rounded-2xl shadow-sm border border-border; }

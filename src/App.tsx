@@ -18,6 +18,8 @@ import Reports from './pages/Reports';
 import ParentPortal from './pages/ParentPortal';
 import CalendarPage from './pages/Calendar';
 import Settings from './pages/Settings';
+import Homework from './pages/Homework';
+import QRScanner from './pages/QRScanner';
 import NotFound from './pages/NotFound';
 
 // Protected Route Component
@@ -72,6 +74,8 @@ function AppRoutes() {
         <Route path="ai-insights" element={<ProtectedRoute allowedRoles={['superadmin','schooladmin','principal','teacher']}><AIInsights /></ProtectedRoute>} />
         <Route path="reports" element={<ProtectedRoute allowedRoles={['superadmin','schooladmin','principal','teacher']}><Reports /></ProtectedRoute>} />
         <Route path="calendar" element={<CalendarPage />} />
+        <Route path="homework" element={<Homework />} />
+        <Route path="qr-scanner" element={<QRScanner />} />
         
         {/* Admin & Principal Only */}
         <Route path="teachers" element={<ProtectedRoute allowedRoles={['superadmin','schooladmin','principal']}><Teachers /></ProtectedRoute>} />

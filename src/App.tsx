@@ -1,105 +1,35 @@
-import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Routes, Route } from 'react-router-dom'
+import Layout from './components/Layout'
+import LoginPage from './pages/LoginPage'
+import DashboardPage from './pages/DashboardPage'
+import StudentsPage from './pages/StudentsPage'
+import TeachersPage from './pages/TeachersPage'
+import AttendancePage from './pages/AttendancePage'
+import MarksPage from './pages/MarksPage'
+import AIPage from './pages/AIPage'
+import SchedulePage from './pages/SchedulePage'
+import NotificationsPage from './pages/NotificationsPage'
+import WhatsAppPage from './pages/WhatsAppPage'
+import TransportPage from './pages/TransportPage'
+import SettingsPage from './pages/SettingsPage'
+import SuperAdminPage from './pages/SuperAdminPage'
 
-// Layout
-import Layout from './components/Layout';
-
-// Pages
-import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import Students from './pages/Students';
-import Teachers from './pages/Teachers';
-import Attendance from './pages/Attendance';
-import Marks from './pages/Marks';
-import AIInsights from './pages/AIInsights';
-import Reports from './pages/Reports';
-import ParentPortal from './pages/ParentPortal';
-import CalendarPage from './pages/Calendar';
-import Settings from './pages/Settings';
-import Homework from './pages/Homework';
-import QRScanner from './pages/QRScanner';
-import NotFound from './pages/NotFound';
-
-// Protected Route Component
-const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: string[] }> = ({ 
-  children, 
-  allowedRoles 
-}) => {
-  const { currentUser, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
-  if (!currentUser) {
-    return <Navigate to="/login" replace />;
-  }
-
-  if (allowedRoles && !allowedRoles.includes(currentUser.role)) {
-    return <Navigate to="/dashboard" replace />;
-  }
-
-  return <>{children}</>;
-};
-
-const queryClient = new QueryClient();
-
-function AppRoutes() {
-  const { currentUser } = useAuth();
-
-  return (
-    <Routes>
-      {/* Public Routes */}
-      <Route path="/login" element={!currentUser ? <Login /> : <Navigate to="/dashboard" />} />
-      
-      {/* Protected Routes */}
-      <Route path="/" element={
-        <ProtectedRoute>
-          <Layout />
-        </ProtectedRoute>
-      }>
-        <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="dashboard" element={<Dashboard />} />
-        
-        {/* All Roles */}
-        <Route path="students" element={<ProtectedRoute allowedRoles={['superadmin','schooladmin','principal','teacher','parent']}><Students /></ProtectedRoute>} />
-        <Route path="attendance" element={<ProtectedRoute allowedRoles={['superadmin','schooladmin','principal','teacher','parent']}><Attendance /></ProtectedRoute>} />
-        <Route path="marks" element={<ProtectedRoute allowedRoles={['superadmin','schooladmin','principal','teacher','parent']}><Marks /></ProtectedRoute>} />
-        <Route path="ai-insights" element={<ProtectedRoute allowedRoles={['superadmin','schooladmin','principal','teacher']}><AIInsights /></ProtectedRoute>} />
-        <Route path="reports" element={<ProtectedRoute allowedRoles={['superadmin','schooladmin','principal','teacher']}><Reports /></ProtectedRoute>} />
-        <Route path="calendar" element={<CalendarPage />} />
-        <Route path="homework" element={<Homework />} />
-        <Route path="qr-scanner" element={<QRScanner />} />
-        
-        {/* Admin & Principal Only */}
-        <Route path="teachers" element={<ProtectedRoute allowedRoles={['superadmin','schooladmin','principal']}><Teachers /></ProtectedRoute>} />
-        
-        {/* Parent Portal */}
-        <Route path="parent-portal" element={<ProtectedRoute allowedRoles={['parent','student']}><ParentPortal /></ProtectedRoute>} />
-        
-        {/* Settings */}
-        <Route path="settings" element={<Settings />} />
-      </Route>
-
-      <Route path="*" element={<NotFound />} />
-    </Routes>
-  );
+export default function App(){
+  return <Routes>
+    <Route path="/login" element={<LoginPage/>} />
+    <Route element={<Layout/>}>
+      <Route path="/" element={<DashboardPage/>} />
+      <Route path="/students" element={<StudentsPage/>} />
+      <Route path="/teachers" element={<TeachersPage/>} />
+      <Route path="/attendance" element={<AttendancePage/>} />
+      <Route path="/marks" element={<MarksPage/>} />
+      <Route path="/ai" element={<AIPage/>} />
+      <Route path="/schedule" element={<SchedulePage/>} />
+      <Route path="/notifications" element={<NotificationsPage/>} />
+      <Route path="/whatsapp" element={<WhatsAppPage/>} />
+      <Route path="/transport" element={<TransportPage/>} />
+      <Route path="/settings" element={<SettingsPage/>} />
+      <Route path="/superadmin" element={<SuperAdminPage/>} />
+    </Route>
+  </Routes>
 }
-
-function App() {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
-    </QueryClientProvider>
-  );
-}
-
-export default App;

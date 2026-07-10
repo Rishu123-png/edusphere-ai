@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
 
 type Theme = 'light' | 'dark' | 'system'
 
@@ -10,23 +10,36 @@ const ThemeContext = createContext<{
 } | null>(null)
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(() => (localStorage.getItem('edusphere-theme') as Theme) || 'system')
+  const [theme, setThemeState] = useState<Theme>(() => {
+    try {
+      if (typeof window === 'undefined') return 'system'
+      return (localStorage.getItem('edusphere-theme') as Theme) || 'system'
+    } catch { return 'system' }
+  })
 
-  const getSystem = () => window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  const getSystem = useCallback(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return 'light' as const
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  }, [])
+
   const resolvedTheme = theme === 'system' ? getSystem() : theme
 
   useEffect(() => {
-    const root = document.documentElement
-    root.classList.remove('light', 'dark')
-    root.classList.add(resolvedTheme)
-    root.style.colorScheme = resolvedTheme
-    localStorage.setItem('edusphere-theme', theme)
+    try {
+      if (typeof document === 'undefined') return
+      const root = document.documentElement
+      root.classList.remove('light', 'dark')
+      root.classList.add(resolvedTheme)
+      root.style.colorScheme = resolvedTheme
+      localStorage.setItem('edusphere-theme', theme)
+    } catch {}
   }, [theme, resolvedTheme])
 
   useEffect(() => {
     if (theme !== 'system') return
+    if (typeof window === 'undefined' || !window.matchMedia) return
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const handler = () => setThemeState('system') // trigger re-render
+    const handler = () => setThemeState(prev => prev) // force re-render via state copy
     mq.addEventListener('change', handler)
     return () => mq.removeEventListener('change', handler)
   }, [theme])

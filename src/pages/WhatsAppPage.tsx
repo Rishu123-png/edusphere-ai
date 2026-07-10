@@ -3,6 +3,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useState } from 'react'
 import { whatsappUrl } from '@/lib/utils'
+import PageHeader from '@/components/mobile/PageHeader'
+import { MessageCircle, Send } from 'lucide-react'
 
 const absentees = [
   {name:'Rohan Kumar', class:'10-A', parent:'+919876543210', reason:'Absent'},
@@ -12,31 +14,33 @@ const absentees = [
 
 export default function WhatsAppPage(){
   const [template, setTemplate] = useState('Dear Parent, your ward {name} ({class}) was marked {reason} today ({date}). Attendance: {attendance}%. Please ensure regular attendance. - {school}')
-  return <div className="space-y-5">
-    <h1 className="text-2xl font-bold">WhatsApp Parent Communication</h1>
-    <Card>
-      <CardTitle>Attendance Alert Template</CardTitle>
+  return <div className="page-container space-y-4">
+    <PageHeader title="WhatsApp" subtitle="Parent alerts • Templates • 1-click send" />
+    <Card className="rounded-[24px]">
+      <CardTitle className="flex items-center gap-2"><MessageCircle size={18}/> Attendance Alert Template</CardTitle>
       <CardContent className="space-y-3">
-        <Input value={template} onChange={e=>setTemplate(e.target.value)} />
-        <p className="text-xs text-muted-foreground">Variables: {'{name} {class} {reason} {date} {attendance} {school}'}</p>
+        <Input value={template} onChange={e=>setTemplate(e.target.value)} className="h-12 rounded-xl" />
+        <p className="text-[11px] text-muted-foreground">Variables: {'{name} {class} {reason} {date} {attendance} {school}'}</p>
       </CardContent>
     </Card>
     <div className="grid md:grid-cols-2 gap-3">
       {absentees.map(a=>{
         const msg = template.replace('{name}', a.name).replace('{class}', a.class).replace('{reason}', a.reason).replace('{date}', new Date().toLocaleDateString('en-IN')).replace('{attendance}','68').replace('{school}','EduSphere Public School')
-        return <Card key={a.name}>
-          <CardContent>
-            <div className="font-semibold">{a.name} • {a.class}</div>
-            <div className="text-xs text-muted-foreground mb-2">{a.parent}</div>
-            <div className="text-xs bg-muted p-2 rounded mb-2">{msg}</div>
-            <div className="flex gap-2">
-              <a href={whatsappUrl(a.parent, msg)} target="_blank" rel="noreferrer"><Button size="sm">Send WhatsApp</Button></a>
-              <Button size="sm" variant="outline">Edit</Button>
+        return <Card key={a.name} className="rounded-[20px]">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="font-bold text-[14px]">{a.name} • {a.class}</div>
+              <span className="text-[10px] px-2 py-1 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">{a.reason}</span>
+            </div>
+            <div className="text-[11px] text-muted-foreground mt-1">{a.parent}</div>
+            <div className="text-[12px] bg-slate-50 dark:bg-zinc-800 p-3 rounded-xl mt-3 leading-snug">{msg}</div>
+            <div className="flex gap-2 mt-3">
+              <a href={whatsappUrl(a.parent, msg)} target="_blank" rel="noreferrer" className="flex-1"><Button size="sm" variant="success" className="w-full rounded-full"><Send size={14} className="mr-1"/> WhatsApp</Button></a>
+              <Button size="sm" variant="outline" className="rounded-full">Edit</Button>
             </div>
           </CardContent>
         </Card>
       })}
     </div>
-    <Card><CardTitle>Parent Meeting Invitation Template</CardTitle><CardContent className="text-sm text-muted-foreground">One-click invite with date/time picker – WhatsApp pre-filled.</CardContent></Card>
   </div>
 }

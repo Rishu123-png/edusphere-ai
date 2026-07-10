@@ -55,14 +55,16 @@ export default function OnboardingPage(){
         createdBy: user.uid,
         createdAt: Date.now()
       }
-      await set(ref(db, `schools/${schoolId}`), school)
-      // upgrade user to school_admin + attach school
+      // Upgrade user profile FIRST to satisfy database security rules (user must be school_admin of this school to write to its node)
       await update(ref(db, `users/${user.uid}`), {
         role: 'school_admin',
         schoolId,
         schoolCode: code,
         displayName: profile?.displayName || form.principal || user.email?.split('@')[0]
       })
+
+      // Now create the school data in the database
+      await set(ref(db, `schools/${schoolId}`), school)
       await refreshProfile?.()
       toast.success(`School created! Code: ${code}`)
       setStep(2)

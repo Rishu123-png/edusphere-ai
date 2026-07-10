@@ -39,11 +39,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         uid: u.uid,
         email: u.email || '',
         displayName: u.displayName || u.email?.split('@')[0] || 'New User',
-        photoURL: u.photoURL || undefined,
         role: 'teacher', // default lowest – upgrade to school_admin via onboarding
         createdAt: Date.now(),
         isOnline: true,
         lastLogin: Date.now()
+      }
+      if (u.photoURL) {
+        newProfile.photoURL = u.photoURL
       }
       await set(ref(db, `users/${u.uid}`), newProfile)
       setProfile(newProfile)

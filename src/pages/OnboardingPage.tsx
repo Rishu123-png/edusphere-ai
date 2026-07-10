@@ -60,7 +60,11 @@ export default function OnboardingPage(){
         role: 'school_admin',
         schoolId,
         schoolCode: code,
-        displayName: profile?.displayName || form.principal || user.email?.split('@')[0]
+        displayName: profile?.displayName || form.principal || user.email?.split('@')[0],
+        // Double-safety validation fields to guarantee validation passes
+        uid: user.uid,
+        email: user.email || '',
+        createdAt: profile?.createdAt || Date.now()
       })
 
       // Now create the school data in the database
@@ -97,12 +101,16 @@ export default function OnboardingPage(){
             isOnline: true
           }
           
-          // update user profile
+          // update user profile with double-safety fields
           await update(ref(db, `users/${user.uid}`), {
             role: 'teacher',
             schoolId,
             schoolCode: joinCode.trim().toUpperCase(),
-            displayName: profile?.displayName || user.displayName || user.email?.split('@')[0]
+            displayName: profile?.displayName || user.displayName || user.email?.split('@')[0],
+            // Double-safety validation fields to guarantee validation passes
+            uid: user.uid,
+            email: user.email || '',
+            createdAt: profile?.createdAt || Date.now()
           })
           
           await update(ref(db, `schools/${schoolId}/teachers/${user.uid}`), teacherPayload)

@@ -27,29 +27,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   const loadProfile = useCallback(async (u: User) => {
-    const snap = await get(ref(db, `users/${u.uid}`))
-    if (snap.exists()) {
-      const p = snap.val() as AppUser
-      setProfile(p)
-      await update(ref(db, `users/${u.uid}`), { isOnline: true, lastLogin: Date.now(), emailVerified: u.emailVerified })
-      return p
-    } else {
-      // First-time user – create pending profile, role = teacher by default, school must be joined via onboarding
-      const newProfile: AppUser = {
-        uid: u.uid,
-        email: u.email || '',
-        displayName: u.displayName || u.email?.split('@')[0] || 'New User',
-        role: 'teacher', // default lowest – upgrade to school_admin via onboarding
-        createdAt: Date.now(),
-        isOnline: true,
-        lastLogin: Date.now()
+    try {
+      const snap = await get(ref(db, `users/${u.uid}`))
+      if (snap.exists()) {
+        const p = snap.val() as AppUser
+        setProfile(p)
+        try {
+          await update(ref(db, `users/${u.uid}`), { isOnline: true, lastLogin: Date.now() })
+        } catch {}
+        return p
+      } else {
+        const newProfile: AppUser = {
+          uid: u.uid,
+          email: u.email || '',
+          displayName: u.displayName || u.email?.split('@')[0] || 'New User',
+          role: 'teacher',
+          createdAt: Date.now(),
+          isOnline: true,
+          lastLogin: Date.now()
+        }
+        if (u.photoURL) newProfile.photoURL = u.photoURL
+        await set(ref(db, `users/${u.uid}`), newProfile)
+        setProfile(newProfile)
+        return newProfile
       }
-      if (u.photoURL) {
-        newProfile.photoURL = u.photoURL
-      }
-      await set(ref(db, `users/${u.uid}`), newProfile)
-      setProfile(newProfile)
-      return newProfile
+    } catch(e){
+      console.error('loadProfile error', e)
+      return null
     }
   }, [])
 
@@ -58,7 +62,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(u)
       if (u) {
         await loadProfile(u)
-        // force email verification reminder – do NOT block login, but UI will gate school creation
       } else {
         setProfile(null)
       }
@@ -75,7 +78,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const cred = await createUserWithEmailAndPassword(auth, email, password)
     if (displayName) await updateProfile(cred.user, { displayName })
     await sendEmailVerification(cred.user)
-    // profile created via onAuthStateChanged
   }
 
   const loginGoogle = async () => {
@@ -83,7 +85,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const logout = async () => {
-    if (user) await update(ref(db, `users/${user.uid}`), { isOnline: false, lastSeen: Date.now() })
+    try {
+      if (user) await update(ref(db, `users/${user.uid}`), { isOnline: false, lastSeen: Date.now() })
+    } catch {}
     await signOut(auth)
   }
 
@@ -98,8 +102,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshProfile = async () => {
     if (auth.currentUser) {
       await auth.currentUser.reload()
-      setUser({ ...auth.currentUser })
-      await loadProfile(auth.currentUser)
+      setUser({ ...auth.currentUser } as any)
+      await loadProfile(auth.currentUser as any)
     }
   }
 

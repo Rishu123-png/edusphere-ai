@@ -1,8 +1,56 @@
 node_modules
 dist
+out
+build
+coverage
+
+# env
 .env
-.env.local
-.DS_Store
+.env.*
+!.env.example
+
+# logs
 *.log
-.vscode
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# editor
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
 .idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# cache
+.eslintcache
+*.tsbuildinfo
+.cache
+.parcel-cache
+.turbo
+.next
+.nuxt
+
+# mobile
+android
+ios
+*.apk
+*.aab
+.cap
+
+# firebase
+.firebase/
+.firebase
+firestore-debug.log
+database-debug.log
+ui-debug.log
+*.emulator
+
+# misc
+.pnp
+.pnp.js

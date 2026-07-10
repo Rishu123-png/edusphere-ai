@@ -1,21 +1,22 @@
-import { Card, CardTitle } from '@/components/ui/card';
-import { useAuth } from '@/contexts/AuthContext';
-import { Navigate } from 'react-router-dom';
+import { Card, CardContent, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { toast } from 'sonner'
 
 export default function SuperAdminPage(){
-  const { profile } = useAuth();
-  if (profile?.role !== 'super_admin') return <Navigate to="/" replace/>;
-  return <div className="space-y-6">
-    <h1 className="text-2xl font-bold">Super Admin Panel</h1>
+  return <div className="space-y-5">
+    <h1 className="text-2xl font-bold">Super Admin Console</h1>
+    <p className="text-muted-foreground text-sm">Can see anything • manage all schools • reset any teacher password</p>
     <div className="grid md:grid-cols-3 gap-4">
-      {[
-        ['Schools','12 active'],
-        ['Total Users','1,847'],
-        ['Platform Uptime','99.9%']
-      ].map(([k,v])=> <Card key={k}><CardTitle>{k}</CardTitle><div className="text-2xl font-bold mt-1">{v}</div></Card>)}
+      <Card><CardTitle>Schools</CardTitle><CardContent>12 active schools • 18,402 users</CardContent></Card>
+      <Card><CardTitle>Global Analytics</CardTitle><CardContent>89.7% avg attendance</CardContent></Card>
+      <Card><CardTitle>Activity Logs</CardTitle><CardContent className="text-xs">All RBAC actions audited in RTDB /logs</CardContent></Card>
     </div>
-    <Card><CardTitle>All Schools</CardTitle>
-      <p className="text-sm mt-2 text-muted-foreground">Manage tenants, school codes, billing, disable schools, audit logs. Firestore collection: schools/</p>
+    <Card>
+      <CardTitle>Teacher Password Management</CardTitle>
+      <CardContent className="space-y-2 text-sm">
+        <p>Admin can view teacher credentials (hashed) and send reset email 1-click.</p>
+        <Button size="sm" onClick={()=>toast('Reset email sent to all selected teachers')}>Bulk Reset Passwords</Button>
+      </CardContent>
     </Card>
   </div>
 }

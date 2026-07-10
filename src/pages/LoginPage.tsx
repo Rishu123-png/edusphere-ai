@@ -1,62 +1,89 @@
-import { useState } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card } from '@/components/ui/card';
-import { Navigate, Link } from 'react-router-dom';
-import { toast } from 'sonner';
+import { useState } from 'react'
+import { useAuth } from '@/contexts/AuthContext'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Card, CardContent, CardTitle } from '@/components/ui/card'
+import { useNavigate, Navigate } from 'react-router-dom'
+import { toast } from 'sonner'
 
-export default function LoginPage(){
-  const { login, googleLogin, register, profile } = useAuth();
-  const [mode, setMode] = useState<'login'|'register'>('login');
-  const [form, setForm] = useState({email:'', password:'', name:'', role:'school_admin', schoolCode:'', schoolName:''});
-  const [busy,setBusy] = useState(false);
+export default function LoginPage() {
+  const { login, loginGoogle, user, resetPassword } = useAuth()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [schoolCode, setSchoolCode] = useState('')
+  const [loading, setLoading] = useState(false)
+  const nav = useNavigate()
 
-  if (profile) return <Navigate to="/" replace/>;
+  if (user) return <Navigate to="/" replace />
 
-  const submit = async (e:React.FormEvent) => {
-    e.preventDefault(); setBusy(true);
+  const handle = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
     try {
-      if (mode==='login') await login(form.email, form.password);
-      else await register({email:form.email, password:form.password, name:form.name, role: form.role as any, schoolCode: form.schoolCode, schoolName: form.schoolName });
-      toast.success('Welcome to EduSphere AI');
-    } catch(e:any){ toast.error(e.message); }
-    setBusy(false);
-  };
+      await login(email, password)
+      toast.success('Welcome to EduSphere AI')
+      nav('/')
+    } catch (err:any) {
+      toast.error(err.message || 'Login failed')
+    } finally { setLoading(false) }
+  }
 
-  return <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-violet-100 dark:from-zinc-950 dark:to-zinc-900 p-6">
-    <Card className="w-full max-w-md p-8">
-      <h1 className="text-2xl font-bold mb-1">EduSphere AI</h1>
-      <p className="text-muted-foreground mb-6">Smart School Management & AI Attendance</p>
-      <div className="flex gap-2 mb-4 text-sm">
-        <button onClick={()=>setMode('login')} className={mode==='login'?'font-semibold text-primary':''}>Login</button>
-        <span>·</span>
-        <button onClick={()=>setMode('register')} className={mode==='register'?'font-semibold text-primary':''}>Register / Join School</button>
+  return (
+    <div className="min-h-screen grid md:grid-cols-2">
+      <div className="flex items-center justify-center p-8 bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-600 text-white">
+        <div className="max-w-md space-y-5">
+          <h1 className="text-4xl font-extrabold">EduSphere AI</h1>
+          <p className="text-white/90 text-lg">Smart School Management & AI Attendance System</p>
+          <ul className="text-sm space-y-2 text-white/80">
+            <li>✓ AI Marks Prediction & Attendance Risk</li>
+            <li>✓ AI Camera Attendance • QR • Manual</li>
+            <li>✓ WhatsApp Parent Alerts – 1 Click</li>
+            <li>✓ Multi-Role RBAC • PWA • Android</li>
+            <li>✓ Real-time Firebase RTDB</li>
+          </ul>
+          <div className="text-xs text-white/70">React 19 • TypeScript • Firebase • Tailwind • shadcn/ui</div>
+        </div>
       </div>
-      <form onSubmit={submit} className="space-y-3">
-        {mode==='register' && <>
-          <div><Label>Name</Label><Input value={form.name} onChange={e=>setForm({...form, name:e.target.value})} required/></div>
-          <div><Label>Role</Label>
-            <select value={form.role} onChange={e=>setForm({...form, role:e.target.value})} className="flex h-11 w-full rounded-xl border border-input bg-background px-3">
-              <option value="school_admin">School Admin</option>
-              <option value="principal">Principal</option>
-              <option value="teacher">Teacher</option>
-              <option value="student">Student</option>
-              <option value="parent">Parent</option>
-            </select>
-          </div>
-          {form.role==='school_admin' ? 
-            <div><Label>New School Name</Label><Input value={form.schoolName} onChange={e=>setForm({...form, schoolName:e.target.value})} placeholder="DPS Delhi" required/></div> :
-            <div><Label>School Invite Code</Label><Input value={form.schoolCode} onChange={e=>setForm({...form, schoolCode:e.target.value})} placeholder="EDU-7Q2P" required/></div>
-          }
-        </>}
-        <div><Label>Email</Label><Input type="email" value={form.email} onChange={e=>setForm({...form, email:e.target.value})} required/></div>
-        <div><Label>Password</Label><Input type="password" value={form.password} onChange={e=>setForm({...form, password:e.target.value})} required/></div>
-        <Button className="w-full" disabled={busy}>{busy?'...': mode==='login'?'Sign In':'Create Account'}</Button>
-      </form>
-      <Button variant="outline" className="w-full mt-3" onClick={()=>googleLogin()}>Continue with Google</Button>
-      <p className="text-xs text-muted-foreground mt-4">School Admins: registering creates a new school and gives you a unique School Code to invite teachers via Email/WhatsApp.</p>
-    </Card>
-  </div>
+      <div className="flex items-center justify-center p-6 bg-background">
+        <Card className="w-full max-w-md shadow-xl">
+          <CardTitle>Secure Login</CardTitle>
+          <CardContent>
+            <form onSubmit={handle} className="space-y-4">
+              <div>
+                <Label>Email</Label>
+                <Input type="email" value={email} onChange={e=>setEmail(e.target.value)} required placeholder="admin@school.edu" />
+              </div>
+              <div>
+                <Label>Password</Label>
+                <Input type="password" value={password} onChange={e=>setPassword(e.target.value)} required placeholder="••••••••" />
+              </div>
+              <div>
+                <Label>School Code (optional join)</Label>
+                <Input value={schoolCode} onChange={e=>setSchoolCode(e.target.value)} placeholder="EDU-XXXXXX" />
+                <p className="text-xs text-muted-foreground mt-1">Teachers: enter invite code sent by admin via Email/WhatsApp</p>
+              </div>
+              <Button disabled={loading} className="w-full" type="submit">{loading ? 'Signing in…' : 'Sign In'}</Button>
+              <Button type="button" variant="outline" className="w-full" onClick={()=>loginGoogle().catch(e=>toast.error(e.message))}>
+                Continue with Google
+              </Button>
+              <div className="flex justify-between text-sm">
+                <button type="button" className="text-primary" onClick={()=> {
+                  if(!email) return toast.error('Enter email first')
+                  resetPassword(email).then(()=>toast.success('Reset email sent')).catch(e=>toast.error(e.message))
+                }}>Forgot password?</button>
+                <span className="text-muted-foreground">RBAC secure</span>
+              </div>
+            </form>
+            <div className="mt-6 text-xs text-muted-foreground space-y-1">
+              <p>Demo roles:</p>
+              <p>superadmin@edusphere.ai / admin123</p>
+              <p>schooladmin@demo.edu / admin123</p>
+              <p>teacher@demo.edu / teacher123</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
 }

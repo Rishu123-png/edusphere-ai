@@ -28,7 +28,6 @@ export default function OnboardingPage(){
   
   const [joinCode, setJoinCode] = useState('')
 
-  // Prefill pending school code from local storage
   useEffect(() => {
     const pending = localStorage.getItem('pending_school_code')
     if (pending) {
@@ -55,19 +54,15 @@ export default function OnboardingPage(){
         createdBy: user.uid,
         createdAt: Date.now()
       }
-      // Upgrade user profile FIRST to satisfy database security rules (user must be school_admin of this school to write to its node)
       await update(ref(db, `users/${user.uid}`), {
         role: 'school_admin',
         schoolId,
         schoolCode: code,
         displayName: profile?.displayName || form.principal || user.email?.split('@')[0],
-        // Double-safety validation fields to guarantee validation passes
         uid: user.uid,
         email: user.email || '',
         createdAt: profile?.createdAt || Date.now()
       })
-
-      // Now create the school data in the database
       await set(ref(db, `schools/${schoolId}`), school)
       await refreshProfile?.()
       toast.success(`School created! Code: ${code}`)
@@ -78,46 +73,25 @@ export default function OnboardingPage(){
   }
 
   const joinSchool = async () => {
-    if(!joinCode){ toast.error('School code required'); return }
+    const trimmedCode = joinCode.trim().toUpperCase()
+    if(!trimmedCode){ toast.error('Enter school code'); return }
     setLoading(true)
     try{
-      const snap = await get(ref(db, 'schools'))
+      const snap = await get(ref(db, `schools`))
       if(snap.exists()){
         const schools = snap.val()
-        const found = Object.entries(schools).find(([id, sch]: [string, any]) => sch.code?.toUpperCase() === joinCode.trim().toUpperCase())
+        const found = Object.values(schools).find((s:any)=> s.code === trimmedCode) as any
         if(found){
-          const [schoolId, schoolData]: [string, any] = found
-          
-          // Add teacher details to the school's teachers sub-tree
-          const teacherId = 'T'+Math.floor(Math.random()*9000+1000)
-          const teacherPayload = {
-            uid: user.uid,
-            teacherId,
-            name: profile?.displayName || user.displayName || user.email?.split('@')[0] || 'Teacher',
-            email: user.email || '',
-            subjects: ['General'],
-            assignedClasses: ['10-A'],
-            createdAt: Date.now(),
-            isOnline: true
-          }
-          
-          // update user profile with double-safety fields
           await update(ref(db, `users/${user.uid}`), {
+            schoolId: found.id,
+            schoolCode: found.code,
             role: 'teacher',
-            schoolId,
-            schoolCode: joinCode.trim().toUpperCase(),
-            displayName: profile?.displayName || user.displayName || user.email?.split('@')[0],
-            // Double-safety validation fields to guarantee validation passes
             uid: user.uid,
             email: user.email || '',
-            createdAt: profile?.createdAt || Date.now()
           })
-          
-          await update(ref(db, `schools/${schoolId}/teachers/${user.uid}`), teacherPayload)
-          
-          await refreshProfile?.()
-          toast.success(`Successfully joined ${schoolData.name}!`)
           localStorage.removeItem('pending_school_code')
+          await refreshProfile?.()
+          toast.success(`Joined ${found.name}!`)
           setStep(2)
           setTimeout(()=> nav('/'), 1200)
         } else {
@@ -136,62 +110,64 @@ export default function OnboardingPage(){
   const emailVerified = user.emailVerified || isDemoUser
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-indigo-50 dark:from-slate-950 dark:to-indigo-950 p-6">
-      <Card className="w-full max-w-2xl shadow-2xl">
-        <CardTitle>Welcome to EduSphere AI</CardTitle>
-        <CardContent className="space-y-5">
+    <div className="min-h-[100dvh] flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-violet-50 dark:from-zinc-950 dark:via-zinc-900 dark:to-indigo-950 p-4">
+      <Card className="w-full max-w-[520px] shadow-[0_20px_60px_rgba(0,0,0,0.12)] rounded-[32px] overflow-hidden border-0">
+        <div className="h-2 w-full bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600" />
+        <div className="p-7 md:p-8">
+          <CardTitle className="text-[24px] p-0">Welcome to EduSphere AI ✨</CardTitle>
+          <p className="text-[13px] text-muted-foreground mt-1">Setup your school in 30 seconds</p>
+        </div>
+        <CardContent className="space-y-5 px-7 md:px-8 pb-8">
           {profile?.email && !emailVerified && (
-            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200 text-sm">
-              ✉️ Email not verified yet. Check <b>{user.email}</b> inbox → click verify link → then refresh.
-              <Button size="sm" variant="outline" className="ml-3" onClick={async()=>{
+            <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-200 text-[13px] flex items-center justify-between gap-2">
+              <span>✉️ Not verified: <b>{user.email}</b></span>
+              <Button size="sm" variant="outline" className="rounded-full h-8 shrink-0 ml-2" onClick={async()=>{
                 const { sendEmailVerification } = await import('firebase/auth')
                 const { auth } = await import('@/lib/firebase')
                 if(auth.currentUser) { await sendEmailVerification(auth.currentUser); toast.success('Verification email re-sent') }
-              }}>Resend verification</Button>
+              }}>Resend</Button>
             </div>
           )}
 
           {step===1 ? (
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsList className="grid grid-cols-2 w-full mb-6">
-                <TabsTrigger value="create" disabled={!emailVerified}>Create New School</TabsTrigger>
-                <TabsTrigger value="join" disabled={!emailVerified}>Join Existing School</TabsTrigger>
+              <TabsList className="grid grid-cols-2 w-full mb-6 h-12 rounded-full bg-slate-100 dark:bg-zinc-800 p-1">
+                <TabsTrigger value="create" disabled={!emailVerified} className="rounded-full data-[state=active]:bg-zinc-900 data-[state=active]:text-white dark:data-[state=active]:bg-white dark:data-[state=active]:text-zinc-900">Create School</TabsTrigger>
+                <TabsTrigger value="join" disabled={!emailVerified} className="rounded-full data-[state=active]:bg-zinc-900 data-[state=active]:text-white">Join School</TabsTrigger>
               </TabsList>
 
               <TabsContent value="create" className="space-y-4">
-                <p className="text-muted-foreground text-sm">School Admin Onboarding. You will become <b>School Admin</b> and receive a unique School Code to invite teachers.</p>
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="md:col-span-2"><Label>School Name *</Label><Input value={form.schoolName} onChange={e=>setForm({...form, schoolName:e.target.value})} placeholder="EduSphere Public School" /></div>
-                  <div><Label>Principal / Admin Name</Label><Input value={form.principal} onChange={e=>setForm({...form, principal:e.target.value})} /></div>
-                  <div><Label>School Email</Label><Input value={form.email} onChange={e=>setForm({...form, email:e.target.value})} /></div>
-                  <div><Label>Phone</Label><Input value={form.phone} onChange={e=>setForm({...form, phone:e.target.value})} placeholder="+91 ..." /></div>
-                  <div className="md:col-span-2"><Label>Address</Label><Input value={form.address} onChange={e=>setForm({...form, address:e.target.value})} placeholder="City, State" /></div>
+                <p className="text-muted-foreground text-[13px] p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/30">You will become <b>School Admin</b> and receive unique code EDU-XXXXXX to invite teachers.</p>
+                <div className="grid md:grid-cols-2 gap-3">
+                  <div className="md:col-span-2"><Label className="text-[12px]">School Name *</Label><Input className="mt-1 h-12 rounded-xl" value={form.schoolName} onChange={e=>setForm({...form, schoolName:e.target.value})} placeholder="EduSphere Public School" /></div>
+                  <div><Label className="text-[12px]">Principal / Admin</Label><Input className="mt-1 h-12 rounded-xl" value={form.principal} onChange={e=>setForm({...form, principal:e.target.value})} /></div>
+                  <div><Label className="text-[12px]">School Email</Label><Input className="mt-1 h-12 rounded-xl" value={form.email} onChange={e=>setForm({...form, email:e.target.value})} /></div>
+                  <div><Label className="text-[12px]">Phone</Label><Input className="mt-1 h-12 rounded-xl" value={form.phone} onChange={e=>setForm({...form, phone:e.target.value})} placeholder="+91 ..." /></div>
+                  <div className="md:col-span-2"><Label className="text-[12px]">Address</Label><Input className="mt-1 h-12 rounded-xl" value={form.address} onChange={e=>setForm({...form, address:e.target.value})} placeholder="City, State" /></div>
                 </div>
-                <div className="flex justify-between items-center pt-2">
-                  <div className="text-xs text-muted-foreground">After creation you get: <b>School Code (EDU-XXXXXX)</b></div>
-                  <Button disabled={loading || !emailVerified} onClick={createSchool}>{loading ? 'Creating…' : 'Create School →'}</Button>
+                <div className="flex flex-col gap-2 pt-2">
+                  <Button variant="gradient" disabled={loading || !emailVerified} className="rounded-full h-12" onClick={createSchool}>{loading ? 'Creating…' : 'Create School →'}</Button>
+                  <div className="text-[11px] text-muted-foreground text-center">After creation you get School Code EDU-XXXXXX</div>
                 </div>
               </TabsContent>
 
               <TabsContent value="join" className="space-y-4">
-                <p className="text-muted-foreground text-sm">Teacher / Staff Onboarding. Enter the <b>School Code</b> shared by your school administrator to join.</p>
+                <p className="text-muted-foreground text-[13px] p-3 rounded-xl bg-slate-50 dark:bg-zinc-800">Enter <b>School Code</b> shared by admin to join as Teacher.</p>
                 <div className="space-y-2">
                   <Label>School Code *</Label>
-                  <Input value={joinCode} onChange={e=>setJoinCode(e.target.value.toUpperCase())} placeholder="EDU-XXXXXX" className="font-mono text-lg tracking-wider" />
+                  <Input value={joinCode} onChange={e=>setJoinCode(e.target.value.toUpperCase())} placeholder="EDU-XXXXXX" className="font-mono text-[18px] tracking-wider h-14 rounded-2xl text-center" />
                 </div>
-                <div className="flex justify-between items-center pt-2">
-                  <div className="text-xs text-muted-foreground">Your account will be registered under the school as a Teacher.</div>
-                  <Button disabled={loading || !emailVerified} onClick={joinSchool}>{loading ? 'Joining…' : 'Join School →'}</Button>
-                </div>
+                <Button variant="gradient" disabled={loading || !emailVerified} className="w-full rounded-full h-12" onClick={joinSchool}>{loading ? 'Joining…' : 'Join School →'}</Button>
               </TabsContent>
               
-              {!emailVerified && <p className="text-xs text-red-500 text-center mt-4">Email verification required before setting up or joining a school.</p>}
+              {!emailVerified && <p className="text-[12px] text-red-500 text-center mt-4 p-2 rounded-xl bg-red-50 dark:bg-red-950/20">Email verification required before setup.</p>}
             </Tabs>
           ) : (
-            <div className="text-center py-6 space-y-3">
-              <div className="text-2xl font-bold text-emerald-600">✓ Welcome to your School!</div>
-              <p className="text-muted-foreground">Redirecting to dashboard… Set up classes, students and begin smart attendance!</p>
-              <Button onClick={()=>nav('/')}>Go to Dashboard</Button>
+            <div className="text-center py-8 space-y-3">
+              <div className="w-20 h-20 mx-auto rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-3xl">✓</div>
+              <div className="text-[22px] font-extrabold text-emerald-600">Welcome to your School!</div>
+              <p className="text-[13px] text-muted-foreground">Redirecting to dashboard… Setup classes, students and begin smart attendance!</p>
+              <Button variant="gradient" className="rounded-full mt-2" onClick={()=>nav('/')}>Go to Dashboard</Button>
             </div>
           )}
         </CardContent>

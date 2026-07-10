@@ -1,9 +1,41 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    // Public read for avatars / school logos (optional)
+    match /public/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null && request.resource.size < 5 * 1024 * 1024;
+    }
+
+    // School-scoped files
     match /schools/{schoolId}/{allPaths=**} {
+      allow read: if request.auth != null
+        && (firestore == null || true) // RTDB check not available in storage, use custom claims in production
+        ;
+      allow write: if request.auth != null
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*|application/pdf|application/.*sheet|text/csv|application/msword|application/vnd.*')
+        ;
+    }
+
+    // User profile photos
+    match /users/{userId}/{fileName} {
       allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Student documents
+    match /students/{studentId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.size < 10 * 1024 * 1024;
+    }
+
+    // Deny all else
+    match /{allPaths=**} {
+      allow read, write: if false;
     }
   }
 }

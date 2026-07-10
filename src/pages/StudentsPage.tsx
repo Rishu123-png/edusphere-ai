@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { db } from '@/lib/firebase'
-import { ref, onValue, push, update, remove } from 'firebase/database'
+import { ref, onValue, update, remove } from 'firebase/database'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSchool } from '@/contexts/SchoolContext'
 import { generateId } from '@/lib/utils'
@@ -15,12 +15,15 @@ import { QRCodeSVG } from 'qrcode.react'
 type Student = any
 
 export default function StudentsPage(){
-  const { profile } = useAuth()
+  const { profile, isSchoolAdmin } = useAuth() as any
   const { schoolId } = useSchool()
   const [students, setStudents] = useState<Student[]>([])
   const [q, setQ] = useState('')
   const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState<any>(null)
   const [form, setForm] = useState<any>({ name:'', className:'10', section:'A', rollNumber:'', admissionNumber:'', guardianName:'', guardianPhone:'' })
+
+  const canEdit = isSchoolAdmin || profile?.role === 'super_admin'
 
   useEffect(()=>{
     const r = ref(db, schoolId ? `schools/${schoolId}/students` : 'students')
@@ -34,21 +37,38 @@ export default function StudentsPage(){
   const filtered = students.filter((s:any)=> (s.name||'').toLowerCase().includes(q.toLowerCase()) || (s.admissionNumber||'').includes(q) || (s.rollNumber||'').includes(q))
 
   const save = async ()=>{
+    if(!canEdit){ toast.error('Only School Admin can add/edit students'); return }
     if(!form.name || !form.rollNumber){ toast.error('Name & Roll required'); return }
     const sid = schoolId || profile?.schoolId || 'global'
-    const id = generateId('stu_')
+    const id = editing?.id || generateId('stu_')
     const payload = {
       ...form,
       schoolId: sid,
       classTeacherId: form.classTeacherId || '',
       status: 'active',
-      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      createdAt: editing?.createdAt || Date.now(),
       qrCode: id
     }
     await update(ref(db, `schools/${sid}/students/${id}`), payload)
-    toast.success('Student saved')
+    toast.success(editing ? 'Student updated' : 'Student saved')
     setOpen(false)
+    setEditing(null)
     setForm({ name:'', className:'10', section:'A', rollNumber:'', admissionNumber:'', guardianName:'', guardianPhone:'' })
+  }
+
+  const handleEdit = (s:any)=>{
+    if(!canEdit){ toast.error('School Admin only'); return }
+    setEditing(s)
+    setForm(s)
+    setOpen(true)
+  }
+
+  const handleDelete = async (s:any)=>{
+    if(!canEdit){ toast.error('School Admin only'); return }
+    if(!confirm('Delete student '+s.name+'?')) return
+    await remove(ref(db, `schools/${s.schoolId}/students/${s.id}`))
+    toast.success('Deleted')
   }
 
   const bulkExport = ()=>{
@@ -61,14 +81,15 @@ export default function StudentsPage(){
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 className="text-2xl font-bold">Student Management</h1>
-        <p className="text-muted-foreground text-sm">Register • Profile • QR ID • Bulk Import/Export • Timeline</p>
+        <p className="text-muted-foreground text-sm">Register • Profile • QR ID • Bulk Import/Export • Timeline {canEdit ? '• Admin Full Access' : '• Read-Only (Teacher)'}</p>
       </div>
       <div className="flex gap-2">
         <Button variant="outline" onClick={bulkExport}>Export CSV</Button>
-        <Dialog open={open} onOpenChange={setOpen}>
+        {canEdit ? (
+        <Dialog open={open} onOpenChange={(o)=>{ setOpen(o); if(!o){ setEditing(null); setForm({ name:'', className:'10', section:'A', rollNumber:'', admissionNumber:'', guardianName:'', guardianPhone:'' }) }}}>
           <DialogTrigger asChild><Button>Add Student</Button></DialogTrigger>
           <DialogContent>
-            <DialogHeader><DialogTitle>New Student</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>{editing ? 'Edit Student' : 'New Student'}</DialogTitle></DialogHeader>
             <div className="grid md:grid-cols-2 gap-3">
               {[
                 ['name','Full Name'],
@@ -92,14 +113,21 @@ export default function StudentsPage(){
             </div>
             <div className="flex justify-end gap-2 mt-3">
               <Button variant="outline" onClick={()=>setOpen(false)}>Cancel</Button>
-              <Button onClick={save}>Save Student</Button>
+              <Button onClick={save}>{editing ? 'Update' : 'Save Student'}</Button>
             </div>
           </DialogContent>
         </Dialog>
+        ) : <Button disabled variant="outline" title="School Admin only">Add Student (Admin only)</Button>}
       </div>
     </div>
 
-    <Card>
+    {!canEdit && (
+      <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/30 text-blue-800 dark:text-blue-200 text-sm">
+        👁️ Teacher view: read-only. Attendance & Marks entry allowed in respective modules. Student add/edit/delete = School Admin only.
+      </div>
+    )}
+
+    <Card className="card-clean">
       <CardContent>
         <div className="flex gap-2 mb-4">
           <Input placeholder="Search name, admission, roll…" value={q} onChange={e=>setQ(e.target.value)} />
@@ -123,14 +151,20 @@ export default function StudentsPage(){
                   <td>{s.className}-{s.section}</td>
                   <td>{s.guardianName}</td>
                   <td>{s.guardianPhone}</td>
-                  <td><div className="bg-white p-1 rounded"><QRCodeSVG value={s.qrCode||s.id} size={36}/></div></td>
-                  <td className="space-x-2">
-                    <button className="text-primary text-xs" onClick={()=>toast('Edit modal – wired to RTDB')}>Edit</button>
-                    <button className="text-destructive text-xs" onClick={()=> remove(ref(db, `schools/${s.schoolId}/students/${s.id}`))}>Delete</button>
+                  <td><div className="bg-white p-1 rounded border"><QRCodeSVG value={s.qrCode||s.id} size={36}/></div></td>
+                  <td className="space-x-3 text-xs">
+                    {canEdit ? (
+                      <>
+                        <button className="text-primary hover:underline" onClick={()=>handleEdit(s)}>Edit</button>
+                        <button className="text-destructive hover:underline" onClick={()=>handleDelete(s)}>Delete</button>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">View only</span>
+                    )}
                   </td>
                 </tr>
               ))}
-              {!filtered.length && <tr><td colSpan={8} className="py-8 text-center text-muted-foreground">No students – Add first student</td></tr>}
+              {!filtered.length && <tr><td colSpan={8} className="py-8 text-center text-muted-foreground">No students – {canEdit ? 'Add first student' : 'Ask admin to add'}</td></tr>}
             </tbody>
           </table>
         </div>

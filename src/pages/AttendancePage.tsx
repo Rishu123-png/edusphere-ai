@@ -1,4 +1,3 @@
-
 import { useEffect, useState, useRef } from 'react'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -9,6 +8,7 @@ import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSchool } from '@/contexts/SchoolContext'
 import { todayStr } from '@/lib/rtdb'
+import QRScanner from '@/components/QRScanner'
 
 export default function AttendancePage(){
   const { profile } = useAuth()
@@ -17,6 +17,7 @@ export default function AttendancePage(){
   const [marks, setMarks] = useState<Record<string,string>>({})
   const [classSel, setClassSel] = useState('10-A')
   const [aiScanning, setAiScanning] = useState(false)
+  const [showQrScanner, setShowQrScanner] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
 
   useEffect(()=>{
@@ -71,6 +72,37 @@ export default function AttendancePage(){
     stream?.getTracks().forEach(t=>t.stop())
   }
 
+  const handleQrScan = async (scannedText: string) => {
+    // Look up the student across ALL school students (not just selected class)
+    const sid = schoolId || 'global'
+    const fullStudentsRef = ref(db, schoolId ? `schools/${schoolId}/students` : 'students')
+    
+    // Fetch students to locate match
+    onValue(fullStudentsRef, async (snap) => {
+      const v = snap.val() || {}
+      const allList = Object.entries(v).map(([id,s]:any)=>({id, ...s}))
+      const matchedStudent = allList.find((s: any) => s.id === scannedText || s.qrCode === scannedText)
+
+      if (matchedStudent) {
+        const date = todayStr()
+        await update(ref(db, `schools/${sid}/attendance/${date}/${matchedStudent.id}`), {
+          studentId: matchedStudent.id,
+          className: matchedStudent.className,
+          section: matchedStudent.section,
+          date,
+          status: 'present',
+          markedBy: profile?.uid,
+          method: 'qr_scanner',
+          timestamp: Date.now()
+        })
+        setMarks(prev => ({ ...prev, [matchedStudent.id]: 'present' }))
+        toast.success(`Verified Entry: ${matchedStudent.name} (Class ${matchedStudent.className}-${matchedStudent.section}) marked Present!`)
+      } else {
+        toast.error(`Student QR Verification Failed: Invalid or Unknown QR Code "${scannedText}"`)
+      }
+    }, { onlyOnce: true })
+  }
+
   return <div className="space-y-5">
     <div className="flex items-center justify-between flex-wrap gap-3">
       <div><h1 className="text-2xl font-bold">Smart Attendance Management</h1><p className="text-muted-foreground text-sm">Manual • QR • AI Camera • Offline Sync • Real-time</p></div>
@@ -117,9 +149,30 @@ export default function AttendancePage(){
         </Card>
       </TabsContent>
       <TabsContent value="qr">
-        <Card><CardTitle>QR Code Attendance</CardTitle><CardContent><p className="text-sm text-muted-foreground">Use Android app / mobile camera to scan student QR ID. Offline sync supported. (html5-qrcode integrated)</p>
-        <Button variant="outline" className="mt-3" onClick={()=>toast('Opening QR scanner…')}>Open Scanner</Button>
-        </CardContent></Card>
+        <Card>
+          <CardTitle>QR Code Student Entry Verification</CardTitle>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Scan student QR cards or badges at the gate or classroom door to verify their registration and automatically mark them present.
+            </p>
+            
+            {showQrScanner ? (
+              <div className="max-w-md mx-auto overflow-hidden rounded-xl border border-indigo-200 shadow-lg">
+                <div className="p-3 bg-indigo-50 border-b border-indigo-100 flex justify-between items-center text-xs font-semibold text-indigo-800">
+                  <span>📷 Live Gate QR Scan Mode</span>
+                  <Button size="sm" variant="ghost" onClick={() => setShowQrScanner(false)} className="h-6 text-red-600 hover:text-red-700 hover:bg-red-50">Stop Scanner</Button>
+                </div>
+                <div className="p-4 bg-white">
+                  <QRScanner onScan={handleQrScan} />
+                </div>
+              </div>
+            ) : (
+              <Button onClick={() => setShowQrScanner(true)} className="gap-2">
+                <span>📷</span> Open Verification Camera Scanner
+              </Button>
+            )}
+          </CardContent>
+        </Card>
       </TabsContent>
       <TabsContent value="ai">
         <Card>

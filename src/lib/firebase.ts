@@ -1,24 +1,27 @@
-// Your Firebase config from the prompt
+// Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getDatabase } from "firebase/database";
 import { getStorage } from "firebase/storage";
-import { getAnalytics, isSupported } from "firebase/analytics";
 
+// Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyAQN7N3qq8XR6YfOJ-d42bhO_omQbuN1jI",
-  authDomain: "edusphere-ai-e8622.firebaseapp.com",
-  projectId: "edusphere-ai-e8622",
-  storageBucket: "edusphere-ai-e8622.firebasestorage.app",
-  messagingSenderId: "726353953169",
-  appId: "1:726353953169:web:b69317afcc4193bde45a30",
-  measurementId: "G-CHDEXYMQL6"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyAQN7N3qq8XR6YfOJ-d42bhO_omQbuN1jI",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "edusphere-ai-e8622.firebaseapp.com",
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || "https://edusphere-ai-e8622-default-rtdb.firebaseio.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "edusphere-ai-e8622",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "edusphere-ai-e8622.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "726353953169",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:726353953169:web:b69317afcc4193bde45a30",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-CHDEXYMQL6"
 };
 
-export const app = initializeApp(firebaseConfig);
+const app = initializeApp(firebaseConfig);
+export const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const db = getDatabase(app);
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 
-isSupported().then(yes => yes && getAnalytics(app)).catch(()=>{});
+export default app;

@@ -1,24 +1,51 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react'
 
-type Theme = 'light' | 'dark';
-const ThemeCtx = createContext<{theme: Theme; toggle: ()=>void; setTheme: (t:Theme)=>void}>({theme:'light', toggle:()=>{}, setTheme:()=>{}});
+type Theme = 'light' | 'dark' | 'system'
 
-export const ThemeProvider = ({children}:{children: React.ReactNode}) => {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    const saved = localStorage.getItem('edusphere-theme') as Theme | null;
-    if (saved) return saved;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  });
+const ThemeContext = createContext<{
+  theme: Theme
+  resolvedTheme: 'light'|'dark'
+  setTheme: (t: Theme) => void
+  toggle: () => void
+} | null>(null)
 
-  const setTheme = (t: Theme) => {
-    setThemeState(t);
-    localStorage.setItem('edusphere-theme', t);
-    document.documentElement.classList.toggle('dark', t === 'dark');
-  };
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [theme, setThemeState] = useState<Theme>(() => (localStorage.getItem('edusphere-theme') as Theme) || 'system')
 
-  useEffect(() => { setTheme(theme); }, []);
+  const getSystem = () => window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  const resolvedTheme = theme === 'system' ? getSystem() : theme
 
-  return <ThemeCtx.Provider value={{theme, setTheme, toggle: ()=>setTheme(theme === 'dark' ? 'light' : 'dark')}}>{children}</ThemeCtx.Provider>
-};
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.remove('light', 'dark')
+    root.classList.add(resolvedTheme)
+    root.style.colorScheme = resolvedTheme
+    localStorage.setItem('edusphere-theme', theme)
+  }, [theme, resolvedTheme])
 
-export const useTheme = () => useContext(ThemeCtx);
+  useEffect(() => {
+    if (theme !== 'system') return
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const handler = () => setThemeState('system') // trigger re-render
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [theme])
+
+  const setTheme = (t: Theme) => setThemeState(t)
+  const toggle = () => setThemeState(prev => {
+    const current = prev === 'system' ? getSystem() : prev
+    return current === 'dark' ? 'light' : 'dark'
+  })
+
+  return (
+    <ThemeContext.Provider value={{ theme, resolvedTheme, setTheme, toggle }}>
+      {children}
+    </ThemeContext.Provider>
+  )
+}
+
+export const useTheme = () => {
+  const ctx = useContext(ThemeContext)
+  if(!ctx) throw new Error('useTheme outside provider')
+  return ctx
+}

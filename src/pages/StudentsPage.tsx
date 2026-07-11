@@ -9,6 +9,7 @@ import { ref, onValue, update, remove } from 'firebase/database'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSchool } from '@/contexts/SchoolContext'
 import { generateId } from '@/lib/utils'
+import { createFaceDescriptorFromImageUrl, isValidDescriptor } from '@/lib/faceRecognition'
 import { toast } from 'sonner'
 import { QRCodeSVG } from 'qrcode.react'
 import PageHeader from '@/components/mobile/PageHeader'
@@ -23,7 +24,9 @@ export default function StudentsPage(){
   const [q, setQ] = useState('')
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<any>(null)
-  const [form, setForm] = useState<any>({ name:'', className:'10', section:'A', rollNumber:'', admissionNumber:'', guardianName:'', guardianPhone:'' })
+  const [generatingFaceId, setGeneratingFaceId] = useState(false)
+  const emptyForm = { name:'', className:'10', section:'A', rollNumber:'', admissionNumber:'', guardianName:'', guardianPhone:'', photoUrl:'' }
+  const [form, setForm] = useState<any>(emptyForm)
 
   const canEdit = isSchoolAdmin || profile?.role === 'super_admin'
 
@@ -56,7 +59,21 @@ export default function StudentsPage(){
     toast.success(editing ? 'Student updated' : 'Student saved')
     setOpen(false)
     setEditing(null)
-    setForm({ name:'', className:'10', section:'A', rollNumber:'', admissionNumber:'', guardianName:'', guardianPhone:'' })
+    setForm(emptyForm)
+  }
+
+  const generateFaceId = async ()=>{
+    if(!form.photoUrl){ toast.error('Add a clear student Photo URL first'); return }
+    setGeneratingFaceId(true)
+    try {
+      const faceDescriptor = await createFaceDescriptorFromImageUrl(form.photoUrl)
+      setForm((prev:any)=>({...prev, faceDescriptor}))
+      toast.success('AI Face ID generated. Save the student to keep it.')
+    } catch(e:any) {
+      toast.error(e?.message || 'Could not generate Face ID')
+    } finally {
+      setGeneratingFaceId(false)
+    }
   }
 
   const handleEdit = (s:any)=>{
@@ -88,7 +105,7 @@ export default function StudentsPage(){
       <div className="flex gap-2">
         <Button variant="outline" size="sm" className="rounded-full hidden md:flex" onClick={bulkExport}><Download size={16} className="mr-1"/> Export</Button>
         {canEdit ? (
-        <Dialog open={open} onOpenChange={(o)=>{ setOpen(o); if(!o){ setEditing(null); setForm({ name:'', className:'10', section:'A', rollNumber:'', admissionNumber:'', guardianName:'', guardianPhone:'' }) }}}>
+        <Dialog open={open} onOpenChange={(o)=>{ setOpen(o); if(!o){ setEditing(null); setForm(emptyForm) }}}>
           <DialogTrigger asChild><Button variant="gradient" size="sm" className="rounded-full h-11 px-5"><Plus size={18} className="mr-1"/> Add Student</Button></DialogTrigger>
           <DialogContent className="rounded-[28px] max-h-[90vh] overflow-auto">
             <DialogHeader><DialogTitle className="text-[20px]">{editing ? 'Edit Student' : 'New Student'}</DialogTitle></DialogHeader>
@@ -105,6 +122,7 @@ export default function StudentsPage(){
                 ['bloodGroup','Blood Group'],
                 ['guardianName','Guardian'],
                 ['guardianPhone','Guardian Phone'],
+                ['photoUrl','Photo URL (for AI Face ID)'],
                 ['address','Address'],
               ].map(([k,label])=>(
                 <div key={k}>
@@ -112,6 +130,13 @@ export default function StudentsPage(){
                   <Input className="mt-1 h-12 rounded-xl" value={form[k]||''} onChange={e=>setForm({...form, [k]: e.target.value})} />
                 </div>
               ))}
+            </div>
+            <div className="mt-4 p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 text-[13px] flex flex-col md:flex-row md:items-center gap-3 justify-between">
+              <div>
+                <b>AI Face ID:</b> {isValidDescriptor(form.faceDescriptor) ? 'Ready for camera attendance' : 'Not generated yet'}
+                <div className="text-muted-foreground text-[12px]">Use one clear front-facing photo. The camera will only mark matched enrolled faces.</div>
+              </div>
+              <Button variant="outline" className="rounded-full shrink-0" onClick={generateFaceId} disabled={generatingFaceId || !form.photoUrl}>{generatingFaceId ? 'Generating…' : 'Generate Face ID'}</Button>
             </div>
             <div className="flex justify-end gap-2 mt-5">
               <Button variant="outline" className="rounded-full" onClick={()=>setOpen(false)}>Cancel</Button>
@@ -151,7 +176,7 @@ export default function StudentsPage(){
             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-[16px]">{s.name?.[0]||'S'}</div>
             <div className="flex-1 min-w-0">
               <div className="font-bold text-[15px] leading-tight truncate">{s.name}</div>
-              <div className="text-[12px] text-muted-foreground">Grade {s.className}-{s.section} • #{s.admissionNumber || s.rollNumber}</div>
+              <div className="text-[12px] text-muted-foreground">Grade {s.className}-{s.section} • #{s.admissionNumber || s.rollNumber} • Face ID: {isValidDescriptor(s.faceDescriptor) ? 'Ready' : 'No'}</div>
             </div>
             <div className="flex items-center gap-1">
               <div className="w-9 h-9 rounded-full bg-white border flex items-center justify-center"><QRCodeSVG value={s.qrCode||s.id} size={20}/></div>
@@ -174,7 +199,7 @@ export default function StudentsPage(){
       <CardContent>
         <div className="overflow-auto">
           <table className="w-full text-sm">
-            <thead><tr className="text-left text-muted-foreground border-b"><th className="py-3">Adm No</th><th>Roll</th><th>Name</th><th>Class</th><th>Guardian</th><th>Phone</th><th>QR</th><th>Actions</th></tr></thead>
+            <thead><tr className="text-left text-muted-foreground border-b"><th className="py-3">Adm No</th><th>Roll</th><th>Name</th><th>Class</th><th>Guardian</th><th>Phone</th><th>AI Face</th><th>QR</th><th>Actions</th></tr></thead>
             <tbody>
               {filtered.map((s:any)=>(
                 <tr key={s.id} className="border-b last:border-0 hover:bg-slate-50 dark:hover:bg-zinc-800/50">
@@ -184,6 +209,7 @@ export default function StudentsPage(){
                   <td>{s.className}-{s.section}</td>
                   <td>{s.guardianName}</td>
                   <td>{s.guardianPhone}</td>
+                  <td><span className={`px-2 py-1 rounded-full text-[11px] font-semibold ${isValidDescriptor(s.faceDescriptor) ? 'bg-emerald-500/15 text-emerald-600' : 'bg-amber-500/15 text-amber-600'}`}>{isValidDescriptor(s.faceDescriptor) ? 'Ready' : 'Missing'}</span></td>
                   <td><div className="bg-white p-1 rounded-lg border w-fit"><QRCodeSVG value={s.qrCode||s.id} size={36}/></div></td>
                   <td className="space-x-3 text-xs">
                     {canEdit ? (

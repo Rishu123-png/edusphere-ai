@@ -73,16 +73,28 @@ export default function StudentsPage(){
     setForm(emptyForm)
   }
 
+  const friendlyFaceError = (e: any) => {
+    const msg = String(e?.message || e || '')
+    if (/Unexpected token|<!doctype|not valid JSON|models failed|HTML instead/i.test(msg)) {
+      return 'Face AI models could not load. Redeploy with public/models folder, hard-refresh the app (Ctrl+Shift+R), then try again.'
+    }
+    if (/timeout/i.test(msg)) return 'Face ID timed out. Use a clearer, closer front-facing photo.'
+    if (/No clear face|too small|confidence/i.test(msg)) return msg
+    return msg || 'Could not generate Face ID'
+  }
+
   const generateFaceId = async ()=>{
     if(!form.photoUrl){ toast.error('Update/select a clear student photo first'); return }
     setGeneratingFaceId(true)
     try {
-      const faceDescriptor = await createFaceDescriptorFromImageUrl(form.photoUrl)
+      // Prefer local data URL for Face ID (avoids CORS on remote Storage URLs)
+      const source = form.localPhotoDataUrl || form.photoUrl
+      const faceDescriptor = await createFaceDescriptorFromImageUrl(source)
       setForm((prev:any)=>({...prev, faceDescriptor}))
       toast.success('AI Face ID generated. Save the student to keep it.')
     } catch(e:any) {
       setForm((prev:any)=>({...prev, faceDescriptor: null}))
-      toast.error(e?.message || 'Could not generate Face ID')
+      toast.error(friendlyFaceError(e))
     } finally {
       setGeneratingFaceId(false)
     }
@@ -95,27 +107,37 @@ export default function StudentsPage(){
     setUploadingPhoto(true)
     try {
       const resized = await resizeImageDataUrl(dataUrl)
-      // Show the selected image immediately so the app never feels stuck while Storage uploads.
-      setForm((prev:any)=>({...prev, id, photoUrl: resized, faceDescriptor: null}))
+      // Show the selected image immediately. Keep local data URL for Face ID (CORS-safe).
+      setForm((prev:any)=>({...prev, id, photoUrl: resized, localPhotoDataUrl: resized, faceDescriptor: null}))
 
       let faceDescriptor: number[] | null = null
       try {
         faceDescriptor = await Promise.race([
           createFaceDescriptorFromImageUrl(resized),
-          new Promise<never>((_, reject)=> window.setTimeout(()=>reject(new Error('Face ID generation timed out. Try a clearer, smaller photo.')), 45000))
+          new Promise<never>((_, reject)=> window.setTimeout(()=>reject(new Error('Face ID generation timed out. Try a clearer, smaller photo.')), 60000))
         ])
-        setForm((prev:any)=>({...prev, id, faceDescriptor}))
+        setForm((prev:any)=>({...prev, id, faceDescriptor, localPhotoDataUrl: resized}))
       } catch(faceError:any) {
-        toast.error(faceError?.message || 'Photo selected, but Face ID was not generated')
+        // Photo is still kept — user can retry Face ID after models load
+        toast.error(friendlyFaceError(faceError))
       }
 
       try {
         const uploadedUrl = await uploadStudentPhoto(sid, id, resized)
-        setForm((prev:any)=>({...prev, id, photoUrl: uploadedUrl, faceDescriptor: faceDescriptor || prev.faceDescriptor}))
-        toast.success(faceDescriptor ? 'Photo uploaded and AI Face ID generated. Now save the student.' : 'Photo uploaded. Use a clearer face photo for AI Face ID.')
+        // Keep localPhotoDataUrl so Face ID can still run without Storage CORS issues
+        setForm((prev:any)=>({
+          ...prev,
+          id,
+          photoUrl: uploadedUrl,
+          localPhotoDataUrl: resized,
+          faceDescriptor: faceDescriptor || prev.faceDescriptor
+        }))
+        toast.success(faceDescriptor
+          ? 'Photo uploaded and AI Face ID generated. Now save the student.'
+          : 'Photo saved. Tap Face ID after models load, or try a clearer front face photo.')
       } catch(uploadError:any) {
         // Keep compressed local photo as a fallback instead of endless loading.
-        setForm((prev:any)=>({...prev, id, photoUrl: resized, faceDescriptor: faceDescriptor || prev.faceDescriptor}))
+        setForm((prev:any)=>({...prev, id, photoUrl: resized, localPhotoDataUrl: resized, faceDescriptor: faceDescriptor || prev.faceDescriptor}))
         toast.error(uploadError?.message || 'Storage upload failed. Photo preview is kept; check Firebase Storage rules.')
       }
     } catch(e:any) {

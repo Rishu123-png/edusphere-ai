@@ -1,3 +1,4 @@
+
 import { useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -18,7 +19,7 @@ export default function MarksPage(){
   const [allStudents, setAllStudents] = useState<any[]>([])
   const [subject, setSubject] = useState('Mathematics')
   const [exam, setExam] = useState('mid_term')
-  const [classSel, setClassSel] = useState('10-A')
+  const [classSel, setClassSel] = useState('')
   const [marks, setMarks] = useState<Record<string, number | ''>>({})
 
   useEffect(()=>{
@@ -43,12 +44,12 @@ export default function MarksPage(){
   }, [allStudents, profile?.role, teacherClasses])
 
   const classOptions = useMemo(()=>{
-    const options = Array.from(new Set(visibleStudents.map((s:any)=>`${s.className}-${s.section}`).filter(Boolean))).sort()
-    return options.length ? options : (profile?.role === 'teacher' ? [] : ['9-A','9-B','10-A','10-B','11-A','12-C'])
-  }, [visibleStudents, profile?.role])
+    return Array.from(new Set(visibleStudents.map((s:any)=>`${s.className}-${s.section}`).filter(Boolean))).sort()
+  }, [visibleStudents])
 
   useEffect(()=>{
-    if(classOptions.length && !classOptions.includes(classSel)) setClassSel(classOptions[0])
+    if(!classSel && classOptions.length) setClassSel(classOptions[0])
+    if(classSel && classOptions.length && !classOptions.includes(classSel)) setClassSel(classOptions[0])
   }, [classOptions, classSel])
 
   const students = useMemo(()=> visibleStudents.filter((s:any)=>`${s.className}-${s.section}` === classSel), [visibleStudents, classSel])
@@ -105,7 +106,8 @@ export default function MarksPage(){
       <CardContent className="p-0">
         <div className="flex gap-2 p-4 overflow-x-auto scrollbar-hide">
           <select value={classSel} onChange={e=>setClassSel(e.target.value)} className="h-11 rounded-full px-4 bg-slate-100 dark:bg-zinc-800 border-0 text-[13px] font-semibold">
-            {classOptions.map(opt=><option key={opt}>{opt}</option>)}
+            {!classOptions.length && <option value="">No classes yet</option>}
+            {classOptions.map(opt=><option key={opt} value={opt}>{opt}</option>)}
           </select>
           <select value={subject} onChange={e=>setSubject(e.target.value)} className="h-11 rounded-full px-4 bg-slate-100 dark:bg-zinc-800 border-0 text-[13px] font-semibold">
             <option>Mathematics</option><option>Science</option><option>English</option><option>Social Science</option><option>Hindi</option>

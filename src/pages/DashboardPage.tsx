@@ -18,7 +18,11 @@ export default function DashboardPage(){
   const { school, schoolId } = useSchool()
   const [students, setStudents] = useState<any[]>([])
   const [teachers, setTeachers] = useState<any[]>([])
+  const [userPresence, setUserPresence] = useState<Record<string, any>>({})
   const [attendance, setAttendance] = useState<Record<string, Record<string, any>>>({})
+  const [todayHoliday, setTodayHoliday] = useState<any | null>(null)
+
+  const isAdmin = profile?.role === 'school_admin' || profile?.role === 'super_admin'
 
   useEffect(()=>{
     const path = schoolId ? `schools/${schoolId}/students` : 'students'
@@ -29,17 +33,35 @@ export default function DashboardPage(){
     return ()=>unsub()
   }, [schoolId])
 
+  // Admin only: live teacher list + presence
   useEffect(()=>{
-    const path = schoolId ? `schools/${schoolId}/teachers` : 'users'
-    const unsub = onValue(ref(db, path), snap=>{
+    if(!isAdmin || !schoolId){ setTeachers([]); return }
+    const unsub = onValue(ref(db, `schools/${schoolId}/teachers`), snap=>{
       const v = snap.val() || {}
       const list = Object.entries(v)
         .map(([id, t]:any)=>({ uid: t.uid || id, id, ...t }))
-        .filter((t:any)=> schoolId ? true : t.role === 'teacher')
+        .filter((t:any)=> t.role !== 'school_admin') // only teachers
       setTeachers(list)
     })
     return ()=>unsub()
-  }, [schoolId])
+  }, [schoolId, isAdmin])
+
+  // Merge presence from users/ (authoritative when teacher is logged in)
+  useEffect(()=>{
+    if(!isAdmin || !schoolId){ setUserPresence({}); return }
+    const unsub = onValue(ref(db, 'users'), snap=>{
+      const v = snap.val() || {}
+      const map: Record<string, any> = {}
+      Object.entries(v).forEach(([uid, u]: any) => {
+        if (u?.schoolId === schoolId && u?.role === 'teacher') {
+          map[uid] = u
+          if (u.email) map[String(u.email).toLowerCase()] = u
+        }
+      })
+      setUserPresence(map)
+    })
+    return ()=>unsub()
+  }, [schoolId, isAdmin])
 
   useEffect(()=>{
     if(!schoolId){ setAttendance({}); return }
@@ -48,6 +70,39 @@ export default function DashboardPage(){
     })
     return ()=>unsub()
   }, [schoolId])
+
+  useEffect(()=>{
+    if(!schoolId){ setTodayHoliday(null); return }
+    const today = todayIST()
+    const unsub = onValue(ref(db, `schools/${schoolId}/events`), snap=>{
+      const v = snap.val() || {}
+      const holiday = Object.values(v).find((e:any)=> e?.type === 'holiday' && e?.date === today) as any
+      setTodayHoliday(holiday || null)
+    })
+    return ()=>unsub()
+  }, [schoolId])
+
+  const teachersWithPresence = useMemo(() => {
+    return teachers.map((t: any) => {
+      const byUid = userPresence[t.uid] || userPresence[t.id]
+      const byEmail = t.email ? userPresence[String(t.email).toLowerCase()] : null
+      const live = byUid || byEmail
+      // Online if either school teacher record OR live user session says so
+      // and lastSeen within 3 minutes when using heartbeat
+      const lastSeen = live?.lastSeen || t.lastSeen || 0
+      const fresh = lastSeen ? (Date.now() - lastSeen) < 3 * 60 * 1000 : false
+      const isOnline = !!(live?.isOnline || t.isOnline) && (fresh || live?.isOnline || t.isOnline)
+      // Prefer fresh user flag
+      const online = !!(live?.isOnline === true || (t.isOnline === true && (!live || live.isOnline !== false)))
+      return {
+        ...t,
+        displayName: live?.displayName || t.displayName || t.name,
+        subjects: live?.subjects || t.subjects || [],
+        isOnline: online || (live?.isOnline === true),
+        lastSeen: lastSeen || null,
+      }
+    })
+  }, [teachers, userPresence])
 
   const studentMap = useMemo(()=> new Map(students.map((s:any)=>[s.id, s])), [students])
   const todayRecords = useMemo(()=> Object.values(attendance[todayIST()] || {}), [attendance])
@@ -69,10 +124,12 @@ export default function DashboardPage(){
       }
     }
 
+    const onlineTeachers = teachersWithPresence.filter((t:any)=> t.isOnline).length
+
     return {
       students: students.length,
-      teachers: teachers.length,
-      teachersOnline: teachers.filter((t:any)=>t.isOnline).length,
+      teachers: teachersWithPresence.length,
+      teachersOnline: onlineTeachers,
       present: presentPct,
       presentCount: presentRecords.length,
       absent: absentRecords.length,
@@ -81,7 +138,7 @@ export default function DashboardPage(){
       newEnrollments,
       atRisk,
     }
-  }, [students, teachers, todayRecords, attendance])
+  }, [students, teachersWithPresence, todayRecords, attendance])
 
   const trend = useMemo(()=> Array.from({length: 6}, (_,i)=>5-i).map(daysAgo=>{
     const key = dateKey(daysAgo)
@@ -94,16 +151,26 @@ export default function DashboardPage(){
   const bestDay = trend.reduce((best, d)=> d.present > best.present ? d : best, trend[0] || {name:'—', present:0})
   const summary = students.length || todayRecords.length
     ? aiDailySummary({attendancePct: counts.present, present: counts.presentCount, absent: counts.absent, late: counts.late })
-    : ['No student or attendance data yet.', 'Add students from the Students page to start seeing live dashboard analytics.', 'Demo data has been removed from this dashboard.']
+    : ['No student or attendance data yet.', 'Add students from the Students page to start seeing live dashboard analytics.', 'Only real school records appear here.']
 
-  const kpis = [
-    { label: 'Total Students', value: counts.students.toLocaleString(), icon: Users, color: 'from-indigo-500 to-violet-500' },
-    { label: 'Teachers Online', value: `${counts.teachersOnline}/${counts.teachers}`, icon: GraduationCap, color: 'from-emerald-500 to-teal-500' },
-    { label: "Today's Attendance", value: `${counts.present}%`, icon: CheckCircle2, color: 'from-blue-500 to-cyan-500' },
-    { label: 'New Enrollments', value: counts.newEnrollments.toString(), icon: TrendingUp, color: 'from-amber-500 to-orange-500' },
-    { label: 'Late Today', value: counts.late.toString(), icon: Clock3, color: 'from-fuchsia-500 to-pink-500' },
-    { label: 'At Risk', value: counts.atRisk.toString(), icon: AlertTriangle, color: 'from-red-500 to-rose-500' },
-  ]
+  // Teachers never see "Teachers Online" KPI
+  const kpis = isAdmin
+    ? [
+        { label: 'Total Students', value: counts.students.toLocaleString(), icon: Users, color: 'from-indigo-500 to-violet-500' },
+        { label: 'Teachers Online', value: `${counts.teachersOnline}/${counts.teachers}`, icon: GraduationCap, color: 'from-emerald-500 to-teal-500' },
+        { label: "Today's Attendance", value: `${counts.present}%`, icon: CheckCircle2, color: 'from-blue-500 to-cyan-500' },
+        { label: 'New Enrollments', value: counts.newEnrollments.toString(), icon: TrendingUp, color: 'from-amber-500 to-orange-500' },
+        { label: 'Late Today', value: counts.late.toString(), icon: Clock3, color: 'from-fuchsia-500 to-pink-500' },
+        { label: 'At Risk', value: counts.atRisk.toString(), icon: AlertTriangle, color: 'from-red-500 to-rose-500' },
+      ]
+    : [
+        { label: 'My Students', value: counts.students.toLocaleString(), icon: Users, color: 'from-indigo-500 to-violet-500' },
+        { label: "Today's Attendance", value: `${counts.present}%`, icon: CheckCircle2, color: 'from-blue-500 to-cyan-500' },
+        { label: 'Present Today', value: counts.presentCount.toString(), icon: GraduationCap, color: 'from-emerald-500 to-teal-500' },
+        { label: 'Late Today', value: counts.late.toString(), icon: Clock3, color: 'from-fuchsia-500 to-pink-500' },
+        { label: 'Absent Today', value: counts.absent.toString(), icon: AlertTriangle, color: 'from-red-500 to-rose-500' },
+        { label: 'At Risk', value: counts.atRisk.toString(), icon: TrendingUp, color: 'from-amber-500 to-orange-500' },
+      ]
 
   const recentActivities = todayRecords
     .slice()
@@ -123,7 +190,14 @@ export default function DashboardPage(){
         <div className="relative z-10">
           <div className="flex items-center gap-2 text-white/80 text-[12px]"><Sparkles size={14}/> {new Date().toLocaleDateString('en-IN', { weekday:'long', year:'numeric', month:'long', day:'numeric', timeZone:'Asia/Kolkata' })}</div>
           <h1 className="text-[22px] md:text-[28px] font-extrabold tracking-tight mt-1 leading-tight">Good Morning, {profile?.displayName?.split(' ')[0] || profile?.email?.split('@')[0] || 'Admin'}!</h1>
-          <p className="text-white/80 text-[13px] md:text-[14px] mt-1 max-w-[85%]">Welcome to {school?.name || 'your school'}. Today&apos;s saved attendance is {counts.present}% from your real records.</p>
+          <p className="text-white/80 text-[13px] md:text-[14px] mt-1 max-w-[85%]">
+            Welcome to {school?.name || 'your school'}. Today&apos;s saved attendance is {counts.present}% from your real records.
+          </p>
+          {todayHoliday && (
+            <div className="mt-3 inline-flex px-3 py-1.5 rounded-full bg-white/15 text-[12px] font-semibold">
+              🏖 Holiday today: {todayHoliday.title || todayHoliday.name} — schedule & teacher alerts off
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -219,28 +293,30 @@ export default function DashboardPage(){
           <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-red-500"/> {counts.atRisk} students below 75% from saved attendance</div>
           <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-amber-500"/> {counts.absent} absent today</div>
           <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500"/> {counts.presentCount} present today</div>
-          <div className="pt-3 text-[11px] text-muted-foreground p-2.5 rounded-xl bg-slate-50 dark:bg-zinc-800">AI Attendance Risk Prediction uses your Firebase attendance records.</div>
         </CardContent>
       </Card>
     </div>
 
-    {(profile?.role==='school_admin' || profile?.role==='super_admin') && (
+    {/* Teacher Live Status — ADMIN ONLY */}
+    {isAdmin && (
       <Card>
         <CardTitle>Teacher Live Status</CardTitle>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-            {teachers.map((t:any,i)=>(
+            {teachersWithPresence.map((t:any,i)=>(
               <div key={t.uid || i} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-zinc-800/80 border border-slate-100 dark:border-zinc-700/50">
                 <div>
                   <div className="font-semibold text-[14px]">{t.displayName || t.name || 'Teacher'}</div>
-                  <div className="text-[11px] text-muted-foreground">{(t.subjects||[]).join(', ') || 'No subjects added'}</div>
+                  <div className="text-[11px] text-muted-foreground">{(t.subjects||[]).join(', ') || t.email || 'No subjects'}</div>
                 </div>
-                <span className={`text-[11px] px-2.5 py-1 rounded-full font-medium ${t.isOnline ? 'bg-emerald-500/15 text-emerald-600' : 'bg-zinc-500/15 text-zinc-500'}`}>{t.isOnline ? 'Active' : 'Offline'}</span>
+                <span className={`text-[11px] px-2.5 py-1 rounded-full font-medium ${t.isOnline ? 'bg-emerald-500/15 text-emerald-600' : 'bg-zinc-500/15 text-zinc-500'}`}>
+                  {t.isOnline ? 'Active' : 'Offline'}
+                </span>
               </div>
             ))}
-            {!teachers.length && <div className="md:col-span-3 text-center text-muted-foreground p-6 rounded-2xl bg-slate-50 dark:bg-zinc-800/80">No teachers added yet.</div>}
+            {!teachersWithPresence.length && <div className="md:col-span-3 text-center text-muted-foreground p-6 rounded-2xl bg-slate-50 dark:bg-zinc-800/80">No teachers added yet.</div>}
           </div>
-          <p className="text-[11px] text-muted-foreground mt-3">Admin-only online/offline presence tracking • Real-time Firebase</p>
+          <p className="text-[11px] text-muted-foreground mt-3">Admin-only • Updates when teachers login (live Firebase presence)</p>
         </CardContent>
       </Card>
     )}
@@ -259,7 +335,10 @@ export default function DashboardPage(){
         <CardTitle>Quick Actions</CardTitle>
         <CardContent>
           <div className="flex flex-wrap gap-2">
-            {['Mark Attendance','Add Student','Enter Marks','Send WhatsApp','Export Report','AI Predict'].map(a=><span key={a} className="px-3.5 py-2 rounded-full bg-slate-100 dark:bg-zinc-800 text-[13px] font-medium hover:bg-slate-200 dark:hover:bg-zinc-700 cursor-pointer transition">{a}</span>)}
+            {(isAdmin
+              ? ['Mark Attendance','Add Student','Enter Marks','Send WhatsApp','Export Report','AI Predict']
+              : ['Mark Attendance','Add Student','Enter Marks','My Schedule','Calendar']
+            ).map(a=><span key={a} className="px-3.5 py-2 rounded-full bg-slate-100 dark:bg-zinc-800 text-[13px] font-medium hover:bg-slate-200 dark:hover:bg-zinc-700 cursor-pointer transition">{a}</span>)}
           </div>
         </CardContent>
       </Card>

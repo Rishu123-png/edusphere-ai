@@ -185,7 +185,7 @@ export default function AttendancePage(){
         await videoRef.current.play()
       }
       if(!enrolledFaces.length) {
-        setAiStatus('Camera active. Add Photo URL / Face ID in student profiles before AI can verify attendance.')
+        setAiStatus('Camera active. Update student photos / Face IDs before AI can verify attendance.')
         toast.error('No Face IDs enrolled for this class. AI will not mark random attendance.')
         return
       }
@@ -334,7 +334,7 @@ export default function AttendancePage(){
               <span className="mt-2 text-[12px]">Face IDs in {classSel}: {enrolledFaces.length}/{students.length}</span>
             </div>
             <Button variant="gradient" className="w-full rounded-full h-12" onClick={startAiCamera}>Open Full Screen AI Camera</Button>
-            <p className="text-[11px] text-muted-foreground">Tip: Add a clear Photo URL in Students page and generate Face ID. AI saves present only for matched enrolled faces.</p>
+            <p className="text-[11px] text-muted-foreground">Tip: Use Update Photo in Students page to open Gallery/Photos or Camera and generate Face ID. AI saves present only for matched enrolled faces.</p>
           </CardContent>
         </Card>
       </TabsContent>
@@ -351,7 +351,7 @@ export default function AttendancePage(){
       </TabsContent>
     </Tabs>
 
-    {aiScanning && (
+  {aiScanning && (
       <div id="ai-camera-overlay" className="fixed inset-0 z-[9999] bg-black text-white flex flex-col">
         <div className="h-16 px-4 flex items-center justify-between bg-black/80 border-b border-white/10 shrink-0">
           <div>

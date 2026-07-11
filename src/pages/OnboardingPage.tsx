@@ -82,13 +82,62 @@ export default function OnboardingPage(){
         const schools = snap.val()
         const found = Object.values(schools).find((s:any)=> s.code === trimmedCode) as any
         if(found){
+          // Link teacher account to school. If admin already registered this email
+          // under schools/{id}/teachers, copy assigned classes/subjects onto the user.
+          let assignedClasses: string[] = []
+          let subjects: string[] = []
+          let classTeacherOf = ''
+          let teacherRecordId = user.uid
+          try {
+            const tSnap = await get(ref(db, `schools/${found.id}/teachers`))
+            if (tSnap.exists()) {
+              const teachers = tSnap.val() || {}
+              const match = Object.entries(teachers).find(([, t]: any) =>
+                String(t?.email || '').toLowerCase() === String(user.email || '').toLowerCase()
+              ) as [string, any] | undefined
+              if (match) {
+                teacherRecordId = match[0]
+                assignedClasses = match[1]?.assignedClasses || []
+                subjects = match[1]?.subjects || []
+                classTeacherOf = match[1]?.classTeacherOf || ''
+              }
+            }
+          } catch {}
+
           await update(ref(db, `users/${user.uid}`), {
             schoolId: found.id,
             schoolCode: found.code,
             role: 'teacher',
             uid: user.uid,
             email: user.email || '',
+            displayName: profile?.displayName || user.displayName || user.email?.split('@')[0] || '',
+            assignedClasses,
+            subjects,
+            classTeacherOf,
+            updatedAt: Date.now(),
           })
+          // Keep school teachers list in sync with real auth uid
+          await update(ref(db, `schools/${found.id}/teachers/${user.uid}`), {
+            uid: user.uid,
+            email: user.email || '',
+            name: profile?.displayName || user.displayName || user.email?.split('@')[0] || 'Teacher',
+            displayName: profile?.displayName || user.displayName || '',
+            schoolId: found.id,
+            role: 'teacher',
+            assignedClasses,
+            subjects,
+            classTeacherOf,
+            updatedAt: Date.now(),
+            createdAt: Date.now(),
+            isOnline: true,
+          })
+          if (teacherRecordId && teacherRecordId !== user.uid) {
+            // Soft-link old placeholder teacher row if admin pre-created by email
+            await update(ref(db, `schools/${found.id}/teachers/${teacherRecordId}`), {
+              linkedUid: user.uid,
+              updatedAt: Date.now(),
+            }).catch(()=>{})
+          }
           localStorage.removeItem('pending_school_code')
           await refreshProfile?.()
           toast.success(`Joined ${found.name}!`)

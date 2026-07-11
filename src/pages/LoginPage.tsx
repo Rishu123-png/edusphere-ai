@@ -182,9 +182,8 @@ export default function LoginPage() {
           )}
 
           <div className="mt-6 text-[11px] text-muted-foreground space-y-1 border-t border-slate-100 dark:border-zinc-800 pt-4 leading-snug">
-            <p className="font-bold text-zinc-900 dark:text-zinc-100">Demo roles:</p>
-            <p>superadmin@edusphere.ai / admin123</p>
-            <p>schooladmin@demo.edu / admin123 • teacher@demo.edu / teacher123</p>
+            <p className="font-medium text-zinc-900 dark:text-zinc-100">Production login</p>
+            <p>Create your own school admin account via Sign Up, verify email, then create school. Invite teachers with your school code.</p>
           </div>
         </motion.div>
       </div>

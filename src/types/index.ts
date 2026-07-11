@@ -53,6 +53,8 @@ export interface Student {
   rollNumber: string
   name: string
   photoUrl?: string
+  /** 128-d face embedding for AI camera matching */
+  faceDescriptor?: number[]
   className: string
   section: string
   house?: string

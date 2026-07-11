@@ -8,11 +8,10 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'hero.png'],
+      includeAssets: ['favicon.svg', 'vite.svg'],
       manifest: false, // use public/manifest.webmanifest
       workbox: {
-        // include face-api weight shards (no extension) + model json
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,webp,json}', 'models/**/*'],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,webp,json}'],
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         runtimeCaching: [
           {
@@ -24,11 +23,6 @@ export default defineConfig({
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
             handler: 'CacheFirst',
             options: { cacheName: 'google-fonts', expiration: { maxEntries: 10, maxAgeSeconds: 60*60*24*365 } }
-          },
-          {
-            urlPattern: /\/models\/.*/i,
-            handler: 'CacheFirst',
-            options: { cacheName: 'face-models', expiration: { maxEntries: 20, maxAgeSeconds: 60*60*24*365 } }
           }
         ]
       }

@@ -34,11 +34,23 @@ export function attendanceRisk(records: AttendanceRecord[]) {
 }
 
 export function aiDailySummary(stats: {attendancePct:number, present:number, absent:number, late:number}) {
-  return [
-    `${stats.attendancePct}% overall attendance – ${stats.attendancePct>=75?'above CBSE 75% threshold':'below threshold, action needed'}.`,
-    `${stats.absent} students absent – WhatsApp alerts ready.`,
-    `${stats.late} late arrivals flagged.`,
-    `AI recommends revision class for weak topics (Maths – Algebra).`,
-    `6 parent meetings suggested for at-risk students.`
+  if (stats.present === 0 && stats.absent === 0 && stats.late === 0) {
+    return [
+      'No attendance has been saved for today yet.',
+      'Use Manual, QR, or AI Camera attendance to generate live insights.',
+      'Dashboard demo numbers are disabled; only real school records are shown.'
+    ]
+  }
+
+  const messages = [
+    `${stats.attendancePct}% overall attendance – ${stats.attendancePct>=75?'above the 75% threshold':'below 75%, action needed'}.`,
+    `${stats.present} students marked present today.`,
+    `${stats.absent} students absent today${stats.absent ? ' – review and notify guardians if required' : ''}.`,
+    `${stats.late} late arrivals flagged today.`
   ]
+
+  if (stats.attendancePct < 75) messages.push('AI recommends follow-up with absent students and guardians.')
+  else messages.push('AI status: attendance is stable based on today’s saved records.')
+
+  return messages
 }

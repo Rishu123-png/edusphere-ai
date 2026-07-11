@@ -5,15 +5,20 @@ import { getDatabase } from "firebase/database";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyAQN7N3qq8XR6YfOJ-d42bhO_omQbuN1jI",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "edusphere-ai-e8622.firebaseapp.com",
-  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || "https://edusphere-ai-e8622-default-rtdb.firebaseio.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "edusphere-ai-e8622",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "edusphere-ai-e8622.firebasestorage.app",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "726353953169",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:726353953169:web:b69317afcc4193bde45a30",
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-CHDEXYMQL6"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
+
+// Validate critical config
+if (!firebaseConfig.apiKey || firebaseConfig.apiKey.includes('your-')) {
+  console.warn('[EduSphere] Firebase keys not configured. Copy .env.example to .env and fill your keys.');
+}
 
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 
@@ -25,8 +30,8 @@ if (typeof window !== 'undefined') {
       if (supported) {
         try { analytics = getAnalytics(app); } catch {}
       }
-    }).catch(()=>{})
-  }).catch(()=>{})
+    }).catch(() => {});
+  }).catch(() => {});
 }
 
 export const auth = getAuth(app);

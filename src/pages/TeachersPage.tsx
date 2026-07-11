@@ -25,10 +25,13 @@ export default function TeachersPage(){
   const canEdit = isSchoolAdmin || profile?.role === 'super_admin'
 
   useEffect(()=>{
-    const r = ref(db, 'users')
+    const path = schoolId ? `schools/${schoolId}/teachers` : 'users'
+    const r = ref(db, path)
     const unsub = onValue(r, snap=>{
       const v = snap.val() || {}
-      const list = Object.values(v).filter((u:any)=>u.role==='teacher' && (!schoolId || u.schoolId===schoolId))
+      const list = Object.entries(v)
+        .map(([id, t]:any)=>({ uid: t.uid || id, id, ...t }))
+        .filter((u:any)=> schoolId ? true : u.role === 'teacher')
       setTeachers(list as any)
     })
     return ()=>unsub()
@@ -36,6 +39,7 @@ export default function TeachersPage(){
 
   const saveTeacher = async ()=>{
     if(!canEdit){ toast.error('School Admin only'); return }
+    if(!form.name || !form.email){ toast.error('Name and email are required'); return }
     const id = editing?.uid || generateId('t_')
     const payload = {
       uid: id,
@@ -53,7 +57,7 @@ export default function TeachersPage(){
       updatedAt: Date.now(),
       isOnline: false
     }
-    await update(ref(db, `users/${id}`), { uid:id, email: form.email, displayName: form.name, role:'teacher', schoolId: payload.schoolId, phone: form.phone, createdAt: payload.createdAt, mustResetPassword:true })
+    await update(ref(db, `users/${id}`), { uid:id, email: form.email, displayName: form.name, name: form.name, role:'teacher', schoolId: payload.schoolId, phone: form.phone, subjects: payload.subjects, assignedClasses: payload.assignedClasses, classTeacherOf: payload.classTeacherOf, qualification: payload.qualification, experience: payload.experience, createdAt: payload.createdAt, mustResetPassword:true, isOnline: editing?.isOnline || false })
     await update(ref(db, `schools/${payload.schoolId}/teachers/${id}`), payload)
     toast.success(editing ? 'Teacher updated' : 'Teacher added')
     setOpen(false); setEditing(null)
@@ -64,7 +68,7 @@ export default function TeachersPage(){
     if(!confirm('Remove teacher '+ (t.displayName||t.name)+'?')) return
     try {
       await remove(ref(db, `users/${t.uid}`))
-      await remove(ref(db, `schools/${schoolId}/teachers/${t.uid}`)).catch(()=>{})
+      await remove(ref(db, `schools/${t.schoolId || schoolId || 'global'}/teachers/${t.uid}`)).catch(()=>{})
       await remove(ref(db, `schools/global/teachers/${t.uid}`)).catch(()=>{})
       toast.success('Teacher removed (both paths cleaned)')
     } catch(e:any){ toast.error(e.message) }
@@ -150,8 +154,8 @@ export default function TeachersPage(){
               <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold ${t.isOnline ? 'bg-emerald-500/15 text-emerald-600':'bg-zinc-500/15 text-zinc-500'}`}>{t.isOnline ? 'Online':'Offline'}</span>
             </div>
             <div className="text-[13px] mt-3 space-y-1 p-2.5 rounded-xl bg-slate-50 dark:bg-zinc-800/50">
-              <div>📚 {(t.subjects||['Maths']).join(', ')}</div>
-              <div>🏫 {(t.assignedClasses||['10-A']).join(', ')}</div>
+              <div>📚 {(t.subjects||[]).join(', ') || '—'}</div>
+              <div>🏫 {(t.assignedClasses||[]).join(', ') || '—'}</div>
               <div>👨‍🏫 Class Teacher: {t.classTeacherOf || '—'}</div>
               <div className="text-[11px] text-muted-foreground">{t.qualification || '—'} • Exp: {t.experience || 0}y</div>
             </div>

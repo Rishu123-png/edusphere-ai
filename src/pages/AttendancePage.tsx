@@ -10,7 +10,7 @@ import { useSchool } from '@/contexts/SchoolContext'
 import { todayIST } from '@/lib/rtdb'
 import QRScanner from '@/components/QRScanner'
 import PageHeader from '@/components/mobile/PageHeader'
-import { Camera, BarChart3, QrCode, Users, X, ShieldCheck } from 'lucide-react'
+import { Camera, BarChart3, QrCode, Users, X, ShieldCheck, SwitchCamera } from 'lucide-react'
 import {
   detectFacesWithDescriptors,
   findBestFaceMatch,
@@ -33,6 +33,9 @@ export default function AttendancePage(){
   const [aiStatus, setAiStatus] = useState('Camera off')
   const [aiFaceCount, setAiFaceCount] = useState(0)
   const [aiLog, setAiLog] = useState<string[]>([])
+  // Front (user) / Back (environment) — UI stays portrait/vertical only
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment')
+  const [switchingCamera, setSwitchingCamera] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -190,27 +193,55 @@ export default function AttendancePage(){
     }
   }
 
-  const attachStream = async () => {
+  const attachStream = async (mode: 'user' | 'environment') => {
     streamRef.current?.getTracks().forEach(t=>t.stop())
     streamRef.current = null
-    // Portrait / vertical camera only — prefer back camera for classroom attendance
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { ideal: 'environment' },
-        // Prefer portrait capture where supported
-        width: { ideal: 1080 },
-        height: { ideal: 1920 },
-        aspectRatio: { ideal: 0.5625 }, // 9:16 vertical
+
+    // Portrait/vertical UI always. Mode only switches front vs back lens.
+    const tryConstraints: MediaStreamConstraints[] = [
+      {
+        video: {
+          facingMode: { exact: mode },
+          width: { ideal: 1080 },
+          height: { ideal: 1920 },
+          aspectRatio: { ideal: 0.5625 },
+        },
+        audio: false,
       },
-      audio: false,
-    })
+      {
+        video: {
+          facingMode: { ideal: mode },
+          width: { ideal: 1080 },
+          height: { ideal: 1920 },
+        },
+        audio: false,
+      },
+      {
+        video: { facingMode: mode },
+        audio: false,
+      },
+    ]
+
+    let stream: MediaStream | null = null
+    let lastError: any = null
+    for (const constraints of tryConstraints) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints)
+        break
+      } catch (e) {
+        lastError = e
+      }
+    }
+    if (!stream) throw lastError || new Error('Could not open camera')
+
     streamRef.current = stream
     if(videoRef.current){
       videoRef.current.srcObject = stream
       videoRef.current.setAttribute('playsinline', 'true')
       videoRef.current.muted = true
+      // Front camera preview is often mirrored on phones; keep natural for face match
+      videoRef.current.style.transform = 'none'
       await videoRef.current.play()
-      // Wait until video has real dimensions
       await new Promise<void>((resolve) => {
         const v = videoRef.current!
         if (v.videoWidth) return resolve()
@@ -229,7 +260,7 @@ export default function AttendancePage(){
     } catch {
       // Overlay is already fixed full-viewport even if Fullscreen API is blocked
     }
-    // Keep camera vertical / portrait only (never force landscape)
+    // Keep portrait/vertical only — never landscape
     try {
       await (screen.orientation as any)?.lock?.('portrait').catch?.(()=>{})
     } catch {}
@@ -247,7 +278,7 @@ export default function AttendancePage(){
     try {
       await new Promise<void>(resolve => requestAnimationFrame(()=>resolve()))
       await enterFullscreen()
-      await attachStream()
+      await attachStream(facingMode)
       if(!enrolledFaces.length) {
         setAiStatus('Camera active. Enroll Face IDs from Students → Update Photo before AI can verify.')
         toast.error('No Face IDs enrolled for this class. AI will not mark anyone randomly.')
@@ -255,7 +286,7 @@ export default function AttendancePage(){
       }
       setAiStatus('Loading face recognition models…')
       await detectFacesWithDescriptors(videoRef.current!)
-      setAiStatus('AI camera active • matching only enrolled real faces')
+      setAiStatus(`AI camera active • ${facingMode === 'user' ? 'Front' : 'Back'} camera • portrait`)
       await runAiScan()
       scanTimerRef.current = window.setInterval(runAiScan, 1200)
     }catch(e:any){
@@ -264,10 +295,31 @@ export default function AttendancePage(){
     }
   }
 
+  /** Switch Front ↔ Back camera. Keeps portrait/vertical layout. */
+  const switchCamera = async () => {
+    if (switchingCamera || !aiScanning) return
+    const next: 'user' | 'environment' = facingMode === 'environment' ? 'user' : 'environment'
+    setSwitchingCamera(true)
+    setAiStatus(`Switching to ${next === 'user' ? 'Front' : 'Back'} camera…`)
+    try {
+      await attachStream(next)
+      setFacingMode(next)
+      setAiStatus(`AI camera active • ${next === 'user' ? 'Front' : 'Back'} camera • portrait`)
+      await runAiScan()
+      try { navigator.vibrate?.(30) } catch {}
+    } catch (e: any) {
+      toast.error(e?.message || `Could not open ${next === 'user' ? 'front' : 'back'} camera`)
+      setAiStatus(`Still on ${facingMode === 'user' ? 'Front' : 'Back'} camera`)
+    } finally {
+      setSwitchingCamera(false)
+    }
+  }
+
   const stopAi = (exitFullscreen = true)=>{
     setAiScanning(false)
     setAiStatus('Camera off')
     setAiFaceCount(0)
+    setSwitchingCamera(false)
     document.body.style.overflow = ''
     if(scanTimerRef.current){ window.clearInterval(scanTimerRef.current); scanTimerRef.current = null }
     streamRef.current?.getTracks().forEach(t=>t.stop())
@@ -443,6 +495,16 @@ export default function AttendancePage(){
             <div className="text-[11px] md:text-[12px] text-white/70 truncate">{aiStatus} • Faces: {aiFaceCount}</div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
+            <Button
+variant="ghost"
+              className="rounded-full text-white hover:bg-white/10 px-3"
+              onClick={switchCamera}
+              disabled={switchingCamera}
+              title="Switch Front / Back camera"
+            >
+              <SwitchCamera size={18} className="mr-1"/>
+              {switchingCamera ? '…' : (facingMode === 'environment' ? 'Front' : 'Back')}
+            </Button>
             <Button variant="ghost" className="rounded-full text-white hover:bg-white/10 px-3" onClick={()=>stopAi()}>
               <X size={18} className="mr-1"/> Close
             </Button>
@@ -457,7 +519,7 @@ export default function AttendancePage(){
             playsInline
             autoPlay
           />
-<canvas
+          <canvas
             ref={canvasRef}
             className="absolute inset-0 w-full h-full pointer-events-none"
           />

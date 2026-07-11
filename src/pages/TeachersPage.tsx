@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { db } from '@/lib/firebase'
-import { ref, onValue, update, remove } from 'firebase/database'
+import { ref, onValue, update, remove, get } from 'firebase/database'
 import { toast } from 'sonner'
 import { generateId, generateSchoolCode } from '@/lib/utils'
 import { useSchool } from '@/contexts/SchoolContext'
@@ -57,9 +57,78 @@ export default function TeachersPage(){
       updatedAt: Date.now(),
       isOnline: false
     }
-    await update(ref(db, `users/${id}`), { uid:id, email: form.email, displayName: form.name, name: form.name, role:'teacher', schoolId: payload.schoolId, phone: form.phone, subjects: payload.subjects, assignedClasses: payload.assignedClasses, classTeacherOf: payload.classTeacherOf, qualification: payload.qualification, experience: payload.experience, createdAt: payload.createdAt, mustResetPassword:true, isOnline: editing?.isOnline || false })
+    // Always write school teacher record
     await update(ref(db, `schools/${payload.schoolId}/teachers/${id}`), payload)
-    toast.success(editing ? 'Teacher updated' : 'Teacher added')
+
+    // If a real user already signed up with this email, push assignment onto their auth profile
+    // so Students/Marks filtering works for the teacher login.
+    try {
+      const usersSnap = await get(ref(db, 'users'))
+      if (usersSnap.exists()) {
+        const users = usersSnap.val() || {}
+        const real = Object.entries(users).find(([, u]: any) =>
+          String(u?.email || '').toLowerCase() === String(form.email || '').toLowerCase()
+        ) as [string, any] | undefined
+        if (real) {
+          const realUid = real[0]
+          await update(ref(db, `users/${realUid}`), {
+            role: 'teacher',
+            schoolId: payload.schoolId,
+            displayName: form.name,
+            name: form.name,
+            phone: form.phone,
+            subjects: payload.subjects,
+            assignedClasses: payload.assignedClasses,
+            classTeacherOf: payload.classTeacherOf,
+            qualification: payload.qualification,
+            experience: payload.experience,
+            updatedAt: Date.now(),
+          })
+          // Also mirror under teachers/{realUid} for dashboard presence
+          await update(ref(db, `schools/${payload.schoolId}/teachers/${realUid}`), {
+            ...payload,
+            uid: realUid,
+            linkedFrom: id,
+          })
+        } else {
+          // Placeholder user row until teacher signs up (may not be used for login)
+          await update(ref(db, `users/${id}`), {
+            uid: id,
+            email: form.email,
+            displayName: form.name,
+            name: form.name,
+            role: 'teacher',
+            schoolId: payload.schoolId,
+            phone: form.phone,
+            subjects: payload.subjects,
+            assignedClasses: payload.assignedClasses,
+            classTeacherOf: payload.classTeacherOf,
+            qualification: payload.qualification,
+            experience: payload.experience,
+            createdAt: payload.createdAt,
+            mustResetPassword: true,
+            isOnline: editing?.isOnline || false,
+          })
+        }
+      }
+    } catch {
+      await update(ref(db, `users/${id}`), {
+        uid: id,
+        email: form.email,
+        displayName: form.name,
+        name: form.name,
+        role: 'teacher',
+        schoolId: payload.schoolId,
+        phone: form.phone,
+        subjects: payload.subjects,
+        assignedClasses: payload.assignedClasses,
+        classTeacherOf: payload.classTeacherOf,
+        createdAt: payload.createdAt,
+        mustResetPassword: true,
+        isOnline: false,
+      }).catch(()=>{})
+    }
+    toast.success(editing ? 'Teacher updated — classes/subjects synced to teacher login' : 'Teacher added')
     setOpen(false); setEditing(null)
   }
 

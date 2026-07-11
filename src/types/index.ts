@@ -4,11 +4,16 @@ export interface AppUser {
   uid: string
   email: string
   displayName?: string
+  name?: string
   photoURL?: string
   role: UserRole
   schoolId?: string
   schoolCode?: string
   phone?: string
+  /** Teacher assignment — set by school admin */
+  subjects?: string[]
+  assignedClasses?: string[]
+  classTeacherOf?: string
   createdAt: number
   lastLogin?: number
   isOnline?: boolean
@@ -57,6 +62,7 @@ export interface Student {
   faceDescriptor?: number[]
   className: string
   section: string
+  subjects?: string[]
   house?: string
   dob?: string
   gender?: 'male'|'female'|'other'
@@ -72,6 +78,12 @@ export interface Student {
   status: 'active'|'inactive'|'tc'
   createdAt: number
   qrCode?: string
+  /** Who created this student (admin or teacher) — live-synced school-wide */
+  addedBy?: string
+  addedByRole?: UserRole | string
+  addedByName?: string
+  lastEditedBy?: string
+  lastEditedAt?: number
 }
 
 export interface ClassSchedule {

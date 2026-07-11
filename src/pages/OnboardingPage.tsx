@@ -106,8 +106,7 @@ export default function OnboardingPage(){
 
   if(!user) return <div className="p-10">Please login first.</div>
 
-  const isDemoUser = user.email === 'superadmin@edusphere.ai' || user.email?.endsWith('@demo.edu')
-  const emailVerified = user.emailVerified || isDemoUser
+  const emailVerified = !!user.emailVerified
 
   return (
     <div className="min-h-[100dvh] flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-violet-50 dark:from-zinc-950 dark:via-zinc-900 dark:to-indigo-950 p-4">

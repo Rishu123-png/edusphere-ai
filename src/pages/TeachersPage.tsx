@@ -11,7 +11,7 @@ import { generateId, generateSchoolCode } from '@/lib/utils'
 import { useSchool } from '@/contexts/SchoolContext'
 import { useAuth } from '@/contexts/AuthContext'
 import PageHeader from '@/components/mobile/PageHeader'
-import { GraduationCap, Mail, Plus, Trash2, Edit2, Phone } from 'lucide-react'
+import { GraduationCap, Mail, Plus, Trash2, Edit2, Send, Copy } from 'lucide-react'
 
 export default function TeachersPage(){
   const { schoolId, school } = useSchool()
@@ -74,14 +74,39 @@ export default function TeachersPage(){
     } catch(e:any){ toast.error(e.message) }
   }
 
-  const invite = ()=>{
-    if(!canEdit){ toast.error('Admin only'); return }
-    if(!inviteEmail) return toast.error('Enter email')
+  const buildInvite = () => {
     const code = school?.code || generateSchoolCode()
-    const link = `${window.location.origin}/login?schoolCode=${code}&invite=${encodeURIComponent(inviteEmail)}`
-    const text = `Join ${school?.name || 'EduSphere'} as Teacher.\nSchool Code: ${code}\nLink: ${link}\n\nLogin → Sign Up → Enter School Code → Verify Email`
-    navigator.clipboard.writeText(text)
-    toast.success('Invite copied – send via Gmail/WhatsApp')
+    const schoolName = school?.name || 'EduSphere'
+    const link = `${window.location.origin}/login?schoolCode=${encodeURIComponent(code)}&invite=${encodeURIComponent(inviteEmail)}`
+    const subject = `Teacher invite for ${schoolName}`
+    const body = `Join ${schoolName} as Teacher.\n\nSchool Code: ${code}\n\nLink: ${link}\n\nLogin → Sign Up → Enter School Code → Verify Email`
+    return { code, subject, body }
+  }
+
+  const openGmailInvite = ()=>{
+    if(!canEdit){ toast.error('Admin only'); return }
+    if(!inviteEmail) return toast.error('Enter teacher email')
+    const { subject, body } = buildInvite()
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(inviteEmail)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+    const mailtoUrl = `mailto:${encodeURIComponent(inviteEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+    const isAndroid = /Android/i.test(navigator.userAgent)
+    if(isAndroid) {
+      // Android opens the installed mail app / Gmail chooser with the draft filled.
+      window.location.href = mailtoUrl
+    } else {
+      const opened = window.open(gmailUrl, '_blank', 'noopener,noreferrer')
+      if(!opened) window.location.href = mailtoUrl
+    }
+    navigator.clipboard?.writeText(body).catch(()=>{})
+    toast.success('Email draft opened. Review and press Send.')
+  }
+
+  const copyInvite = ()=>{
+    if(!canEdit){ toast.error('Admin only'); return }
+    if(!inviteEmail) return toast.error('Enter teacher email')
+    const { body } = buildInvite()
+    navigator.clipboard.writeText(body)
+    toast.success('Invite text copied')
   }
 
   const startEdit = (t:any)=>{
@@ -134,8 +159,11 @@ export default function TeachersPage(){
           <Label className="text-[12px]">Teacher Email</Label>
           <Input className="mt-1 h-12 rounded-xl bg-white dark:bg-zinc-900" placeholder="teacher@school.edu" value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} disabled={!canEdit} />
         </div>
-        <Button variant="gradient" className="rounded-full h-12" onClick={invite} disabled={!canEdit}>Copy Invite</Button>
-        <div className="w-full text-[13px] text-muted-foreground">School Code: <b className="text-indigo-600 font-mono text-[15px]">{school?.code || 'EDU-XXXXXX'}</b> • Share via Gmail / WhatsApp</div>
+        <div className="flex gap-2">
+          <Button variant="gradient" className="rounded-full h-12" onClick={openGmailInvite} disabled={!canEdit}><Send size={16} className="mr-1"/> Open Gmail</Button>
+          <Button variant="outline" className="rounded-full h-12 px-4" onClick={copyInvite} disabled={!canEdit} title="Copy invite text"><Copy size={16}/></Button>
+        </div>
+        <div className="w-full text-[13px] text-muted-foreground">School Code: <b className="text-indigo-600 font-mono text-[15px]">{school?.code || 'EDU-XXXXXX'}</b> • Opens Gmail draft automatically; admin only has to press Send</div>
       </CardContent>
     </Card>
 

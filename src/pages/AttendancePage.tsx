@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -7,38 +7,77 @@ import { ref, onValue, update } from 'firebase/database'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSchool } from '@/contexts/SchoolContext'
-import { todayStr } from '@/lib/rtdb'
+import { todayIST } from '@/lib/rtdb'
 import QRScanner from '@/components/QRScanner'
 import PageHeader from '@/components/mobile/PageHeader'
-import { Users, QrCode, Camera, BarChart3 } from 'lucide-react'
+import { Camera, BarChart3, QrCode, Users, X, ShieldCheck } from 'lucide-react'
+import { detectFacesWithDescriptors, findBestFaceMatch, isValidDescriptor, type EnrolledFace } from '@/lib/faceRecognition'
+
+const FACE_MATCH_THRESHOLD = 0.52
+const DEFAULT_CLASSES = ['9-A', '9-B', '10-A', '10-B', '11-A', '12-C']
 
 export default function AttendancePage(){
   const { profile } = useAuth()
   const { schoolId } = useSchool()
-  const [students, setStudents] = useState<any[]>([])
+  const [allStudents, setAllStudents] = useState<any[]>([])
   const [marks, setMarks] = useState<Record<string,string>>({})
   const [classSel, setClassSel] = useState('10-A')
   const [aiScanning, setAiScanning] = useState(false)
   const [showQrScanner, setShowQrScanner] = useState(false)
   const [tab, setTab] = useState('manual')
+  const [aiStatus, setAiStatus] = useState('Camera off')
+  const [aiFaceCount, setAiFaceCount] = useState(0)
+  const [aiLog, setAiLog] = useState<string[]>([])
   const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const scanTimerRef = useRef<number | null>(null)
+  const scanBusyRef = useRef(false)
+  const detectedIdsRef = useRef<Set<string>>(new Set())
 
   useEffect(()=>{
     const r = ref(db, schoolId ? `schools/${schoolId}/students` : 'students')
     const unsub = onValue(r, snap=>{
       const v = snap.val()||{}
       const list = Object.entries(v).map(([id,s]:any)=>({id, ...s}))
-      setStudents(list.filter((s:any)=> `${s.className}-${s.section}`===classSel))
+      setAllStudents(list)
     })
     return ()=>unsub()
-  }, [classSel, schoolId])
+  }, [schoolId])
 
-  const submit = async ()=>{
-    const date = todayStr()
+  const classOptions = useMemo(()=>{
+    const fromStudents = Array.from(new Set(allStudents.map((s:any)=> `${s.className}-${s.section}`).filter(Boolean))).sort()
+    return fromStudents.length ? fromStudents : DEFAULT_CLASSES
+  }, [allStudents])
+
+  useEffect(()=>{
+    if (classOptions.length && !classOptions.includes(classSel)) setClassSel(classOptions[0])
+  }, [classOptions, classSel])
+
+  const students = useMemo(
+    () => allStudents.filter((s:any)=> `${s.className}-${s.section}`===classSel),
+    [allStudents, classSel]
+  )
+
+  const enrolledFaces = useMemo<EnrolledFace[]>(()=> students
+    .filter((s:any)=> isValidDescriptor(s.faceDescriptor))
+    .map((s:any)=> ({ id: s.id, name: s.name || 'Student', descriptor: s.faceDescriptor })), [students])
+
+  useEffect(()=>{
+    return ()=>{
+      if(scanTimerRef.current) window.clearInterval(scanTimerRef.current)
+      const stream = videoRef.current?.srcObject as MediaStream | null
+      stream?.getTracks().forEach(t=>t.stop())
+    }
+  }, [])
+
+  const submit = async (method: 'manual' | 'ai_camera' = 'manual')=>{
+    const date = todayIST()
     const sid = schoolId || profile?.schoolId || 'global'
     let present=0
     for(const s of students){
-      const status = marks[s.id] || 'present'
+      // Manual mode keeps the common school workflow: unmarked students default to present.
+      // AI camera mode is strict: only a real matched face is present; everyone else remains absent.
+      const status = marks[s.id] || (method === 'manual' ? 'present' : 'absent')
       if(status==='present') present++
       await update(ref(db, `schools/${sid}/attendance/${date}/${s.id}`), {
         studentId: s.id,
@@ -47,7 +86,7 @@ export default function AttendancePage(){
         date,
         status,
         markedBy: profile?.uid,
-        method: aiScanning ? 'ai_camera':'manual',
+        method,
         timestamp: Date.now()
       })
     }
@@ -55,62 +94,162 @@ export default function AttendancePage(){
     try { navigator.vibrate?.(50) } catch {}
   }
 
-  const startAiCamera = async ()=>{
-    setAiScanning(true)
-    try{
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
-      if(videoRef.current){ videoRef.current.srcObject = stream; await videoRef.current.play() }
-      toast('AI camera active – face detection running (demo)')
-      setTimeout(()=>{
-        const auto:any = {}
-        students.forEach((s,i)=> { auto[s.id] = i%7===0 ? 'absent' : 'present' })
-        setMarks(auto)
-        toast.success('AI: Detected '+Object.values(auto).filter(v=>v==='present').length+' present')
-      }, 3000)
-    }catch(e:any){ toast.error('Camera permission denied'); setAiScanning(false)}
+  const drawDetections = (detections:any[], matchedIds:Set<string>) => {
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    if(!video || !canvas) return
+    const ctx = canvas.getContext('2d')
+    if(!ctx) return
+    canvas.width = video.videoWidth || 1280
+    canvas.height = video.videoHeight || 720
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.lineWidth = 4
+    ctx.font = '24px Inter, system-ui, sans-serif'
+    detections.forEach((d:any)=>{
+      const box = d.detection?.box
+      if(!box) return
+      const descriptor = Array.from(d.descriptor || []) as number[]
+      const best = findBestFaceMatch(descriptor, enrolledFaces)
+      const matched = best && best.distance <= FACE_MATCH_THRESHOLD && matchedIds.has(best.id)
+      ctx.strokeStyle = matched ? '#10b981' : '#f59e0b'
+      ctx.fillStyle = matched ? '#10b981' : '#f59e0b'
+      ctx.strokeRect(box.x, box.y, box.width, box.height)
+      const label = matched && best ? `${best.name} ✓` : 'Unknown face'
+      ctx.fillRect(box.x, Math.max(0, box.y - 32), Math.min(canvas.width - box.x, ctx.measureText(label).width + 18), 32)
+      ctx.fillStyle = '#ffffff'
+      ctx.fillText(label, box.x + 8, Math.max(24, box.y - 9))
+    })
   }
-  const stopAi = ()=>{
+
+  const runAiScan = async ()=>{
+    if(scanBusyRef.current || !videoRef.current) return
+    if(!enrolledFaces.length){
+      setAiStatus('Camera is live, but no student Face IDs are enrolled for this class.')
+      return
+    }
+    scanBusyRef.current = true
+    try {
+      const detections = await detectFacesWithDescriptors(videoRef.current)
+      setAiFaceCount(detections.length)
+      const matchedThisFrame = new Set<string>()
+      let newMatches = 0
+      let unknown = 0
+
+      for (const d of detections) {
+        const descriptor = Array.from(d.descriptor || []) as number[]
+        const best = findBestFaceMatch(descriptor, enrolledFaces)
+        if(best && best.distance <= FACE_MATCH_THRESHOLD) {
+          matchedThisFrame.add(best.id)
+          if(!detectedIdsRef.current.has(best.id)) {
+            detectedIdsRef.current.add(best.id)
+            newMatches++
+            setMarks(prev => ({ ...prev, [best.id]: 'present' }))
+            setAiLog(prev => [`${best.name} verified (${Math.round((1-best.distance)*100)}% match)`, ...prev].slice(0, 8))
+            try { navigator.vibrate?.(60) } catch {}
+          }
+        } else {
+          unknown++
+        }
+      }
+
+      drawDetections(detections, matchedThisFrame)
+      const verified = detectedIdsRef.current.size
+      setAiStatus(
+        detections.length
+          ? `${verified}/${students.length} verified${unknown ? ` • ${unknown} unknown face${unknown>1?'s':''} ignored` : ''}${newMatches ? ` • ${newMatches} new` : ''}`
+          : `No face detected • ${verified}/${students.length} verified`
+      )
+    } catch(e:any) {
+      setAiStatus(e?.message || 'AI face detection failed')
+    } finally {
+      scanBusyRef.current = false
+    }
+  }
+
+  const startAiCamera = async ()=>{
+    if(!students.length){ toast.error(`No students in ${classSel}`); return }
+    detectedIdsRef.current = new Set(Object.entries(marks).filter(([,v])=>v==='present').map(([id])=>id))
+    setAiLog([])
+    setAiFaceCount(0)
+    setAiStatus('Opening secure camera…')
+    setAiScanning(true)
+    try { await document.documentElement.requestFullscreen?.() } catch {}
+    try{
+      await new Promise<void>(resolve => requestAnimationFrame(()=>resolve()))
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      })
+      if(videoRef.current){
+        videoRef.current.srcObject = stream
+        await videoRef.current.play()
+      }
+      if(!enrolledFaces.length) {
+        setAiStatus('Camera active. Add Photo URL / Face ID in student profiles before AI can verify attendance.')
+        toast.error('No Face IDs enrolled for this class. AI will not mark random attendance.')
+        return
+      }
+      setAiStatus('Loading face recognition models…')
+      await detectFacesWithDescriptors(videoRef.current!)
+      setAiStatus('AI camera active • matching only enrolled student faces')
+      await runAiScan()
+      scanTimerRef.current = window.setInterval(runAiScan, 1400)
+    }catch(e:any){
+      toast.error(e?.message || 'Camera permission denied')
+      stopAi(false)
+    }
+  }
+
+  const stopAi = (exitFullscreen = true)=>{
     setAiScanning(false)
-    const stream = videoRef.current?.srcObject as MediaStream
+    setAiStatus('Camera off')
+    setAiFaceCount(0)
+    if(scanTimerRef.current){ window.clearInterval(scanTimerRef.current); scanTimerRef.current = null }
+    const stream = videoRef.current?.srcObject as MediaStream | null
     stream?.getTracks().forEach(t=>t.stop())
     if(videoRef.current) videoRef.current.srcObject = null
+    const ctx = canvasRef.current?.getContext('2d')
+    if(ctx && canvasRef.current) ctx.clearRect(0,0,canvasRef.current.width,canvasRef.current.height)
+    if(exitFullscreen && document.fullscreenElement) document.exitFullscreen?.().catch(()=>{})
+  }
+
+  const saveAiAttendance = async ()=>{
+    await submit('ai_camera')
+    stopAi()
   }
 
   const handleQrScan = async (scannedText: string) => {
     const sid = schoolId || profile?.schoolId || 'global'
-    const fullRef = ref(db, schoolId ? `schools/${schoolId}/students` : 'students')
-    onValue(fullRef, async (snap) => {
-      const v = snap.val() || {}
-      const allList = Object.entries(v).map(([id,s]:any)=>({id, ...s}))
-      const matchedStudent = allList.find((s: any) => s.id === scannedText || s.qrCode === scannedText)
+    const matchedStudent = allStudents.find((s: any) => s.id === scannedText || s.qrCode === scannedText)
 
-      if (matchedStudent) {
-        const date = todayStr()
-        await update(ref(db, `schools/${sid}/attendance/${date}/${matchedStudent.id}`), {
-          studentId: matchedStudent.id,
-          className: matchedStudent.className,
-          section: matchedStudent.section,
-          date,
-          status: 'present',
-          markedBy: profile?.uid,
-          method: 'qr',
-          timestamp: Date.now()
-        })
-        setMarks(prev => ({ ...prev, [matchedStudent.id]: 'present' }))
-        toast.success(`Verified: ${matchedStudent.name} marked Present!`)
-        setShowQrScanner(false)
-        try { navigator.vibrate?.(100) } catch {}
-      } else {
-        toast.error(`Invalid QR: "${scannedText.slice(0,20)}..." not found`)
-      }
-    }, { onlyOnce: true })
+    if (matchedStudent) {
+      const date = todayIST()
+      await update(ref(db, `schools/${sid}/attendance/${date}/${matchedStudent.id}`), {
+        studentId: matchedStudent.id,
+        className: matchedStudent.className,
+        section: matchedStudent.section,
+        date,
+        status: 'present',
+        markedBy: profile?.uid,
+        method: 'qr',
+        timestamp: Date.now()
+      })
+      setMarks(prev => ({ ...prev, [matchedStudent.id]: 'present' }))
+      toast.success(`Verified: ${matchedStudent.name} marked Present!`)
+      setShowQrScanner(false)
+      try { navigator.vibrate?.(100) } catch {}
+    } else {
+      toast.error(`Invalid QR: "${scannedText.slice(0,20)}..." not found`)
+    }
   }
 
-  const presentCount = Object.values(marks).filter(v=>v==='present').length || students.length
+  const presentCount = tab === 'ai'
+    ? students.filter(s=>marks[s.id]==='present').length
+    : students.filter(s=>(marks[s.id]||'present')==='present').length
   const absentCount = students.length - presentCount
 
   return <div className="page-container space-y-4">
-    <PageHeader title="Attendance" subtitle={`Smart • QR • AI Camera • ${todayStr()}`} />
+    <PageHeader title="Attendance" subtitle={`Smart • QR • Real AI Camera • ${todayIST()}`} />
 
     <Tabs value={tab} onValueChange={setTab} className="w-full">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -126,9 +265,9 @@ export default function AttendancePage(){
         </TabsList>
         <div className="flex gap-2">
           <select value={classSel} onChange={e=>setClassSel(e.target.value)} className="h-11 rounded-full px-4 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 text-[13px] font-semibold">
-            <option>9-A</option><option>9-B</option><option>10-A</option><option>10-B</option><option>11-A</option><option>12-C</option>
+            {classOptions.map(opt => <option key={opt}>{opt}</option>)}
           </select>
-          <div className="h-11 rounded-full px-4 bg-white dark:bg-zinc-900 border flex items-center text-[13px] font-medium">{new Date().toLocaleDateString('en-IN', { month:'short', day:'numeric', year:'numeric' })}</div>
+          <div className="h-11 rounded-full px-4 bg-white dark:bg-zinc-900 border flex items-center text-[13px] font-medium">{new Date().toLocaleDateString('en-IN', { month:'short', day:'numeric', year:'numeric', timeZone:'Asia/Kolkata' })}</div>
         </div>
       </div>
 
@@ -139,7 +278,6 @@ export default function AttendancePage(){
           <Card className="p-3 text-center rounded-2xl bg-red-50 dark:bg-red-950/20 border-red-100 dark:border-red-900/30"><div className="text-[11px] text-red-700 dark:text-red-300">Absent</div><div className="text-[20px] font-bold text-red-600">{students.length - presentCount}</div></Card>
         </div>
 
-        {/* Mobile list with P/A toggles */}
         <div className="space-y-2.5">
           {students.map(s=>(
             <Card key={s.id} className="rounded-[18px] p-0 overflow-hidden">
@@ -158,11 +296,11 @@ export default function AttendancePage(){
               </div>
             </Card>
           ))}
-          {!students.length && <Card className="p-10 text-center text-muted-foreground text-sm">No students in {classSel}. Add in Students page.</Card>}
+          {!students.length && <Card className="p-10 text-center text-muted-foreground text-sm">No students in {classSel}. Add students from the Students page.</Card>}
         </div>
 
         <div className="sticky bottom-[88px] md:bottom-6 z-20 pt-3">
-          <Button onClick={submit} variant="success" size="lg" className="w-full rounded-full h-14 text-[16px] shadow-[0_10px_30px_rgba(16,185,129,0.3)]">✓ SAVE ATTENDANCE • {presentCount}/{students.length} Present</Button>
+          <Button onClick={()=>submit('manual')} variant="success" size="lg" className="w-full rounded-full h-14 text-[16px] shadow-[0_10px_30px_rgba(16,185,129,0.3)]">✓ SAVE ATTENDANCE • {presentCount}/{students.length} Present</Button>
         </div>
         <p className="text-[11px] text-muted-foreground text-center">Schedule enforced: teacher has 5 min window after class start. Late marking triggers admin notification.</p>
       </TabsContent>
@@ -189,21 +327,14 @@ export default function AttendancePage(){
         <Card className="overflow-hidden rounded-[24px]">
           <CardTitle className="flex items-center gap-2"><Camera size={18}/> AI Camera Attendance</CardTitle>
           <CardContent className="space-y-4">
-            {!aiScanning ? (
-              <>
-                <div className="aspect-video bg-slate-100 dark:bg-zinc-800 rounded-2xl flex items-center justify-center text-muted-foreground text-sm">Camera off - Tap Start</div>
-                <Button variant="gradient" className="w-full rounded-full h-12" onClick={startAiCamera}>Start AI Camera</Button>
-              </>
-            ) : (
-              <>
-                <video ref={videoRef} className="w-full aspect-video rounded-2xl bg-black object-cover" muted playsInline />
-                <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1 rounded-full" onClick={stopAi}>Stop</Button>
-                  <Button variant="success" className="flex-1 rounded-full" onClick={submit}>Save AI Attendance</Button>
-                </div>
-                <p className="text-[11px] text-muted-foreground">Face detection simulated. In production uses face-api.js with school face embeddings.</p>
-              </>
-            )}
+            <div className="aspect-video bg-slate-100 dark:bg-zinc-800 rounded-2xl flex flex-col items-center justify-center text-muted-foreground text-sm p-5 text-center">
+              <ShieldCheck className="mb-2 text-emerald-600" />
+              <b className="text-foreground">Real face matching only</b>
+              <span>No random/demo attendance is generated. Students need a saved Face ID from their profile photo.</span>
+              <span className="mt-2 text-[12px]">Face IDs in {classSel}: {enrolledFaces.length}/{students.length}</span>
+            </div>
+            <Button variant="gradient" className="w-full rounded-full h-12" onClick={startAiCamera}>Open Full Screen AI Camera</Button>
+            <p className="text-[11px] text-muted-foreground">Tip: Add a clear Photo URL in Students page and generate Face ID. AI saves present only for matched enrolled faces.</p>
           </CardContent>
         </Card>
       </TabsContent>
@@ -219,5 +350,41 @@ export default function AttendancePage(){
         </Card>
       </TabsContent>
     </Tabs>
+
+    {aiScanning && (
+      <div id="ai-camera-overlay" className="fixed inset-0 z-[9999] bg-black text-white flex flex-col">
+        <div className="h-16 px-4 flex items-center justify-between bg-black/80 border-b border-white/10 shrink-0">
+          <div>
+            <div className="font-bold leading-tight">AI Camera • {classSel}</div>
+            <div className="text-[12px] text-white/70">{aiStatus} • Faces now: {aiFaceCount}</div>
+          </div>
+          <Button variant="ghost" className="rounded-full text-white hover:bg-white/10" onClick={()=>stopAi()}><X size={18} className="mr-1"/>Close</Button>
+        </div>
+        <div className="relative flex-1 min-h-0 bg-black flex items-center justify-center">
+          <video ref={videoRef} className="w-full h-full object-contain" muted playsInline autoPlay />
+          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
+          <div className="absolute left-3 right-3 bottom-3 grid md:grid-cols-[1fr_320px] gap-3 pointer-events-none">
+            <div className="rounded-2xl bg-black/60 backdrop-blur border border-white/10 p-3">
+              <div className="text-[12px] text-white/70 mb-1">Verified students</div>
+              <div className="flex flex-wrap gap-2">
+                {students.filter(s=>marks[s.id]==='present').map(s=><span key={s.id} className="px-3 py-1 rounded-full bg-emerald-500 text-white text-[12px] font-semibold">{s.name}</span>)}
+                {!students.filter(s=>marks[s.id]==='present').length && <span className="text-[12px] text-white/60">No verified faces yet.</span>}
+              </div>
+            </div>
+            <div className="rounded-2xl bg-black/60 backdrop-blur border border-white/10 p-3 hidden md:block">
+              <div className="text-[12px] text-white/70 mb-1">Live log</div>
+              <div className="space-y-1 text-[12px] max-h-24 overflow-auto">
+                {aiLog.map((l,i)=><div key={i}>✓ {l}</div>)}
+                {!aiLog.length && <div className="text-white/60">Waiting for enrolled faces…</div>}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="p-3 grid grid-cols-2 gap-3 bg-black/90 border-t border-white/10 shrink-0">
+          <Button variant="outline" className="rounded-full h-12 bg-transparent border-white/30 text-white hover:bg-white/10" onClick={()=>stopAi()}>Stop</Button>
+          <Button variant="success" className="rounded-full h-12" onClick={saveAiAttendance}>Save AI Attendance • {students.filter(s=>marks[s.id]==='present').length}/{students.length}</Button>
+        </div>
+      </div>
+    )}
   </div>
 }

@@ -20,7 +20,7 @@ export default function TeachersPage(){
   const [open, setOpen] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
   const [editing, setEditing] = useState<any>(null)
-  const [form, setForm] = useState<any>({ name:'', email:'', phone:'', subjects:'Maths', assignedClasses:'10-A', classTeacherOf:'', qualification:'', experience:'' })
+  const [form, setForm] = useState<any>({ name:'', email:'', phone:'', subjects:'', assignedClasses:'', classTeacherOf:'', qualification:'', experience:'' })
 
   const canEdit = isSchoolAdmin || profile?.role === 'super_admin'
 

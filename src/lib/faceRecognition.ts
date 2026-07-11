@@ -1,4 +1,5 @@
 let faceApiPromise: Promise<any> | null = null
+let loadedModelBase: string | null = null
 
 export type FaceDescriptor = number[]
 
@@ -22,19 +23,76 @@ export const FACE_SCORE_THRESHOLD = 0.55
 /** Reject tiny boxes (phone-in-hand photos / distant noise) */
 export const MIN_FACE_BOX_RATIO = 0.06
 
+/**
+ * Prefer local models. If host rewrites missing files to index.html (SPA),
+ * face-api tries to JSON.parse HTML → "Unexpected token '<'".
+ * We probe the manifest first and fall back to a public CDN.
+ */
+function joinUrl(base: string, path: string) {
+  const b = (base || '/').endsWith('/') ? (base || '/') : `${base || '/'}/`
+  return `${b}${path.replace(/^\//, '')}`
+}
+const LOCAL_MODEL_BASE = joinUrl(String(import.meta.env.BASE_URL || '/'), 'models')
+const CDN_MODEL_BASE = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights'
+
+async function isValidModelBase(base: string): Promise<boolean> {
+  try {
+    const url = `${base.replace(/\/$/, '')}/tiny_face_detector_model-weights_manifest.json`
+    const res = await fetch(url, { method: 'GET', cache: 'force-cache' })
+    if (!res.ok) return false
+    const contentType = (res.headers.get('content-type') || '').toLowerCase()
+    // SPA fallback often returns text/html with 200
+    if (contentType.includes('text/html')) return false
+    const text = await res.text()
+    const trimmed = text.trim()
+    if (!trimmed.startsWith('[') && !trimmed.startsWith('{')) return false
+    JSON.parse(trimmed)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function resolveModelBase(): Promise<string> {
+  if (loadedModelBase) return loadedModelBase
+  if (await isValidModelBase(LOCAL_MODEL_BASE)) {
+    loadedModelBase = LOCAL_MODEL_BASE
+    return loadedModelBase
+  }
+  if (await isValidModelBase(CDN_MODEL_BASE)) {
+    loadedModelBase = CDN_MODEL_BASE
+    return loadedModelBase
+  }
+  throw new Error(
+    'Face AI models could not load. Deploy the public/models folder, or check your network. (Got HTML instead of model JSON.)'
+  )
+}
+
 export async function loadFaceApiModels() {
   if (!faceApiPromise) {
     faceApiPromise = (async () => {
-      const faceapi = await import('face-api.js')
-      // Local weights only — never load remote models in production
-      const modelUrl = `${import.meta.env.BASE_URL}models`
-      await Promise.all([
-        faceapi.nets.tinyFaceDetector.loadFromUri(modelUrl),
-        faceapi.nets.faceLandmark68TinyNet.loadFromUri(modelUrl),
-        faceapi.nets.faceRecognitionNet.loadFromUri(modelUrl),
-        faceapi.nets.ssdMobilenetv1.loadFromUri(modelUrl),
-      ])
-      return faceapi
+      try {
+        const faceapi = await import('face-api.js')
+        const modelUrl = await resolveModelBase()
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri(modelUrl),
+          faceapi.nets.faceLandmark68TinyNet.loadFromUri(modelUrl),
+          faceapi.nets.faceRecognitionNet.loadFromUri(modelUrl),
+          faceapi.nets.ssdMobilenetv1.loadFromUri(modelUrl),
+        ])
+        return faceapi
+      } catch (e: any) {
+        // Allow retry after a failed load (e.g. temporary network)
+        faceApiPromise = null
+        loadedModelBase = null
+        const msg = String(e?.message || e || '')
+        if (msg.includes('Unexpected token') || msg.includes('<!doctype') || msg.includes('is not valid JSON')) {
+          throw new Error(
+            'Face AI models failed to load (server returned a web page instead of model files). Push public/models to your host, or allow CDN access.'
+          )
+        }
+        throw e instanceof Error ? e : new Error(msg || 'Failed to load face AI models')
+      }
     })()
   }
   return faceApiPromise
@@ -99,6 +157,19 @@ function isAcceptableFaceBox(box: { width: number; height: number }, frameW: num
   return true
 }
 
+/** Load image from data URL / blob / http without relying only on faceapi.fetchImage */
+async function loadImageElement(photoUrl: string): Promise<HTMLImageElement> {
+  // data: and blob: load fine without CORS; remote URLs need crossOrigin
+  const isLocal = photoUrl.startsWith('data:') || photoUrl.startsWith('blob:')
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    if (!isLocal) img.crossOrigin = 'anonymous'
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('Could not read the photo. Try another clear face image.'))
+    img.src = photoUrl
+  })
+}
+
 async function detectSingleFromSource(source: HTMLImageElement | HTMLCanvasElement | HTMLVideoElement, mode: 'enroll' | 'live') {
   const faceapi = await loadFaceApiModels()
   const result = await faceapi
@@ -124,8 +195,14 @@ async function detectSingleFromSource(source: HTMLImageElement | HTMLCanvasEleme
 }
 
 export async function createFaceDescriptorFromImageUrl(photoUrl: string): Promise<FaceDescriptor> {
-  const faceapi = await loadFaceApiModels()
-  const img = await faceapi.fetchImage(photoUrl)
+  if (!photoUrl) throw new Error('No photo selected')
+  // Ensure models are ready first (clear error if SPA returns HTML for models)
+  await loadFaceApiModels()
+  const img = await loadImageElement(photoUrl)
+  // Wait a frame so dimensions are reliable
+  if (!img.naturalWidth) {
+    await new Promise(r => setTimeout(r, 30))
+  }
   const result = await detectSingleFromSource(img, 'enroll')
   return Array.from(result.descriptor)
 }

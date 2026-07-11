@@ -1,66 +1,133 @@
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSchool } from '@/contexts/SchoolContext'
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, LineChart, Line, AreaChart, Area } from 'recharts'
-import { useEffect, useState } from 'react'
+import { XAxis, YAxis, ResponsiveContainer, Tooltip, LineChart, Line, AreaChart, Area } from 'recharts'
+import { useEffect, useMemo, useState } from 'react'
 import { db } from '@/lib/firebase'
 import { ref, onValue } from 'firebase/database'
 import { aiDailySummary } from '@/lib/ai'
-import PageHeader from '@/components/mobile/PageHeader'
+import { todayIST } from '@/lib/rtdb'
 import { Users, GraduationCap, CheckCircle2, Clock3, AlertTriangle, Sparkles, TrendingUp, Award, Activity } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
-const trend = [
-  {name:'Mon', present:92, absent:8},
-  {name:'Tue', present:88, absent:12},
-  {name:'Wed', present:94, absent:6},
-  {name:'Thu', present:90, absent:10},
-  {name:'Fri', present:86, absent:14},
-  {name:'Sat', present:78, absent:8},
-]
+const dateKey = (daysAgo = 0) => new Date(Date.now() - daysAgo * 86400000).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
+const dayLabel = (daysAgo = 0) => new Date(Date.now() - daysAgo * 86400000).toLocaleDateString('en-IN', { weekday: 'short', timeZone: 'Asia/Kolkata' })
 
 export default function DashboardPage(){
   const { profile } = useAuth()
-  const { school } = useSchool()
-  const [liveTeachers, setLiveTeachers] = useState<any[]>([])
-  const [counts, setCounts] = useState({ students:2485, teachers:132, present:96.8, absent:83, late:18, leave:23 })
+  const { school, schoolId } = useSchool()
+  const [students, setStudents] = useState<any[]>([])
+  const [teachers, setTeachers] = useState<any[]>([])
+  const [attendance, setAttendance] = useState<Record<string, Record<string, any>>>({})
 
   useEffect(()=>{
-    if(profile?.role !== 'school_admin' && profile?.role !== 'super_admin') return
-    const unsub = onValue(ref(db,'users'), snap=>{
-      const v = snap.val()||{}
-      const teachers = Object.values(v).filter((u:any)=>u.role==='teacher')
-      setLiveTeachers(teachers as any)
+    const path = schoolId ? `schools/${schoolId}/students` : 'students'
+    const unsub = onValue(ref(db, path), snap=>{
+      const v = snap.val() || {}
+      setStudents(Object.entries(v).map(([id, s]:any)=>({ id, ...s })))
     })
     return ()=>unsub()
-  }, [profile?.role])
+  }, [schoolId])
 
-  const summary = aiDailySummary({attendancePct:counts.present, present: 2400, absent: counts.absent, late: counts.late })
+  useEffect(()=>{
+    const path = schoolId ? `schools/${schoolId}/teachers` : 'users'
+    const unsub = onValue(ref(db, path), snap=>{
+      const v = snap.val() || {}
+      const list = Object.entries(v)
+        .map(([id, t]:any)=>({ uid: t.uid || id, id, ...t }))
+        .filter((t:any)=> schoolId ? true : t.role === 'teacher')
+      setTeachers(list)
+    })
+    return ()=>unsub()
+  }, [schoolId])
+
+  useEffect(()=>{
+    if(!schoolId){ setAttendance({}); return }
+    const unsub = onValue(ref(db, `schools/${schoolId}/attendance`), snap=>{
+      setAttendance(snap.val() || {})
+    })
+    return ()=>unsub()
+  }, [schoolId])
+
+  const studentMap = useMemo(()=> new Map(students.map((s:any)=>[s.id, s])), [students])
+  const todayRecords = useMemo(()=> Object.values(attendance[todayIST()] || {}), [attendance])
+
+  const counts = useMemo(()=>{
+    const presentRecords = todayRecords.filter((r:any)=>r.status === 'present')
+    const lateRecords = todayRecords.filter((r:any)=>r.status === 'late')
+    const absentRecords = todayRecords.filter((r:any)=>r.status === 'absent')
+    const leaveRecords = todayRecords.filter((r:any)=>['leave','half_day','medical_leave'].includes(r.status))
+    const presentPct = students.length ? Math.round((presentRecords.length / students.length) * 1000) / 10 : 0
+    const newEnrollments = students.filter((s:any)=> s.createdAt && s.createdAt >= Date.now() - 30 * 86400000).length
+
+    let atRisk = 0
+    for (const s of students) {
+      const records = Object.values(attendance).flatMap((day:any)=> Object.values(day || {}).filter((r:any)=>r.studentId === s.id))
+      if(records.length >= 5) {
+        const presentLike = records.filter((r:any)=>['present','late'].includes(r.status)).length
+        if(presentLike / records.length < 0.75) atRisk++
+      }
+    }
+
+    return {
+      students: students.length,
+      teachers: teachers.length,
+      teachersOnline: teachers.filter((t:any)=>t.isOnline).length,
+      present: presentPct,
+      presentCount: presentRecords.length,
+      absent: absentRecords.length,
+      late: lateRecords.length,
+      leave: leaveRecords.length,
+      newEnrollments,
+      atRisk,
+    }
+  }, [students, teachers, todayRecords, attendance])
+
+  const trend = useMemo(()=> Array.from({length: 6}, (_,i)=>5-i).map(daysAgo=>{
+    const key = dateKey(daysAgo)
+    const records = Object.values(attendance[key] || {})
+    const present = records.length ? Math.round(records.filter((r:any)=>['present','late'].includes(r.status)).length / records.length * 100) : 0
+    const absent = records.length ? Math.round(records.filter((r:any)=>r.status === 'absent').length / records.length * 100) : 0
+    return { name: dayLabel(daysAgo), present, absent }
+  }), [attendance])
+
+  const bestDay = trend.reduce((best, d)=> d.present > best.present ? d : best, trend[0] || {name:'—', present:0})
+  const summary = students.length || todayRecords.length
+    ? aiDailySummary({attendancePct: counts.present, present: counts.presentCount, absent: counts.absent, late: counts.late })
+    : ['No student or attendance data yet.', 'Add students from the Students page to start seeing live dashboard analytics.', 'Demo data has been removed from this dashboard.']
 
   const kpis = [
     { label: 'Total Students', value: counts.students.toLocaleString(), icon: Users, color: 'from-indigo-500 to-violet-500' },
-    { label: 'Teachers Present', value: `132/138`, icon: GraduationCap, color: 'from-emerald-500 to-teal-500' },
+    { label: 'Teachers Online', value: `${counts.teachersOnline}/${counts.teachers}`, icon: GraduationCap, color: 'from-emerald-500 to-teal-500' },
     { label: "Today's Attendance", value: `${counts.present}%`, icon: CheckCircle2, color: 'from-blue-500 to-cyan-500' },
-    { label: 'New Enrollments', value: '42', icon: TrendingUp, color: 'from-amber-500 to-orange-500' },
+    { label: 'New Enrollments', value: counts.newEnrollments.toString(), icon: TrendingUp, color: 'from-amber-500 to-orange-500' },
     { label: 'Late Today', value: counts.late.toString(), icon: Clock3, color: 'from-fuchsia-500 to-pink-500' },
-    { label: 'At Risk', value: '12', icon: AlertTriangle, color: 'from-red-500 to-rose-500' },
+    { label: 'At Risk', value: counts.atRisk.toString(), icon: AlertTriangle, color: 'from-red-500 to-rose-500' },
   ]
 
+  const recentActivities = todayRecords
+    .slice()
+    .sort((a:any,b:any)=> (b.timestamp||0) - (a.timestamp||0))
+    .slice(0,4)
+    .map((r:any)=>{
+      const st = studentMap.get(r.studentId)
+      const time = r.timestamp ? new Date(r.timestamp).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit', timeZone:'Asia/Kolkata' }) : '--:--'
+      return { time, text: `${st?.name || 'Student'} marked ${r.status} (${(r.method || 'manual').replace('_',' ')})` }
+    })
+
   return <div className="page-container space-y-5">
-    {/* Greeting */}
     <div className="rounded-[28px] bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-600 p-[1px] shadow-[0_12px_40px_rgba(79,70,229,0.25)]">
       <div className="rounded-[27px] bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-500 p-5 md:p-6 text-white relative overflow-hidden">
         <div className="absolute -right-10 -top-10 w-40 h-40 bg-white/15 rounded-full blur-2xl" />
         <div className="absolute -left-10 -bottom-10 w-32 h-32 bg-white/10 rounded-full blur-xl" />
         <div className="relative z-10">
-          <div className="flex items-center gap-2 text-white/80 text-[12px]"><Sparkles size={14}/> {new Date().toLocaleDateString('en-IN', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}</div>
-          <h1 className="text-[22px] md:text-[28px] font-extrabold tracking-tight mt-1 leading-tight">Good Morning, {profile?.displayName?.split(' ')[0] || 'Sarah'}!</h1>
-          <p className="text-white/80 text-[13px] md:text-[14px] mt-1 max-w-[85%]">Welcome to {school?.name || 'EduSphere Public School'}, your AI attendance is strong at 96.8% and congrats ✨</p>
+          <div className="flex items-center gap-2 text-white/80 text-[12px]"><Sparkles size={14}/> {new Date().toLocaleDateString('en-IN', { weekday:'long', year:'numeric', month:'long', day:'numeric', timeZone:'Asia/Kolkata' })}</div>
+          <h1 className="text-[22px] md:text-[28px] font-extrabold tracking-tight mt-1 leading-tight">Good Morning, {profile?.displayName?.split(' ')[0] || profile?.email?.split('@')[0] || 'Admin'}!</h1>
+          <p className="text-white/80 text-[13px] md:text-[14px] mt-1 max-w-[85%]">Welcome to {school?.name || 'your school'}. Today&apos;s saved attendance is {counts.present}% from your real records.</p>
         </div>
       </div>
     </div>
 
-    {/* KPI scroll on mobile */}
     <div className="md:hidden flex gap-3 overflow-x-auto scrollbar-hide snap-x snap-mandatory pb-1 -mx-1 px-1">
       {kpis.map((k)=>(
         <div key={k.label} className="kpi-card min-w-[152px] max-w-[152px] shrink-0 snap-start">
@@ -87,7 +154,7 @@ export default function DashboardPage(){
       <Card className="lg:col-span-2 overflow-hidden">
         <div className="flex items-center justify-between pr-5">
           <CardTitle>Weekly Attendance Trend</CardTitle>
-          <span className="text-xs px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 font-medium">98% Thu best</span>
+          <span className="text-xs px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 font-medium">Best: {bestDay.name} {bestDay.present}%</span>
         </div>
         <CardContent>
           <div className="h-[200px] md:h-[220px] -mx-2">
@@ -100,14 +167,11 @@ export default function DashboardPage(){
                   </linearGradient>
                 </defs>
                 <XAxis dataKey="name" axisLine={false} tickLine={false} stroke="hsl(var(--muted-foreground))" fontSize={12}/>
-                <YAxis hide domain={[70,100]} />
+                <YAxis hide domain={[0,100]} />
                 <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }} />
                 <Area type="monotone" dataKey="present" stroke="#6366f1" strokeWidth={2.5} fill="url(#attendGrad)" dot={{ r:4, fill:'#6366f1' }} activeDot={{ r:6 }}/>
               </AreaChart>
             </ResponsiveContainer>
-          </div>
-          <div className="flex justify-center gap-1.5 mt-3 md:hidden">
-            {[0,1,2,3,4].map(i=><div key={i} className={`w-1.5 h-1.5 rounded-full ${i===0?'bg-zinc-900 dark:bg-white':'bg-zinc-300 dark:bg-zinc-700'}`} />)}
           </div>
         </CardContent>
       </Card>
@@ -126,36 +190,36 @@ export default function DashboardPage(){
 
     <div className="grid lg:grid-cols-3 gap-4">
       <Card>
-        <CardTitle className="flex items-center gap-2"><TrendingUp size={18}/> Performance Trend</CardTitle>
+        <CardTitle className="flex items-center gap-2"><TrendingUp size={18}/> Attendance Trend</CardTitle>
         <CardContent>
           <div className="h-[140px]">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={trend}>
                 <Line type="monotone" dataKey="present" stroke="#8b5cf6" strokeWidth={2.5} dot={false}/>
                 <XAxis dataKey="name" hide/>
-                <YAxis hide/>
+                <YAxis hide domain={[0,100]}/>
                 <Tooltip/>
               </LineChart>
             </ResponsiveContainer>
           </div>
-          <div className="text-xs text-muted-foreground mt-2">Avg +4.2% vs last week</div>
+          <div className="text-xs text-muted-foreground mt-2">Based on saved attendance records only.</div>
         </CardContent>
       </Card>
 
       <Card>
         <CardTitle className="flex items-center gap-2"><Award size={18}/> Top Performers</CardTitle>
-        <CardContent className="text-[13px] space-y-3 mt-2">
-          {['Aarav S. • 10-A • 96.4%','Ishita M. • 9-B • 95.1%','Vihaan R. • 12-C • 94.8%','Ananya P. • 11-A • 93.9%','Reyansh K. • 10-B • 93.2%'].map(n=><div key={n} className="flex justify-between items-center"><span className="font-medium">{n.split(' • ')[0]}</span><span className="text-muted-foreground text-xs">{n.split(' • ').slice(1).join(' • ')}</span></div>)}
+        <CardContent className="text-[13px] space-y-3 mt-2 text-muted-foreground">
+          No marks data yet. Add and publish marks to show real rank/performance information here.
         </CardContent>
       </Card>
 
       <Card className="border-red-100 dark:border-red-900/20">
         <CardTitle className="flex items-center gap-2 text-red-600"><AlertTriangle size={18}/> Students at Risk</CardTitle>
         <CardContent className="text-[13px] space-y-2.5 mt-1">
-          <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-red-500"/> High: 4 students (&lt;60%)</div>
-          <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-amber-500"/> Medium: 8 students (60-75%)</div>
-          <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500"/> Low: 1236 students</div>
-          <div className="pt-3 text-[11px] text-muted-foreground p-2.5 rounded-xl bg-slate-50 dark:bg-zinc-800">AI Attendance Risk Prediction active • Auto WhatsApp alerts ready</div>
+          <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-red-500"/> {counts.atRisk} students below 75% from saved attendance</div>
+          <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-amber-500"/> {counts.absent} absent today</div>
+          <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500"/> {counts.presentCount} present today</div>
+          <div className="pt-3 text-[11px] text-muted-foreground p-2.5 rounded-xl bg-slate-50 dark:bg-zinc-800">AI Attendance Risk Prediction uses your Firebase attendance records.</div>
         </CardContent>
       </Card>
     </div>
@@ -165,19 +229,16 @@ export default function DashboardPage(){
         <CardTitle>Teacher Live Status</CardTitle>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-            {(liveTeachers.slice(0,6).length?liveTeachers.slice(0,6):[
-              {displayName:'Priya Sharma', isOnline:true, subjects:['Maths']},
-              {displayName:'Rahul Verma', isOnline:true, subjects:['Science']},
-              {displayName:'Sneha Iyer', isOnline:false, subjects:['English']},
-            ]).map((t:any,i)=>(
-              <div key={i} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-zinc-800/80 border border-slate-100 dark:border-zinc-700/50">
+            {teachers.map((t:any,i)=>(
+              <div key={t.uid || i} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-zinc-800/80 border border-slate-100 dark:border-zinc-700/50">
                 <div>
-                  <div className="font-semibold text-[14px]">{t.displayName || t.name || 'Teacher '+(i+1)}</div>
-                  <div className="text-[11px] text-muted-foreground">{(t.subjects||['General']).join(', ')}</div>
+                  <div className="font-semibold text-[14px]">{t.displayName || t.name || 'Teacher'}</div>
+                  <div className="text-[11px] text-muted-foreground">{(t.subjects||[]).join(', ') || 'No subjects added'}</div>
                 </div>
                 <span className={`text-[11px] px-2.5 py-1 rounded-full font-medium ${t.isOnline ? 'bg-emerald-500/15 text-emerald-600' : 'bg-zinc-500/15 text-zinc-500'}`}>{t.isOnline ? 'Active' : 'Offline'}</span>
               </div>
             ))}
+            {!teachers.length && <div className="md:col-span-3 text-center text-muted-foreground p-6 rounded-2xl bg-slate-50 dark:bg-zinc-800/80">No teachers added yet.</div>}
           </div>
           <p className="text-[11px] text-muted-foreground mt-3">Admin-only online/offline presence tracking • Real-time Firebase</p>
         </CardContent>
@@ -189,10 +250,8 @@ export default function DashboardPage(){
         <CardTitle>Recent Activities</CardTitle>
         <CardContent>
           <ul className="text-[13px] space-y-2.5 text-muted-foreground">
-            <li className="flex gap-2"><span className="text-foreground font-medium">09:04</span> Class 9-B attendance closed (AI camera 34/36)</li>
-            <li className="flex gap-2"><span className="text-foreground font-medium">08:47</span> Marks published: Science UT-2 - Class 10</li>
-            <li className="flex gap-2"><span className="text-foreground font-medium">08:30</span> WhatsApp absent alerts sent (23)</li>
-            <li className="flex gap-2"><span className="text-foreground font-medium">08:12</span> Teacher late alert: Maths 10-A - 7 min</li>
+            {recentActivities.map((a,i)=><li key={i} className="flex gap-2"><span className="text-foreground font-medium">{a.time}</span> {a.text}</li>)}
+            {!recentActivities.length && <li>No activity saved today yet.</li>}
           </ul>
         </CardContent>
       </Card>

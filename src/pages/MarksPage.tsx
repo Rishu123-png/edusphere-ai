@@ -30,16 +30,28 @@ export default function MarksPage(){
     return ()=>unsub()
   }, [schoolId])
 
+  const teacherClasses = useMemo(()=>{
+    if(profile?.role !== 'teacher') return []
+    const assigned = Array.isArray((profile as any)?.assignedClasses) ? (profile as any).assignedClasses : []
+    const classTeacherOf = (profile as any)?.classTeacherOf ? [(profile as any).classTeacherOf] : []
+    return Array.from(new Set([...assigned, ...classTeacherOf].map((c:any)=>String(c).trim()).filter(Boolean)))
+  }, [profile])
+
+  const visibleStudents = useMemo(()=>{
+    if(profile?.role !== 'teacher') return allStudents
+    return allStudents.filter((s:any)=> teacherClasses.includes(`${s.className}-${s.section}`))
+  }, [allStudents, profile?.role, teacherClasses])
+
   const classOptions = useMemo(()=>{
-    const options = Array.from(new Set(allStudents.map((s:any)=>`${s.className}-${s.section}`).filter(Boolean))).sort()
-    return options.length ? options : ['9-A','9-B','10-A','10-B','11-A','12-C']
-  }, [allStudents])
+    const options = Array.from(new Set(visibleStudents.map((s:any)=>`${s.className}-${s.section}`).filter(Boolean))).sort()
+    return options.length ? options : (profile?.role === 'teacher' ? [] : ['9-A','9-B','10-A','10-B','11-A','12-C'])
+  }, [visibleStudents, profile?.role])
 
   useEffect(()=>{
     if(classOptions.length && !classOptions.includes(classSel)) setClassSel(classOptions[0])
   }, [classOptions, classSel])
 
-  const students = useMemo(()=> allStudents.filter((s:any)=>`${s.className}-${s.section}` === classSel), [allStudents, classSel])
+  const students = useMemo(()=> visibleStudents.filter((s:any)=>`${s.className}-${s.section}` === classSel), [visibleStudents, classSel])
   const entered = students.filter((s:any)=> typeof marks[s.id] === 'number')
   const avg = entered.length ? entered.reduce((sum:any, s:any)=> sum + Number(marks[s.id]), 0) / entered.length : 0
   const rankList = entered

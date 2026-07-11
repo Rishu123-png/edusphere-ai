@@ -28,7 +28,7 @@ export default function StudentsPage(){
   const [generatingFaceId, setGeneratingFaceId] = useState(false)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const emptyForm = { name:'', className:'10', section:'A', rollNumber:'', admissionNumber:'', guardianName:'', guardianPhone:'', photoUrl:'' }
+  const emptyForm = { name:'', className:'10', section:'A', rollNumber:'', admissionNumber:'', guardianName:'', guardianPhone:'', subjects:'', photoUrl:'' }
   const [form, setForm] = useState<any>(emptyForm)
 
   const canEdit = isSchoolAdmin || profile?.role === 'super_admin'
@@ -42,7 +42,14 @@ export default function StudentsPage(){
     return ()=>unsub()
   }, [schoolId])
 
-  const filtered = students.filter((s:any)=> (s.name||'').toLowerCase().includes(q.toLowerCase()) || (s.admissionNumber||'').includes(q) || (s.rollNumber||'').includes(q))
+  const assignedClasses = Array.isArray(profile?.assignedClasses) ? profile.assignedClasses : []
+  const classTeacherOf = profile?.classTeacherOf ? [profile.classTeacherOf] : []
+  const teacherClasses = Array.from(new Set([...assignedClasses, ...classTeacherOf].map((c:any)=>String(c).trim()).filter(Boolean)))
+  const visibleStudents = profile?.role === 'teacher'
+    ? students.filter((s:any)=> teacherClasses.includes(`${s.className}-${s.section}`))
+    : students
+
+  const filtered = visibleStudents.filter((s:any)=> (s.name||'').toLowerCase().includes(q.toLowerCase()) || (s.admissionNumber||'').includes(q) || (s.rollNumber||'').includes(q))
 
   const save = async ()=>{
     if(!canEdit){ toast.error('Only School Admin can add/edit students'); return }
@@ -51,6 +58,7 @@ export default function StudentsPage(){
     const id = editing?.id || form.id || generateId('stu_')
     const payload = {
       ...form,
+      subjects: typeof form.subjects === 'string' ? form.subjects.split(',').map((x:string)=>x.trim()).filter(Boolean) : (form.subjects || []),
       schoolId: sid,
       classTeacherId: form.classTeacherId || '',
       status: 'active',
@@ -87,15 +95,28 @@ export default function StudentsPage(){
     setUploadingPhoto(true)
     try {
       const resized = await resizeImageDataUrl(dataUrl)
-      const photoUrl = await uploadStudentPhoto(sid, id, resized)
-      setForm((prev:any)=>({...prev, id, photoUrl, faceDescriptor: null}))
+      // Show the selected image immediately so the app never feels stuck while Storage uploads.
+      setForm((prev:any)=>({...prev, id, photoUrl: resized, faceDescriptor: null}))
+
+      let faceDescriptor: number[] | null = null
+      try {
+        faceDescriptor = await Promise.race([
+          createFaceDescriptorFromImageUrl(resized),
+          new Promise<never>((_, reject)=> window.setTimeout(()=>reject(new Error('Face ID generation timed out. Try a clearer, smaller photo.')), 45000))
+        ])
+        setForm((prev:any)=>({...prev, id, faceDescriptor}))
+      } catch(faceError:any) {
+        toast.error(faceError?.message || 'Photo selected, but Face ID was not generated')
+      }
 
       try {
-        const faceDescriptor = await createFaceDescriptorFromImageUrl(resized)
-        setForm((prev:any)=>({...prev, id, photoUrl, faceDescriptor}))
-        toast.success('Photo uploaded and AI Face ID generated. Now save the student.')
-      } catch(faceError:any) {
-        toast.error(faceError?.message || 'Photo uploaded, but Face ID was not generated')
+        const uploadedUrl = await uploadStudentPhoto(sid, id, resized)
+        setForm((prev:any)=>({...prev, id, photoUrl: uploadedUrl, faceDescriptor: faceDescriptor || prev.faceDescriptor}))
+        toast.success(faceDescriptor ? 'Photo uploaded and AI Face ID generated. Now save the student.' : 'Photo uploaded. Use a clearer face photo for AI Face ID.')
+      } catch(uploadError:any) {
+        // Keep compressed local photo as a fallback instead of endless loading.
+        setForm((prev:any)=>({...prev, id, photoUrl: resized, faceDescriptor: faceDescriptor || prev.faceDescriptor}))
+        toast.error(uploadError?.message || 'Storage upload failed. Photo preview is kept; check Firebase Storage rules.')
       }
     } catch(e:any) {
       toast.error(e?.message || 'Photo upload failed')
@@ -145,7 +166,7 @@ export default function StudentsPage(){
   const handleEdit = (s:any)=>{
     if(!canEdit){ toast.error('School Admin only'); return }
     setEditing(s)
-    setForm(s)
+    setForm({...s, subjects: Array.isArray(s.subjects) ? s.subjects.join(', ') : (s.subjects || '')})
     setOpen(true)
   }
 
@@ -167,7 +188,7 @@ export default function StudentsPage(){
   }
 
   return <div className="page-container space-y-4">
-    <PageHeader title="Students" subtitle={`${filtered.length} total • Admin Full Access`} action={
+    <PageHeader title="Students" subtitle={profile?.role === 'teacher' ? `${filtered.length} students assigned to you` : `${filtered.length} total • Admin Full Access`} action={
       <div className="flex gap-2">
         <Button variant="outline" size="sm" className="rounded-full hidden md:flex" onClick={bulkExport}><Download size={16} className="mr-1"/> Export</Button>
         {canEdit ? (
@@ -199,10 +220,8 @@ export default function StudentsPage(){
                 ['rollNumber','Roll No'],
                 ['className','Class'],
                 ['section','Section'],
-                ['house','House'],
+                ['subjects','Subjects (comma, e.g. Maths, Science, English)'],
                 ['dob','DOB'],
-                ['gender','Gender'],
-                ['bloodGroup','Blood Group'],
                 ['guardianName','Guardian'],
                 ['guardianPhone','Guardian Phone'],
                 ['address','Address'], 
@@ -233,16 +252,15 @@ export default function StudentsPage(){
         <Input placeholder="Search Students... name, adm, roll" value={q} onChange={e=>setQ(e.target.value)} className="pl-11 h-14 rounded-full bg-white dark:bg-zinc-900" />
       </div>
       <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-        <span className="px-4 py-2 rounded-full bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 text-[13px] font-medium whitespace-nowrap">Grade 10-A</span>
-        <span className="px-4 py-2 rounded-full bg-slate-100 dark:bg-zinc-800 text-[13px] whitespace-nowrap">Section A</span>
-        <span className="px-4 py-2 rounded-full bg-slate-100 dark:bg-zinc-800 text-[13px] whitespace-nowrap">Gender: All</span>
+        <span className="px-4 py-2 rounded-full bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 text-[13px] font-medium whitespace-nowrap">{profile?.role === 'teacher' ? 'Assigned Classes' : 'All Classes'}</span>
+        <span className="px-4 py-2 rounded-full bg-slate-100 dark:bg-zinc-800 text-[13px] whitespace-nowrap">Subjects</span>
         <span className="px-4 py-2 rounded-full bg-slate-100 dark:bg-zinc-800 text-[13px] whitespace-nowrap">Status: Active</span>
       </div>
     </div>
 
     {!canEdit && (
       <div className="p-3.5 rounded-2xl bg-blue-50 dark:bg-blue-950/30 text-blue-800 dark:text-blue-200 text-[13px] border border-blue-100 dark:border-blue-900/50">
-        👁️ Teacher view: read-only. Attendance & Marks entry allowed in respective modules.
+        👁️ Teacher view: read-only. Showing only students from your assigned class/section. Attendance & Marks entry allowed in respective modules.
       </div>
     )}
 

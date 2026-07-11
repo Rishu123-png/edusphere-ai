@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, type ChangeEvent } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,10 +10,11 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useSchool } from '@/contexts/SchoolContext'
 import { generateId } from '@/lib/utils'
 import { createFaceDescriptorFromImageUrl, isValidDescriptor } from '@/lib/faceRecognition'
+import { fileToDataUrl, resizeImageDataUrl, uploadStudentPhoto } from '@/lib/studentPhoto'
 import { toast } from 'sonner'
 import { QRCodeSVG } from 'qrcode.react'
 import PageHeader from '@/components/mobile/PageHeader'
-import { Search, Plus, Filter, MoreVertical, QrCode, Edit2, Trash2, Download } from 'lucide-react'
+import { Search, Plus, Filter, MoreVertical, QrCode, Edit2, Trash2, Download, Camera, ImageUp } from 'lucide-react'
 
 type Student = any
 
@@ -25,6 +26,8 @@ export default function StudentsPage(){
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<any>(null)
   const [generatingFaceId, setGeneratingFaceId] = useState(false)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
   const emptyForm = { name:'', className:'10', section:'A', rollNumber:'', admissionNumber:'', guardianName:'', guardianPhone:'', photoUrl:'' }
   const [form, setForm] = useState<any>(emptyForm)
 
@@ -45,7 +48,7 @@ export default function StudentsPage(){
     if(!canEdit){ toast.error('Only School Admin can add/edit students'); return }
     if(!form.name || !form.rollNumber){ toast.error('Name & Roll required'); return }
     const sid = schoolId || profile?.schoolId || 'global'
-    const id = editing?.id || generateId('stu_')
+    const id = editing?.id || form.id || generateId('stu_')
     const payload = {
       ...form,
       schoolId: sid,
@@ -63,17 +66,80 @@ export default function StudentsPage(){
   }
 
   const generateFaceId = async ()=>{
-    if(!form.photoUrl){ toast.error('Add a clear student Photo URL first'); return }
+    if(!form.photoUrl){ toast.error('Update/select a clear student photo first'); return }
     setGeneratingFaceId(true)
     try {
       const faceDescriptor = await createFaceDescriptorFromImageUrl(form.photoUrl)
       setForm((prev:any)=>({...prev, faceDescriptor}))
       toast.success('AI Face ID generated. Save the student to keep it.')
     } catch(e:any) {
+      setForm((prev:any)=>({...prev, faceDescriptor: null}))
       toast.error(e?.message || 'Could not generate Face ID')
     } finally {
       setGeneratingFaceId(false)
     }
+  }
+
+  const applySelectedPhoto = async (dataUrl: string) => {
+    if(!canEdit){ toast.error('School Admin only'); return }
+    const sid = schoolId || profile?.schoolId || 'global'
+    const id = editing?.id || form.id || generateId('stu_')
+    setUploadingPhoto(true)
+    try {
+      const resized = await resizeImageDataUrl(dataUrl)
+      const photoUrl = await uploadStudentPhoto(sid, id, resized)
+      setForm((prev:any)=>({...prev, id, photoUrl, faceDescriptor: null}))
+
+      try {
+        const faceDescriptor = await createFaceDescriptorFromImageUrl(resized)
+        setForm((prev:any)=>({...prev, id, photoUrl, faceDescriptor}))
+        toast.success('Photo uploaded and AI Face ID generated. Now save the student.')
+      } catch(faceError:any) {
+        toast.error(faceError?.message || 'Photo uploaded, but Face ID was not generated')
+      }
+    } catch(e:any) {
+      toast.error(e?.message || 'Photo upload failed')
+    } finally {
+      setUploadingPhoto(false)
+    }
+  }
+
+  const chooseStudentPhoto = async () => {
+    if(!canEdit){ toast.error('School Admin only'); return }
+    try {
+      const { Capacitor } = await import('@capacitor/core')
+      if(Capacitor.isNativePlatform()) {
+        const { Camera, CameraResultType, CameraSource } = await import('@capacitor/camera')
+        const photo = await Camera.getPhoto({
+          source: CameraSource.Prompt,
+          resultType: CameraResultType.DataUrl,
+          quality: 86,
+          width: 900,
+          height: 900,
+          correctOrientation: true,
+          allowEditing: false,
+          promptLabelHeader: 'Update Student Photo',
+          promptLabelPhoto: 'Open Gallery / Photos',
+          promptLabelPicture: 'Open Camera',
+          promptLabelCancel: 'Cancel'
+        })
+        if(photo.dataUrl) await applySelectedPhoto(photo.dataUrl)
+        return
+      }
+    } catch(e:any) {
+      // If Capacitor is not available or native picker is cancelled, use browser file picker.
+      if(e?.message && /cancel/i.test(e.message)) return
+    }
+    fileInputRef.current?.click()
+  }
+
+  const handlePhotoFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if(!file) return
+    if(!file.type.startsWith('image/')){ toast.error('Please select an image'); return }
+    const dataUrl = await fileToDataUrl(file)
+    await applySelectedPhoto(dataUrl)
   }
 
   const handleEdit = (s:any)=>{
@@ -109,6 +175,23 @@ export default function StudentsPage(){
           <DialogTrigger asChild><Button variant="gradient" size="sm" className="rounded-full h-11 px-5"><Plus size={18} className="mr-1"/> Add Student</Button></DialogTrigger>
           <DialogContent className="rounded-[28px] max-h-[90vh] overflow-auto">
             <DialogHeader><DialogTitle className="text-[20px]">{editing ? 'Edit Student' : 'New Student'}</DialogTitle></DialogHeader>
+            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoFile} />
+            <div className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-100 dark:border-zinc-700 flex flex-col md:flex-row gap-3 md:items-center justify-between mb-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-16 h-16 rounded-2xl overflow-hidden bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-xl shrink-0">
+                  {form.photoUrl ? <img src={form.photoUrl} alt="Student" className="w-full h-full object-cover" /> : (form.name?.[0] || 'S')}
+                </div>
+                <div className="min-w-0">
+                  <div className="font-bold text-[14px]">Student Photo</div>
+                  <div className="text-[12px] text-muted-foreground">Tap Update Photo to open Android Gallery/Photos or Camera. No URL typing needed.</div>
+                  <div className="text-[12px] mt-1">AI Face ID: <b className={isValidDescriptor(form.faceDescriptor) ? 'text-emerald-600' : 'text-amber-600'}>{isValidDescriptor(form.faceDescriptor) ? 'Ready' : 'Missing'}</b></div>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 shrink-0">
+                <Button variant="outline" className="rounded-full" onClick={chooseStudentPhoto} disabled={uploadingPhoto}><ImageUp size={16} className="mr-1"/>{uploadingPhoto ? 'Uploading…' : 'Update Photo'}</Button>
+                {form.photoUrl && <Button variant="ghost" className="rounded-full" onClick={generateFaceId} disabled={generatingFaceId}><Camera size={16} className="mr-1"/>{generatingFaceId ? 'Checking…' : 'Face ID'}</Button>}
+              </div>
+            </div>
             <div className="grid md:grid-cols-2 gap-3.5">
               {[
                 ['name','Full Name'],
@@ -122,8 +205,7 @@ export default function StudentsPage(){
                 ['bloodGroup','Blood Group'],
                 ['guardianName','Guardian'],
                 ['guardianPhone','Guardian Phone'],
-                ['photoUrl','Photo URL (for AI Face ID)'],
-                ['address','Address'],
+                ['address','Address'], 
               ].map(([k,label])=>(
                 <div key={k}>
                   <Label className="text-[12px]">{label}</Label>
@@ -131,12 +213,8 @@ export default function StudentsPage(){
                 </div>
               ))}
             </div>
-            <div className="mt-4 p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 text-[13px] flex flex-col md:flex-row md:items-center gap-3 justify-between">
-              <div>
-                <b>AI Face ID:</b> {isValidDescriptor(form.faceDescriptor) ? 'Ready for camera attendance' : 'Not generated yet'}
-                <div className="text-muted-foreground text-[12px]">Use one clear front-facing photo. The camera will only mark matched enrolled faces.</div>
-              </div>
-              <Button variant="outline" className="rounded-full shrink-0" onClick={generateFaceId} disabled={generatingFaceId || !form.photoUrl}>{generatingFaceId ? 'Generating…' : 'Generate Face ID'}</Button>
+            <div className="mt-4 p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 text-[13px]">
+              <b>AI camera note:</b> Use one clear front-facing photo. After photo upload, Face ID is generated automatically and the camera will only mark matched enrolled faces.
             </div>
             <div className="flex justify-end gap-2 mt-5">
               <Button variant="outline" className="rounded-full" onClick={()=>setOpen(false)}>Cancel</Button>
@@ -173,7 +251,7 @@ export default function StudentsPage(){
       {filtered.map((s:any)=>(
         <Card key={s.id} className="p-3.5 rounded-[20px]">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-[16px]">{s.name?.[0]||'S'}</div>
+            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-[16px] overflow-hidden">{s.photoUrl ? <img src={s.photoUrl} alt={s.name || 'Student'} className="w-full h-full object-cover" /> : (s.name?.[0]||'S')}</div>
             <div className="flex-1 min-w-0">
               <div className="font-bold text-[15px] leading-tight truncate">{s.name}</div>
               <div className="text-[12px] text-muted-foreground">Grade {s.className}-{s.section} • #{s.admissionNumber || s.rollNumber} • Face ID: {isValidDescriptor(s.faceDescriptor) ? 'Ready' : 'No'}</div>

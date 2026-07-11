@@ -37,11 +37,8 @@ function RequireAuth({ children, allow }: { children: React.ReactNode, allow?: U
   )
   if (!user) return <Navigate to="/login" replace />
 
-  // Demo user check to bypass email verification
-  const isDemoUser = user.email === 'superadmin@edusphere.ai' || user.email?.endsWith('@demo.edu')
-
-  // Strict email verification check
-  if (!user.emailVerified && !isDemoUser) {
+  // Strict email verification for all production accounts
+  if (!user.emailVerified) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-indigo-50 dark:from-zinc-950 dark:to-indigo-950 p-6">
         <div className="w-full max-w-md p-6 rounded-[28px] bg-white dark:bg-zinc-900 border shadow-2xl text-center space-y-4">

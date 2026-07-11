@@ -1,3 +1,4 @@
+
 import { storage } from './firebase'
 import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
 
@@ -39,9 +40,20 @@ export function resizeImageDataUrl(dataUrl: string, maxSize = 900, quality = 0.8
   })
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(message)), ms)
+    promise.then(resolve).catch(reject).finally(() => window.clearTimeout(timer))
+  })
+}
+
 export async function uploadStudentPhoto(schoolId: string, studentId: string, dataUrl: string) {
   const blob = dataUrlToBlob(dataUrl)
   const path = `schools/${schoolId}/student-photos/${studentId}/${Date.now()}.jpg`
-  const snap = await uploadBytes(storageRef(storage, path), blob, { contentType: blob.type || 'image/jpeg' })
-  return getDownloadURL(snap.ref)
+  const snap = await withTimeout(
+    uploadBytes(storageRef(storage, path), blob, { contentType: blob.type || 'image/jpeg' }),
+    30000,
+    'Photo upload timed out. Check Firebase Storage rules / internet and try again.'
+  )
+  return withTimeout(getDownloadURL(snap.ref), 15000, 'Could not get uploaded photo URL.')
 }

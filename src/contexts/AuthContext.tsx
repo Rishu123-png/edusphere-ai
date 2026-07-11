@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { auth, db, googleProvider } from '@/lib/firebase'
 import { onAuthStateChanged, signInWithEmailAndPassword, signInWithPopup, signOut, sendPasswordResetEmail, createUserWithEmailAndPassword, sendEmailVerification, updateProfile, User } from 'firebase/auth'
-import { ref, get, set, update } from 'firebase/database'
+import { ref, get, set, update, onDisconnect } from 'firebase/database'
 import { AppUser, UserRole } from '@/types'
 
 type AuthContextType = {
@@ -21,6 +21,26 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | null>(null)
 
+/** Write isOnline on both users/ and schools/.../teachers/ so admin dashboard stays live */
+async function setPresence(uid: string, schoolId: string | undefined, online: boolean) {
+  const stamp = Date.now()
+  const userPatch: any = online
+    ? { isOnline: true, lastLogin: stamp, lastSeen: stamp }
+    : { isOnline: false, lastSeen: stamp }
+  try {
+    await update(ref(db, `users/${uid}`), userPatch)
+  } catch {}
+  if (schoolId) {
+    try {
+      await update(ref(db, `schools/${schoolId}/teachers/${uid}`), {
+        isOnline: online,
+        lastSeen: stamp,
+        ...(online ? { lastLogin: stamp } : {}),
+      })
+    } catch {}
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<AppUser | null>(null)
@@ -32,8 +52,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (snap.exists()) {
         const p = snap.val() as AppUser
         setProfile(p)
+        // Mark online on user + teacher record
+        await setPresence(u.uid, p.schoolId, true)
+        // Auto offline if tab/app closes unexpectedly
         try {
-          await update(ref(db, `users/${u.uid}`), { isOnline: true, lastLogin: Date.now() })
+          await onDisconnect(ref(db, `users/${u.uid}/isOnline`)).set(false)
+          await onDisconnect(ref(db, `users/${u.uid}/lastSeen`)).set(Date.now())
+          if (p.schoolId) {
+            await onDisconnect(ref(db, `schools/${p.schoolId}/teachers/${u.uid}/isOnline`)).set(false)
+            await onDisconnect(ref(db, `schools/${p.schoolId}/teachers/${u.uid}/lastSeen`)).set(Date.now())
+          }
         } catch {}
         return p
       } else {
@@ -70,6 +98,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => unsub()
   }, [loadProfile])
 
+  // Heartbeat while app is open so admin sees Active
+  useEffect(() => {
+    if (!user || !profile) return
+    const beat = () => {
+      setPresence(user.uid, profile.schoolId, true).catch(()=>{})
+    }
+    const id = window.setInterval(beat, 45000)
+    const onVis = () => {
+      if (document.visibilityState === 'visible') beat()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [user, profile?.schoolId, profile?.uid])
+
   const login = async (email:string, password:string) => {
     await signInWithEmailAndPassword(auth, email, password)
   }
@@ -86,7 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
-      if (user) await update(ref(db, `users/${user.uid}`), { isOnline: false, lastSeen: Date.now() })
+      if (user) await setPresence(user.uid, profile?.schoolId, false)
     } catch {}
     await signOut(auth)
   }

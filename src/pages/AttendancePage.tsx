@@ -10,7 +10,7 @@ import { useSchool } from '@/contexts/SchoolContext'
 import { todayIST } from '@/lib/rtdb'
 import QRScanner from '@/components/QRScanner'
 import PageHeader from '@/components/mobile/PageHeader'
-import { Camera, BarChart3, QrCode, Users, X, ShieldCheck, FlipHorizontal } from 'lucide-react'
+import { Camera, BarChart3, QrCode, Users, X, ShieldCheck } from 'lucide-react'
 import {
   detectFacesWithDescriptors,
   findBestFaceMatch,
@@ -33,7 +33,6 @@ export default function AttendancePage(){
   const [aiStatus, setAiStatus] = useState('Camera off')
   const [aiFaceCount, setAiFaceCount] = useState(0)
   const [aiLog, setAiLog] = useState<string[]>([])
-  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment')
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -191,14 +190,17 @@ export default function AttendancePage(){
     }
   }
 
-  const attachStream = async (mode: 'user' | 'environment') => {
+  const attachStream = async () => {
     streamRef.current?.getTracks().forEach(t=>t.stop())
     streamRef.current = null
+    // Portrait / vertical camera only — prefer back camera for classroom attendance
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
-        facingMode: { ideal: mode },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
+        facingMode: { ideal: 'environment' },
+        // Prefer portrait capture where supported
+        width: { ideal: 1080 },
+        height: { ideal: 1920 },
+        aspectRatio: { ideal: 0.5625 }, // 9:16 vertical
       },
       audio: false,
     })
@@ -227,8 +229,9 @@ export default function AttendancePage(){
     } catch {
       // Overlay is already fixed full-viewport even if Fullscreen API is blocked
     }
+    // Keep camera vertical / portrait only (never force landscape)
     try {
-      await (screen.orientation as any)?.lock?.('landscape').catch?.(()=>{})
+      await (screen.orientation as any)?.lock?.('portrait').catch?.(()=>{})
     } catch {}
   }
 
@@ -244,7 +247,7 @@ export default function AttendancePage(){
     try {
       await new Promise<void>(resolve => requestAnimationFrame(()=>resolve()))
       await enterFullscreen()
-      await attachStream(facingMode)
+      await attachStream()
       if(!enrolledFaces.length) {
         setAiStatus('Camera active. Enroll Face IDs from Students → Update Photo before AI can verify.')
         toast.error('No Face IDs enrolled for this class. AI will not mark anyone randomly.')
@@ -258,19 +261,6 @@ export default function AttendancePage(){
     }catch(e:any){
       toast.error(e?.message || 'Camera permission denied')
       stopAi(false)
-    }
-  }
-
-  const flipCamera = async () => {
-    const next = facingMode === 'environment' ? 'user' : 'environment'
-    setFacingMode(next)
-    setAiStatus(`Switching to ${next === 'user' ? 'front' : 'back'} camera…`)
-    try {
-      await attachStream(next)
-      setAiStatus('AI camera active • matching only enrolled real faces')
-      await runAiScan()
-    } catch(e:any) {
-      toast.error(e?.message || 'Could not switch camera')
     }
   }
 
@@ -432,12 +422,20 @@ export default function AttendancePage(){
         </Card>
       </TabsContent>
     </Tabs>
-{aiScanning && (
+
+    {aiScanning && (
       <div
         ref={overlayRef}
         id="ai-camera-overlay"
         className="fixed inset-0 z-[99999] bg-black text-white flex flex-col"
-        style={{ width: '100vw', height: '100dvh', maxHeight: '100dvh' }}
+        style={{
+          width: '100vw',
+          height: '100dvh',
+          maxHeight: '100dvh',
+          // Portrait-only camera UI (no landscape layout)
+          maxWidth: '100vw',
+          overflow: 'hidden',
+        }}
       >
         <div className="h-14 md:h-16 px-3 md:px-4 flex items-center justify-between bg-black/85 border-b border-white/10 shrink-0 pt-[env(safe-area-inset-top)]">
           <div className="min-w-0">
@@ -445,9 +443,6 @@ export default function AttendancePage(){
             <div className="text-[11px] md:text-[12px] text-white/70 truncate">{aiStatus} • Faces: {aiFaceCount}</div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            <Button variant="ghost" className="rounded-full text-white hover:bg-white/10 px-3" onClick={flipCamera} title="Flip camera">
-              <FlipHorizontal size={18} className="mr-1"/> Flip
-            </Button>
             <Button variant="ghost" className="rounded-full text-white hover:bg-white/10 px-3" onClick={()=>stopAi()}>
               <X size={18} className="mr-1"/> Close
             </Button>
@@ -462,15 +457,16 @@ export default function AttendancePage(){
             playsInline
             autoPlay
           />
-          <canvas
+<canvas
             ref={canvasRef}
             className="absolute inset-0 w-full h-full pointer-events-none"
           />
 
-          <div className="absolute left-3 right-3 bottom-3 grid md:grid-cols-[1fr_300px] gap-2 pointer-events-none">
+          {/* Portrait-only stacked panels (no horizontal split) */}
+          <div className="absolute left-3 right-3 bottom-3 flex flex-col gap-2 pointer-events-none">
             <div className="rounded-2xl bg-black/65 backdrop-blur border border-white/10 p-3">
               <div className="text-[11px] text-white/70 mb-1">Verified students ({students.filter(s=>marks[s.id]==='present').length}/{students.length})</div>
-              <div className="flex flex-wrap gap-2 max-h-20 overflow-auto">
+              <div className="flex flex-wrap gap-2 max-h-16 overflow-auto">
                 {students.filter(s=>marks[s.id]==='present').map(s=>(
                   <span key={s.id} className="px-2.5 py-1 rounded-full bg-emerald-500 text-white text-[11px] font-semibold">{s.name}</span>
                 ))}
@@ -479,16 +475,17 @@ export default function AttendancePage(){
                 )}
               </div>
             </div>
-            <div className="rounded-2xl bg-black/65 backdrop-blur border border-white/10 p-3 hidden md:block">
-              <div className="text-[11px] text-white/70 mb-1">Live log</div>
-              <div className="space-y-1 text-[12px] max-h-24 overflow-auto">
-                {aiLog.map((l,i)=><div key={i}>✓ {l}</div>)}
-                {!aiLog.length && <div className="text-white/60">Waiting for enrolled faces…</div>}
+            {!!aiLog.length && (
+              <div className="rounded-2xl bg-black/65 backdrop-blur border border-white/10 p-2.5 max-h-16 overflow-auto">
+                <div className="space-y-0.5 text-[11px]">
+                  {aiLog.slice(0, 3).map((l,i)=><div key={i}>✓ {l}</div>)}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
-<div className="p-3 grid grid-cols-2 gap-3 bg-black/95 border-t border-white/10 shrink-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+
+        <div className="p-3 grid grid-cols-2 gap-3 bg-black/95 border-t border-white/10 shrink-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <Button variant="outline" className="rounded-full h-12 bg-transparent border-white/30 text-white hover:bg-white/10" onClick={()=>stopAi()}>Stop</Button>
           <Button variant="success" className="rounded-full h-12" onClick={saveAiAttendance}>
             Save AI Attendance • {students.filter(s=>marks[s.id]==='present').length}/{students.length}

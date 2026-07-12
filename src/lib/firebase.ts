@@ -28,10 +28,16 @@ if (typeof window !== 'undefined') {
   import('firebase/analytics').then(({ getAnalytics, isSupported }) => {
     isSupported().then(supported => {
       if (supported) {
-        try { analytics = getAnalytics(app); } catch {}
+        try { analytics = getAnalytics(app); } catch {
+      // Best-effort browser/Firebase operation; safe to ignore.
+    }
       }
-    }).catch(() => {});
-  }).catch(() => {});
+    }).catch(() => {
+        // Best-effort operation; safe to ignore.
+      });
+  }).catch(() => {
+        // Best-effort operation; safe to ignore.
+      });
 }
 
 export const auth = getAuth(app);

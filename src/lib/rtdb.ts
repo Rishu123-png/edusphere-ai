@@ -14,7 +14,9 @@ export const rtdb = {
   },
   // Safe off wrapper
   off: (path:string) => {
-    try { off(ref(db, path)) } catch {}
+    try { off(ref(db, path)) } catch {
+      // Best-effort browser/Firebase operation; safe to ignore.
+    }
   }
 }
 

@@ -29,7 +29,9 @@ async function setPresence(uid: string, schoolId: string | undefined, online: bo
     : { isOnline: false, lastSeen: stamp }
   try {
     await update(ref(db, `users/${uid}`), userPatch)
-  } catch {}
+  } catch {
+      // Best-effort browser/Firebase operation; safe to ignore.
+    }
   if (schoolId) {
     try {
       await update(ref(db, `schools/${schoolId}/teachers/${uid}`), {
@@ -37,7 +39,9 @@ async function setPresence(uid: string, schoolId: string | undefined, online: bo
         lastSeen: stamp,
         ...(online ? { lastLogin: stamp } : {}),
       })
-    } catch {}
+    } catch {
+      // Best-effort browser/Firebase operation; safe to ignore.
+    }
   }
 }
 
@@ -62,7 +66,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             await onDisconnect(ref(db, `schools/${p.schoolId}/teachers/${u.uid}/isOnline`)).set(false)
             await onDisconnect(ref(db, `schools/${p.schoolId}/teachers/${u.uid}/lastSeen`)).set(Date.now())
           }
-        } catch {}
+        } catch {
+      // Best-effort browser/Firebase operation; safe to ignore.
+    }
         return p
       } else {
         const newProfile: AppUser = {
@@ -102,7 +108,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user || !profile) return
     const beat = () => {
-      setPresence(user.uid, profile.schoolId, true).catch(()=>{})
+      setPresence(user.uid, profile.schoolId, true).catch(()=>{
+        // Best-effort cleanup; safe to ignore.
+      })
     }
     const id = window.setInterval(beat, 45000)
     const onVis = () => {
@@ -132,7 +140,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     try {
       if (user) await setPresence(user.uid, profile?.schoolId, false)
-    } catch {}
+    } catch {
+      // Best-effort browser/Firebase operation; safe to ignore.
+    }
     await signOut(auth)
   }
 

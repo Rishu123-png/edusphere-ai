@@ -21,9 +21,13 @@ export default function QRScanner({onScan, onClose}:{onScan:(text:string)=>void,
             setScanning(false);
             onScan(text);
             // vibrate feedback
-            try { navigator.vibrate?.(100) } catch {}
+            try { navigator.vibrate?.(100) } catch {
+      // Best-effort browser/Firebase operation; safe to ignore.
+    }
           },
-          () => {}
+          () => {
+        // Best-effort operation; safe to ignore.
+      }
         );
       } catch(e:any){
         if(mounted) setError(e?.message || 'Camera failed. Check permission.');
@@ -34,8 +38,12 @@ export default function QRScanner({onScan, onClose}:{onScan:(text:string)=>void,
       mounted = false;
       const qr = ref.current;
       if(qr){
-        qr.stop().catch(()=>{}).finally(()=> {
-          try { qr.clear() } catch {}
+        qr.stop().catch(()=>{
+        // Best-effort cleanup; safe to ignore.
+      }).finally(()=> {
+          try { qr.clear() } catch {
+      // Best-effort browser/Firebase operation; safe to ignore.
+    }
         });
       }
     };

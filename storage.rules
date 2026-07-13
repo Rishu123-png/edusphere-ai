@@ -9,9 +9,9 @@ service firebase.storage {
 
     // School-scoped files
     match /schools/{schoolId}/{allPaths=**} {
-      allow read: if request.auth != null
-        && (firestore == null || true) // RTDB check not available in storage, use custom claims in production
-        ;
+      // Firebase Storage rules cannot query Realtime Database. This only checks
+      // authentication; use Firebase Auth custom claims for school isolation.
+      allow read: if request.auth != null;
       allow write: if request.auth != null
         && request.resource.size < 10 * 1024 * 1024
         && request.resource.contentType.matches('image/.*|application/pdf|application/.*sheet|text/csv|application/msword|application/vnd.*')

@@ -1,3 +1,4 @@
+
 import { AttendanceRecord, MarksEntry } from '@/types'
 
 export function predictMarks(previous: MarksEntry[], attendancePct: number) {

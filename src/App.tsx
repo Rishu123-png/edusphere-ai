@@ -71,10 +71,12 @@ function RequireAuth({ children, allow }: { children: React.ReactNode, allow?: U
     )
   }
 
-  // School onboarding check: if user has no school and is not a super_admin, force onboarding
+  // School onboarding check: only redirect if profile is loaded and user has NO schoolId
   const isSuperAdmin = profile?.role === 'super_admin'
   const isOnboardingPath = location.pathname === '/onboarding'
-  if (!isSuperAdmin && !profile?.schoolId && !isOnboardingPath) {
+  
+  // Only force onboarding when we have a profile but it has no school (and not super admin)
+  if (!isSuperAdmin && profile && !profile.schoolId && !isOnboardingPath) {
     return <Navigate to="/onboarding" replace />
   }
 

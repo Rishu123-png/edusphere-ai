@@ -1,3 +1,4 @@
+
 import ModuleArchitectureBanner from '@/components/ModuleArchitectureBanner'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/contexts/AuthContext'

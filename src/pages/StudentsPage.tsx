@@ -9,12 +9,12 @@ import { ref, onValue, update, remove, push, set } from 'firebase/database'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSchool } from '@/contexts/SchoolContext'
 import { generateId } from '@/lib/utils'
-import { createFaceDescriptorFromImageUrl, createFaceDescriptorFromVideo, isValidDescriptor, loadFaceApiModels } from '@/lib/faceRecognition'
+import { createFaceDescriptorFromImageUrl, isValidDescriptor, loadFaceApiModels } from '@/lib/faceRecognition'
 import { fileToDataUrl, resizeImageDataUrl, uploadStudentPhoto } from '@/lib/studentPhoto'
 import { toast } from 'sonner'
 import { QRCodeSVG } from 'qrcode.react'
 import PageHeader from '@/components/mobile/PageHeader'
-import { Search, Plus, MoreVertical, Edit2, Trash2, Download, Camera, ImageUp, ScanFace, Smile, Eye, CheckCircle2, ShieldCheck, AlertCircle } from 'lucide-react'
+import { Search, Plus, Edit2, Trash2, Download, Camera, ImageUp, ScanFace, Smile, Eye, CheckCircle2, ShieldCheck, AlertCircle } from 'lucide-react'
 
 type Student = any
 
@@ -39,6 +39,7 @@ export default function StudentsPage(){
   const [enrollLiveness, setEnrollLiveness] = useState<'pass' | 'checking' | 'fail'>('checking')
   const [enrollStatusText, setEnrollStatusText] = useState('Position face in neon rectangle • Please Smile 🙂')
   const enrollTimerRef = useRef<number | null>(null)
+  const enrollBusyRef = useRef<boolean>(false)
 
   const isAdmin = isSchoolAdmin || profile?.role === 'super_admin'
   const isTeacher = profile?.role === 'teacher'
@@ -71,11 +72,16 @@ export default function StudentsPage(){
     )
   }, [students, isTeacher, teacherClasses, profile?.uid])
 
-  const filtered = visibleStudents.filter((s:any)=>
-    (s.name||'').toLowerCase().includes(q.toLowerCase()) ||
-    (s.admissionNumber||'').includes(q) ||
-    (s.rollNumber||'').includes(q)
-  )
+  const filtered = useMemo(() => {
+    if (!q.trim()) return visibleStudents
+    const lower = q.toLowerCase()
+    return visibleStudents.filter((s:any)=>
+      (s.name||'').toLowerCase().includes(lower) ||
+      (s.admissionNumber||'').toLowerCase().includes(lower) ||
+      String(s.rollNumber||'').includes(lower) ||
+      `${s.className}-${s.section}`.toLowerCase().includes(lower)
+    )
+  }, [visibleStudents, q])
 
   const classKey = (className: string, section: string) => `${String(className||'').trim()}-${String(section||'').trim()}`
 
@@ -134,7 +140,6 @@ export default function StudentsPage(){
       ? subjectsList
       : (isTeacher && teacherSubjects.length ? teacherSubjects : [])
 
-    // Ensure all 9 required fields + embedding vector + Student ID stored
     const payload: any = {
       studentId: id,
       name: form.name,
@@ -252,32 +257,32 @@ export default function StudentsPage(){
     }
   }
 
-  // Live Camera Enrollment Dialog Handlers
+  // Live Camera Enrollment Dialog Handlers (Strict Non-Blocking Timer)
   const openCameraEnrollment = async () => {
     setCameraEnrollOpen(true)
     setEnrollStatusText('Loading AI models for registration liveness check...')
     try {
       await loadFaceApiModels()
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 }, audio: false })
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false })
       if (enrollVideoRef.current) {
         enrollVideoRef.current.srcObject = stream
         await enrollVideoRef.current.play()
         setEnrollStatusText('Position face in neon rectangle • Please Smile 🙂')
         setEnrollLiveness('checking')
 
-        // Start live checks for Head Pose & Smile
+        enrollBusyRef.current = false
         enrollTimerRef.current = window.setInterval(async () => {
-          if (!enrollVideoRef.current || enrollVideoRef.current.readyState < 2) return
+          if (enrollBusyRef.current || !enrollVideoRef.current || enrollVideoRef.current.readyState < 2) return
+          enrollBusyRef.current = true
           try {
             const faceapi = await import('face-api.js')
-            const det = await faceapi.detectSingleFace(enrollVideoRef.current, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks()
+            const det = await faceapi.detectSingleFace(enrollVideoRef.current, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 })).withFaceLandmarks()
             if (det) {
               const landmarks = det.landmarks
               const nose = landmarks.getNose()
               const jaw = landmarks.getJawOutline()
               const mouth = landmarks.getMouth()
 
-              // Estimate head pose from nose relative to jaw bounds
               if (nose && jaw && jaw.length > 0) {
                 const noseCenterX = nose[0].x
                 const leftJawX = jaw[0].x
@@ -288,7 +293,6 @@ export default function StudentsPage(){
                 else setEnrollPose('looking_straight')
               }
 
-              // Estimate smile from mouth corner width relative to face width
               if (mouth && det.detection.box) {
                 const mouthWidth = Math.abs(mouth[mouth.length - 1].x - mouth[0].x)
                 const faceWidth = det.detection.box.width
@@ -301,10 +305,13 @@ export default function StudentsPage(){
                 }
               }
             } else {
-              setEnrollStatusText('Searching for clear face...')
+              setEnrollStatusText('Searching for clear face in frame...')
             }
-          } catch { /* ignore non-fatal frame skip */ }
-        }, 800)
+          } catch { /* ignore frame skip */ }
+          finally {
+            enrollBusyRef.current = false
+          }
+        }, 900)
       }
     } catch (err: any) {
       toast.error('Could not open camera: ' + (err?.message || 'Permission denied'))
@@ -317,6 +324,7 @@ export default function StudentsPage(){
       window.clearInterval(enrollTimerRef.current)
       enrollTimerRef.current = null
     }
+    enrollBusyRef.current = false
     if (enrollVideoRef.current && enrollVideoRef.current.srcObject) {
       const stream = enrollVideoRef.current.srcObject as MediaStream
       stream.getTracks().forEach(t => t.stop())
@@ -337,7 +345,7 @@ export default function StudentsPage(){
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
         const dataUrl = canvas.toDataURL('image/jpeg', 0.88)
         closeCameraEnrollment()
-        toast.info('Analyzing captured photo and generating 128-D embedding...')
+        toast.info('Analyzing captured photo & generating 128-D embedding...')
         await applySelectedPhoto(dataUrl)
       }
     } catch (e: any) {
@@ -419,8 +427,12 @@ export default function StudentsPage(){
 
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-150 dark:border-zinc-700 flex flex-col md:flex-row gap-4 items-center justify-between">
               <div className="flex items-center gap-3.5 min-w-0">
-                <div className="w-20 h-20 rounded-2xl overflow-hidden bg-gradient-to-br from-indigo-500 via-violet-500 to-cyan-500 flex items-center justify-center text-white font-bold text-2xl shrink-0 shadow-md">
-                  {form.photoUrl ? <img src={form.photoUrl} alt="Student" className="w-full h-full object-cover" /> : (form.name?.[0] || 'S')}
+                <div className="w-16 h-16 min-w-[64px] min-h-[64px] max-w-[64px] max-h-[64px] rounded-2xl overflow-hidden relative bg-gradient-to-br from-indigo-500 via-violet-500 to-cyan-500 flex items-center justify-center text-white font-bold text-2xl shrink-0 shadow-md">
+                  {form.photoUrl ? (
+                    <img src={form.photoUrl} alt="Student" className="absolute inset-0 w-full h-full object-cover" />
+                  ) : (
+                    <span>{form.name?.[0] || 'S'}</span>
+                  )}
                 </div>
                 <div className="min-w-0 space-y-1">
                   <div className="font-bold text-[15px]">Biometric Face Embedding</div>
@@ -525,7 +537,7 @@ export default function StudentsPage(){
         </div>
       </DialogContent>
     </Dialog>
-<div className="space-y-3">
+    <div className="space-y-3">
       <div className="relative">
         <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
         <Input placeholder="Search students by name, roll number, admission id..." value={q} onChange={e=>setQ(e.target.value)} className="pl-11 h-14 rounded-full bg-white dark:bg-zinc-900 font-medium" />
@@ -544,12 +556,16 @@ export default function StudentsPage(){
       {filtered.map((s:any)=>(
         <Card key={s.id} className="p-3.5 rounded-[22px] border border-slate-150 dark:border-zinc-800">
           <div className="flex items-center gap-3">
-            <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center text-white font-bold text-[18px] overflow-hidden shrink-0 shadow">
-              {s.photoUrl ? <img src={s.photoUrl} alt={s.name || 'Student'} className="w-full h-full object-cover" /> : (s.name?.[0]||'S')}
+            <div className="w-12 h-12 min-w-[48px] min-h-[48px] max-w-[48px] max-h-[48px] rounded-xl overflow-hidden relative bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center text-white font-bold text-[18px] shrink-0 shadow">
+              {s.photoUrl ? (
+                <img src={s.photoUrl} alt={s.name || 'Student'} className="absolute inset-0 w-full h-full object-cover" />
+              ) : (
+                <span>{s.name?.[0]||'S'}</span>
+              )}
             </div>
             <div className="flex-1 min-w-0">
               <div className="font-extrabold text-[15px] leading-tight truncate text-foreground">{s.name}</div>
-              <div className="text-[11.5px] text-muted-foreground font-medium mt-0.5">
+              <div className="text-[11.5px] text-muted-foreground font-medium mt-0.5 truncate">
                 Class {s.className}-{s.section} • Roll #{s.rollNumber} • ID: {s.studentId||s.id}
               </div>
               <div className="flex items-center gap-1.5 mt-1.5">
@@ -558,11 +574,11 @@ export default function StudentsPage(){
                 </span>
               </div>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 shrink-0">
               <div className="w-9 h-9 rounded-xl bg-white border flex items-center justify-center shrink-0 shadow-sm"><QRCodeSVG value={s.qrCode||s.id} size={22}/></div>
             </div>
           </div>
-{teacherCanEditStudent(s) && (
+          {teacherCanEditStudent(s) && (
             <div className="flex gap-2 mt-3.5 pt-3 border-t border-slate-100 dark:border-zinc-800">
               <Button size="sm" variant="outline" className="flex-1 rounded-full h-9 font-semibold" onClick={()=>handleEdit(s)}><Edit2 size={13} className="mr-1.5"/> Edit & Face ID</Button>
               {isAdmin && <Button size="sm" variant="ghost" className="rounded-full h-9 px-3 text-rose-500" onClick={()=>handleDelete(s)}><Trash2 size={14}/></Button>}
@@ -576,8 +592,7 @@ export default function StudentsPage(){
         </Card>
       )}
     </div>
-
-    <Card className="hidden md:block rounded-[26px] overflow-hidden border border-slate-150 dark:border-zinc-800 shadow-sm">
+<Card className="hidden md:block rounded-[26px] overflow-hidden border border-slate-150 dark:border-zinc-800 shadow-sm">
       <CardContent className="p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -591,32 +606,38 @@ export default function StudentsPage(){
                 <th>QR Code</th>
                 <th className="p-4 text-right">Actions</th>
               </tr>
-</thead>
+            </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-zinc-800">
               {filtered.map((s:any)=>(
                 <tr key={s.id} className="hover:bg-slate-50/70 dark:hover:bg-zinc-800/40 transition">
-                  <td className="p-4 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl overflow-hidden bg-gradient-to-br from-indigo-500 to-cyan-500 text-white font-bold flex items-center justify-center shrink-0">
-                      {s.photoUrl ? <img src={s.photoUrl} alt={s.name} className="w-full h-full object-cover"/> : (s.name?.[0]||'S')}
-                    </div>
-                    <div>
-                      <div className="font-bold text-foreground text-[14px]">{s.name}</div>
-                      <div className="text-[11px] text-muted-foreground">Admission: {s.admissionNumber||'N/A'}</div>
+                  <td className="p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 min-w-[40px] min-h-[40px] max-w-[40px] max-h-[40px] rounded-xl overflow-hidden relative bg-gradient-to-br from-indigo-500 to-cyan-500 text-white font-bold flex items-center justify-center shrink-0 shadow-xs">
+                        {s.photoUrl ? (
+                          <img src={s.photoUrl} alt={s.name} className="absolute inset-0 w-full h-full object-cover"/>
+                        ) : (
+                          <span>{s.name?.[0]||'S'}</span>
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-bold text-foreground text-[14px] truncate max-w-[180px]">{s.name}</div>
+                        <div className="text-[11px] text-muted-foreground truncate">Adm: {s.admissionNumber||'N/A'}</div>
+                      </div>
                     </div>
                   </td>
-                  <td className="font-semibold">Roll {s.rollNumber} • {s.className}-{s.section}</td>
+                  <td className="font-semibold whitespace-nowrap">Roll #{s.rollNumber} • {s.className}-{s.section}</td>
                   <td>
-                    <div className="font-medium text-foreground">{s.guardianName || 'N/A'}</div>
-                    <div className="text-[11px] text-muted-foreground">{s.guardianPhone || 'N/A'}</div>
+                    <div className="font-medium text-foreground truncate max-w-[150px]">{s.guardianName || 'N/A'}</div>
+                    <div className="text-[11px] text-muted-foreground whitespace-nowrap">{s.guardianPhone || 'N/A'}</div>
                   </td>
                   <td>
-                    <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold flex items-center gap-1.5 w-fit ${isValidDescriptor(s.faceDescriptor) ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-600 border border-amber-500/30'}`}>
+                    <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold flex items-center gap-1.5 w-fit whitespace-nowrap ${isValidDescriptor(s.faceDescriptor) ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-600 border border-amber-500/30'}`}>
                       {isValidDescriptor(s.faceDescriptor) ? '✓ 128-D VECTOR STORED' : '⚠️ NO VECTOR'}
                     </span>
                   </td>
-                  <td className="font-mono text-[11.5px] text-slate-500">{s.studentId || s.id}</td>
-                  <td><div className="bg-white p-1 rounded-lg border w-fit shadow-xs"><QRCodeSVG value={s.qrCode||s.id} size={32}/></div></td>
-                  <td className="p-4 text-right space-x-2">
+                  <td className="font-mono text-[11.5px] text-slate-500 whitespace-nowrap">{s.studentId || s.id}</td>
+                  <td><div className="bg-white p-1 rounded-lg border w-fit shadow-xs"><QRCodeSVG value={s.qrCode||s.id} size={30}/></div></td>
+                  <td className="p-4 text-right space-x-2 whitespace-nowrap">
                     {teacherCanEditStudent(s) ? (
                       <>
                         <Button size="sm" variant="outline" className="rounded-full font-semibold" onClick={()=>handleEdit(s)}>Edit & Face ID</Button>
@@ -631,7 +652,7 @@ export default function StudentsPage(){
                   <td colSpan={7} className="p-10 text-center text-muted-foreground">No students registered yet. Click &quot;Add Student&quot; above to enroll.</td>
                 </tr>
               )}
-            </tbody>
+</tbody>
           </table>
         </div>
       </CardContent>

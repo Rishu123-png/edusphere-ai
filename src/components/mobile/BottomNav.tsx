@@ -2,6 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { LayoutDashboard, Users, ClipboardCheck, FileText, Settings, Brain } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
+import { AnimeBounceClick } from '../AnimeWrapper'
 
 const tabs = [
   { to: '/', label: 'Home', icon: LayoutDashboard, roles: ['super_admin','school_admin','teacher','student','parent'] },
@@ -27,10 +28,12 @@ export default function BottomNav(){
         {visibleTabs.map(item => {
           const active = loc.pathname === item.to || (item.to !== '/' && loc.pathname.startsWith(item.to))
           return (
-            <NavLink key={item.to} to={item.to} className={cn("flex flex-col items-center gap-1 px-3 py-2 rounded-full transition-all min-w-[56px]", active ? "bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 shadow" : "text-zinc-500 dark:text-zinc-400") }>
-              <item.icon size={20} strokeWidth={active ? 2.5 : 2} />
-              <span className="text-[10px] font-semibold leading-none">{item.label}</span>
-            </NavLink>
+            <AnimeBounceClick key={item.to}>
+              <NavLink to={item.to} className={cn("flex flex-col items-center gap-1 px-3 py-2 rounded-full transition-all min-w-[56px]", active ? "bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 shadow" : "text-zinc-500 dark:text-zinc-400") }>
+                <item.icon size={20} strokeWidth={active ? 2.5 : 2} />
+                <span className="text-[10px] font-semibold leading-none">{item.label}</span>
+              </NavLink>
+            </AnimeBounceClick>
           )
         })}
       </div>

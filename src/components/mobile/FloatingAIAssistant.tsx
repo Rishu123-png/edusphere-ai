@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { BrainCircuit, Camera, ChevronRight, Sparkles, TrendingUp, X, Mic, Send, MessageSquare, Search, UserCheck, AlertTriangle, ShieldCheck, Volume2, Upload, ScanFace, CheckCircle2, QrCode, FileDown, RefreshCw } from 'lucide-react'
@@ -482,7 +481,8 @@ export default function FloatingAIAssistant() {
                   </div>
                 )}
               </div>
-{/* Text / Multi-Criteria Search */}
+
+              {/* Text / Multi-Criteria Search */}
               <div className="space-y-2">
                 <div className="flex gap-1.5">
                   {(['all', 'name', 'roll', 'class'] as const).map(f => (
@@ -494,7 +494,7 @@ export default function FloatingAIAssistant() {
                       {f}
                     </button>
                   ))}
-                </div>
+</div>
                 <div className="relative">
                   <input
                     type="text"
@@ -531,7 +531,8 @@ export default function FloatingAIAssistant() {
           )}
         </div>
       )}
-{/* Main Floating Trigger Button */}
+
+      {/* Main Floating Trigger Button */}
       <button
         aria-label={open ? 'Close AI Copilot' : 'Open AI Copilot'}
         onClick={() => setOpen(value => !value)}

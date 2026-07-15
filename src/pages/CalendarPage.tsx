@@ -85,7 +85,7 @@ export default function CalendarPage(){
         createdAt: Date.now(),
         meta: { eventId: id, date: form.date, eventType: form.type },
       })
-    } catch {}
+    } catch { /* ignore */ }
 
     toast.success(editing ? 'Event updated' : form.type === 'holiday' ? 'Holiday saved — schedule off that day' : 'Event saved')
     resetForm()

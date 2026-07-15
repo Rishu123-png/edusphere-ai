@@ -38,7 +38,7 @@ export default function QRScanner({onScan, onClose}:{onScan:(text:string)=>void,
       mounted = false;
       const qr = ref.current;
       if(qr){
-        qr.stop().catch(()=>{
+        qr.stop().catch((e) => { console.debug(e);
         // Best-effort cleanup; safe to ignore.
       }).finally(()=> {
           try { qr.clear() } catch {

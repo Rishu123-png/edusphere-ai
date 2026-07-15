@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { BrainCircuit, Camera, ChevronRight, Sparkles, TrendingUp, X, Mic, Send, MessageSquare, Search, UserCheck, AlertTriangle, ShieldCheck, Volume2, Upload, ScanFace, CheckCircle2, QrCode, FileDown, RefreshCw } from 'lucide-react'

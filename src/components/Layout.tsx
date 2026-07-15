@@ -2,7 +2,7 @@ import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
 import BottomNav from './mobile/BottomNav'
-import { motion } from 'framer-motion'
+import { AnimePageTransition } from './AnimeWrapper'
 
 export default function Layout() {
   return (
@@ -10,14 +10,11 @@ export default function Layout() {
       <Sidebar />
       <div className="flex-1 min-w-0 flex flex-col">
         <Topbar />
-        <motion.main
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, ease: 'easeOut' }}
-          className="px-4 md:px-7 py-5 md:py-7 max-w-7xl w-full mx-auto page-container"
-        >
-          <Outlet />
-        </motion.main>
+        <main className="px-4 md:px-7 py-5 md:py-7 max-w-7xl w-full mx-auto page-container pb-24 md:pb-7">
+          <AnimePageTransition>
+            <Outlet />
+          </AnimePageTransition>
+        </main>
       </div>
       <BottomNav />
     </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -7,7 +7,12 @@ import { useNavigate, Navigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { motion } from 'framer-motion'
-import { Mail, Lock, School, Shield, Eye, EyeOff, Fingerprint, ScanFace } from 'lucide-react'
+import { ArrowRight, CheckCircle2, Eye, EyeOff, Fingerprint, Lock, Mail, ScanFace, School, ShieldCheck, Sparkles } from 'lucide-react'
+import AmbientBackground from '@/components/mobile/AmbientBackground'
+
+function GoogleMark() {
+  return <span className="google-mark grid h-5 w-5 place-items-center rounded-full bg-white text-[12px] font-black">G</span>
+}
 
 export default function LoginPage() {
   const { login, loginGoogle, user, profile, resetPassword, signup, resendVerification } = useAuth() as any
@@ -18,177 +23,139 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [showPass, setShowPass] = useState(false)
   const nav = useNavigate()
-  const [sp] = useSearchParams()
+  const [searchParams] = useSearchParams()
 
-  // Fixed: useEffect not useState
   useEffect(()=>{
-    const sc = sp.get('schoolCode')
-    if(sc) setSchoolCode(sc)
-  }, [sp])
+    const code = searchParams.get('schoolCode')
+    if(code) setSchoolCode(code)
+  }, [searchParams])
 
   if (user && profile?.schoolId) return <Navigate to="/" replace />
   if (user && !profile?.schoolId) return <Navigate to="/onboarding" replace />
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleLogin = async (event: React.FormEvent) => {
+    event.preventDefault()
     setLoading(true)
     try {
       await login(email, password)
       toast.success('Welcome to EduSphere AI')
       nav('/')
-    } catch (err:any) {
-      toast.error(err.message || 'Login failed')
+    } catch (error:any) {
+      toast.error(error.message || 'Login failed')
     } finally { setLoading(false) }
   }
 
-  const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSignup = async (event: React.FormEvent) => {
+    event.preventDefault()
     setLoading(true)
     try{
       await signup(email, password, name)
-      toast.success('Account created! Check email to verify – then create your school.')
+      toast.success('Account created! Verify your email to continue.')
       if(schoolCode){
         localStorage.setItem('pending_school_code', schoolCode)
-        toast('Invite code saved – verify email, then join school.')
+        toast('Invite code saved — verify your email, then join the school.')
       }
       nav('/onboarding')
-    }catch(err:any){ toast.error(err.message) }
-    finally{ setLoading(false) }
+    } catch(error:any) {
+      toast.error(error.message || 'Could not create account')
+    } finally { setLoading(false) }
   }
 
   const handleBiometric = () => {
-    toast('Biometric available on Android build via Capacitor. Install APK for Face ID / Fingerprint.')
+    toast('Biometric access is available in the Android build through Capacitor.')
   }
 
   return (
-    <div className="min-h-[100dvh] flex flex-col md:grid md:grid-cols-2 bg-[#0b0b14] md:bg-white">
-      {/* Mobile Top / Desktop Left */}
-      <div className="relative flex flex-col justify-end md:justify-center p-6 md:p-10 bg-gradient-to-br from-[#1e1b62] via-[#5b2cc6] to-[#b04cff] md:from-indigo-700 md:via-violet-700 md:to-fuchsia-600 text-white overflow-hidden min-h-[46vh] md:min-h-screen">
-        {/* Blobs */}
-        <div className="absolute -top-20 -right-20 w-72 h-72 bg-white/20 rounded-full blur-3xl" />
-        <div className="absolute -bottom-20 -left-20 w-96 h-96 bg-fuchsia-400/20 rounded-full blur-3xl" />
-        
-        <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} transition={{delay:0.1}} className="relative z-10">
-          <div className="hidden md:flex w-20 h-20 rounded-[20px] bg-white/15 backdrop-blur-xl border border-white/20 items-center justify-center mb-8 shadow-xl">
-            <School className="w-10 h-10" />
-          </div>
-          {/* 3D Icon for mobile */}
-          <div className="md:hidden flex justify-center mb-4">
-            <div className="w-24 h-24 rounded-[24px] bg-white/15 backdrop-blur-xl border border-white/20 flex items-center justify-center shadow-2xl text-5xl">
-              🏫
-            </div>
-          </div>
-          <h1 className="text-[32px] md:text-[44px] font-extrabold tracking-tight leading-[0.9] text-center md:text-left">EduSphere AI</h1>
-          <p className="text-white/80 text-[15px] md:text-[18px] mt-3 text-center md:text-left font-medium">Empowering Education.<br className="md:hidden"/> Anytime, Anywhere.</p>
+    <div className="login-shell relative min-h-[100dvh] overflow-hidden bg-[#070a10] text-white md:grid md:grid-cols-[.9fr_1.1fr]">
+      <AmbientBackground />
 
-          <div className="hidden md:block mt-8 space-y-3 text-[15px]">
-            <div className="flex gap-3 items-center text-white/90"><Shield size={18}/> AI Marks Prediction & Risk Alert</div>
-            <div className="flex gap-3 items-center text-white/90">✓ AI Camera + QR Attendance in 1 tap</div>
-            <div className="flex gap-3 items-center text-white/90">✓ WhatsApp Alerts • PWA • Android APK</div>
-            <div className="flex gap-3 items-center text-white/90">✓ Firebase RTDB Live • Offline Sync</div>
+      <section className="login-brand-panel relative z-[1] flex min-h-[285px] flex-col justify-between overflow-hidden px-5 pb-8 pt-[max(1.25rem,env(safe-area-inset-top))] md:min-h-screen md:justify-center md:px-12 lg:px-16">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_40%_20%,rgba(34,211,238,.16),transparent_28%),radial-gradient(circle_at_70%_70%,rgba(124,58,237,.22),transparent_34%)]"/>
+        <motion.div initial={{opacity:0, y:-12}} animate={{opacity:1, y:0}} className="relative flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="brand-orbit grid h-10 w-10 place-items-center rounded-xl"><Sparkles size={19}/></div>
+            <div><div className="text-[16px] font-black tracking-tight">EduSphere <span className="text-gradient-ai">AI</span></div><div className="text-[8px] font-bold uppercase tracking-[.18em] text-slate-500">CBSE Smart Campus OS</div></div>
           </div>
+          <span className="flex items-center gap-1.5 rounded-full border border-emerald-300/10 bg-emerald-300/[.06] px-2.5 py-1 text-[8px] font-bold uppercase tracking-wider text-emerald-300"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300"/> Secure</span>
+        </motion.div>
 
-          <div className="hidden md:flex mt-6 p-4 rounded-2xl bg-white/10 border border-white/15 text-[13px] leading-snug">
-            New school? <b>Sign Up → Verify Email → Create School → Get Code → Invite Teachers</b>
+        <motion.div initial={{opacity:0, y:18}} animate={{opacity:1, y:0}} transition={{delay:.08}} className="relative mt-8 text-center md:mt-0 md:text-left">
+          <div className="login-neural-logo relative mx-auto grid h-[84px] w-[84px] place-items-center rounded-[25px] md:mx-0 md:h-24 md:w-24">
+            <School size={34} className="relative z-10 text-cyan-100"/>
+            <span className="absolute inset-[-8px] rounded-[30px] border border-cyan-300/10"/>
+          </div>
+          <p className="mt-5 text-[9px] font-bold uppercase tracking-[.2em] text-cyan-300/70">Intelligence for every classroom</p>
+          <h1 className="mx-auto mt-2 max-w-[420px] text-[31px] font-black leading-[.96] tracking-[-.05em] md:mx-0 md:text-[48px]">Your school.<br/><span className="text-gradient-ai">Smarter every day.</span></h1>
+          <p className="mx-auto mt-3 max-w-[340px] text-[12px] leading-relaxed text-slate-400 md:mx-0 md:text-[14px]">Attendance, performance and parent communication—connected through one secure AI workspace.</p>
+
+          <div className="mt-8 hidden max-w-[430px] grid-cols-2 gap-2.5 md:grid">
+            {['Real-time attendance','AI marks prediction','Parent risk alerts','Role-based security'].map(item=><div key={item} className="flex items-center gap-2 rounded-2xl border border-white/[.06] bg-white/[.025] p-3 text-[11px] text-slate-300"><CheckCircle2 size={14} className="text-emerald-300"/>{item}</div>)}
           </div>
         </motion.div>
-      </div>
+      </section>
 
-      {/* Form side - Glass card on mobile overlapped */}
-      <div className="flex-1 -mt-10 md:mt-0 relative z-20 flex items-start md:items-center justify-center p-4 md:p-8 bg-transparent md:bg-[#fcfcfc] dark:md:bg-zinc-950">
-        <motion.div initial={{opacity:0, y:24}} animate={{opacity:1, y:0}} transition={{delay:0.2, type:'spring'}} className="w-full max-w-[420px] bg-white dark:bg-zinc-900 rounded-[32px] shadow-[0_20px_64px_rgba(0,0,0,0.25)] border border-white/20 md:border-slate-100 dark:md:border-zinc-800 p-6 md:p-8">
-          <div className="mb-6">
-            <h2 className="text-[22px] font-extrabold tracking-tight">Secure Access</h2>
-            <p className="text-[13px] text-muted-foreground mt-1">Role-based • Verified Email Only • School Code Join</p>
+      <section className="relative z-[2] -mt-4 flex items-start justify-center px-4 pb-8 md:mt-0 md:min-h-screen md:items-center md:bg-[#090d14]/75 md:px-8">
+        <motion.div initial={{opacity:0, y:22, scale:.985}} animate={{opacity:1, y:0, scale:1}} transition={{delay:.14, type:'spring', stiffness:170, damping:20}} className="login-card w-full max-w-[450px] rounded-[30px] p-5 md:p-8">
+          <div className="mb-5 flex items-start justify-between gap-3">
+            <div><div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-[.16em] text-cyan-300/75"><ShieldCheck size={12}/> Verified access</div><h2 className="mt-1.5 text-[23px] font-black tracking-[-.035em]">Welcome back</h2><p className="mt-1 text-[11px] text-slate-500">Sign in to continue to your school workspace.</p></div>
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-violet-300/10 bg-violet-400/[.06] text-violet-300"><Sparkles size={17}/></div>
           </div>
 
           <Tabs defaultValue="login" className="w-full">
-            <TabsList className="grid grid-cols-2 w-full mb-5 h-12 p-1 rounded-full bg-slate-100 dark:bg-zinc-800">
-              <TabsTrigger value="login" className="rounded-full data-[state=active]:bg-zinc-900 data-[state=active]:text-white dark:data-[state=active]:bg-white dark:data-[state=active]:text-zinc-900 data-[state=active]:shadow">Sign In</TabsTrigger>
-              <TabsTrigger value="signup" className="rounded-full data-[state=active]:bg-zinc-900 data-[state=active]:text-white dark:data-[state=active]:bg-white dark:data-[state=active]:text-zinc-900">Create Account</TabsTrigger>
+            <TabsList className="login-tabs mb-5 grid h-12 w-full grid-cols-2 rounded-full border border-white/[.06] bg-white/[.035] p-1">
+              <TabsTrigger value="login" className="rounded-full text-[12px] data-[state=active]:bg-gradient-to-r data-[state=active]:from-cyan-500/20 data-[state=active]:to-violet-500/20 data-[state=active]:text-white data-[state=active]:shadow">Sign In</TabsTrigger>
+              <TabsTrigger value="signup" className="rounded-full text-[12px] data-[state=active]:bg-gradient-to-r data-[state=active]:from-cyan-500/20 data-[state=active]:to-violet-500/20 data-[state=active]:text-white">Create Account</TabsTrigger>
             </TabsList>
 
             <TabsContent value="login">
-              <form onSubmit={handleLogin} className="space-y-4">
-                <div className="space-y-2">
-                  <Label className="text-[13px]">Email</Label>
-                  <div className="relative">
-                    <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                    <Input className="pl-11 h-14 rounded-2xl" type="email" value={email} onChange={e=>setEmail(e.target.value)} required placeholder="admin@school.edu" />
-                  </div>
+              <form onSubmit={handleLogin} className="space-y-3.5">
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-500">Email address</Label>
+                  <div className="relative"><Mail size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"/><Input className="login-input h-13 min-h-[52px] rounded-2xl pl-11" type="email" value={email} onChange={event=>setEmail(event.target.value)} required autoComplete="email" placeholder="admin@school.edu" /></div>
                 </div>
-                <div className="space-y-2">
-                  <Label className="text-[13px]">Password</Label>
-                  <div className="relative">
-                    <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                    <Input className="pl-11 pr-11 h-14 rounded-2xl" type={showPass ? "text" : "password"} value={password} onChange={e=>setPassword(e.target.value)} required placeholder="••••••••" />
-                    <button type="button" onClick={()=>setShowPass(!showPass)} className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground">{showPass ? <EyeOff size={18}/> : <Eye size={18}/>}</button>
-                  </div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between"><Label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-500">Password</Label><button type="button" className="text-[10px] font-semibold text-cyan-300/80" onClick={()=>{
+                    if(!email) return toast.error('Enter your email first')
+                    resetPassword(email).then(()=>toast.success('Reset email sent')).catch((error:any)=>toast.error(error.message))
+                  }}>Forgot password?</button></div>
+                  <div className="relative"><Lock size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"/><Input className="login-input h-13 min-h-[52px] rounded-2xl pl-11 pr-11" type={showPass ? 'text' : 'password'} value={password} onChange={event=>setPassword(event.target.value)} required autoComplete="current-password" placeholder="••••••••"/><button aria-label={showPass?'Hide password':'Show password'} type="button" onClick={()=>setShowPass(value=>!value)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500">{showPass?<EyeOff size={17}/>:<Eye size={17}/>}</button></div>
                 </div>
-                <div className="space-y-2">
-                  <Label className="text-[13px]">School Code (teacher invite - optional)</Label>
-                  <Input className="h-12 rounded-2xl bg-slate-50 dark:bg-zinc-800" value={schoolCode} onChange={e=>setSchoolCode(e.target.value)} placeholder="EDU-XXXXXX" />
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-500">School invite code <span className="normal-case tracking-normal">(optional)</span></Label>
+                  <Input className="login-input h-11 rounded-2xl font-mono uppercase tracking-wider" value={schoolCode} onChange={event=>setSchoolCode(event.target.value.toUpperCase())} placeholder="EDU-XXXXXX" />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 pt-1">
-                  <button type="button" onClick={handleBiometric} className="h-[64px] rounded-2xl bg-slate-50 dark:bg-zinc-800 border border-slate-100 dark:border-zinc-700 flex flex-col items-center justify-center gap-1 text-[12px] font-medium hover:bg-slate-100 transition">
-                    <ScanFace size={22} className="text-indigo-500" /> Sign in with Face ID
-                  </button>
-                  <button type="button" onClick={handleBiometric} className="h-[64px] rounded-2xl bg-slate-50 dark:bg-zinc-800 border border-slate-100 dark:border-zinc-700 flex flex-col items-center justify-center gap-1 text-[12px] font-medium hover:bg-slate-100 transition">
-                    <Fingerprint size={22} className="text-fuchsia-500" /> Sign in with Touch ID
-                  </button>
-                </div>
+                <Button disabled={loading} variant="gradient" size="lg" className="login-primary-button mt-1 h-14 w-full rounded-full text-[14px]" type="submit">{loading?'Authenticating…':<>Secure Sign In <ArrowRight size={17} className="ml-2"/></>}</Button>
 
-                <Button disabled={loading} variant="gradient" size="lg" className="w-full h-14 rounded-full text-[16px]" type="submit">{loading ? 'Signing in…' : 'Sign In'}</Button>
+                <div className="flex items-center gap-3 py-1"><span className="h-px flex-1 bg-white/[.07]"/><span className="text-[9px] font-bold uppercase tracking-[.14em] text-slate-600">or continue with</span><span className="h-px flex-1 bg-white/[.07]"/></div>
+                <Button type="button" variant="outline" className="login-secondary-button h-12 w-full rounded-full border-white/[.08] bg-white/[.025] text-[12px] text-slate-200" onClick={()=>loginGoogle().catch((error:any)=>toast.error(error.message))}><GoogleMark/> <span className="ml-2">Google Workspace</span></Button>
 
-                <div className="relative py-2">
-                  <div className="absolute inset-0 flex items-center"><div className="w-full border-t" /></div>
-                  <div className="relative flex justify-center"><span className="bg-white dark:bg-zinc-900 px-3 text-xs text-muted-foreground">OR</span></div>
-                </div>
-
-                <Button type="button" variant="outline" className="w-full h-14 rounded-full" onClick={()=>loginGoogle().catch((e:any)=>toast.error(e.message))}>
-                  <img src="https://www.svgrepo.com/show/475656/google-color.svg" className="w-5 h-5 mr-2" alt=""/>Continue with Google
-                </Button>
-
-                <div className="flex justify-between text-[13px] pt-1">
-                  <button type="button" className="text-indigo-600 font-medium hover:underline" onClick={()=> {
-                    if(!email) return toast.error('Enter email first')
-                    resetPassword(email).then(()=>toast.success('Reset email sent')).catch((e:any)=>toast.error(e.message))
-                  }}>Forgot password?</button>
-                  <span className="text-muted-foreground">RBAC secure</span>
+                <div className="grid grid-cols-2 gap-2.5 pt-1">
+                  <button type="button" onClick={handleBiometric} className="biometric-button flex h-[58px] items-center justify-center gap-2 rounded-2xl border border-white/[.06] bg-white/[.025] text-[10px] font-semibold text-slate-400"><ScanFace size={20} className="text-cyan-300"/> Face ID</button>
+                  <button type="button" onClick={handleBiometric} className="biometric-button flex h-[58px] items-center justify-center gap-2 rounded-2xl border border-white/[.06] bg-white/[.025] text-[10px] font-semibold text-slate-400"><Fingerprint size={20} className="text-violet-300"/> Touch ID</button>
                 </div>
               </form>
             </TabsContent>
 
             <TabsContent value="signup">
-              <form onSubmit={handleSignup} className="space-y-4">
-                <div><Label className="text-[13px]">Full Name</Label><Input className="h-14 rounded-2xl mt-1" value={name} onChange={e=>setName(e.target.value)} required placeholder="Rishu Kumar" /></div>
-                <div><Label className="text-[13px]">Email *</Label><Input className="h-14 rounded-2xl mt-1" type="email" value={email} onChange={e=>setEmail(e.target.value)} required /></div>
-                <div><Label className="text-[13px]">Password *</Label><Input className="h-14 rounded-2xl mt-1" type="password" value={password} onChange={e=>setPassword(e.target.value)} required placeholder="min 6 characters" /></div>
-                <div><Label className="text-[13px]">School Invite Code (teachers only - optional)</Label><Input className="h-12 rounded-2xl mt-1 bg-slate-50 dark:bg-zinc-800" value={schoolCode} onChange={e=>setSchoolCode(e.target.value)} placeholder="EDU-XXXXXX" />
-                  <p className="text-[11px] text-muted-foreground mt-2 leading-snug">Leave blank if you’re creating a NEW school – you’ll become School Admin after email verification.</p>
-                </div>
-                <Button disabled={loading} variant="gradient" size="lg" className="w-full h-14 rounded-full" type="submit">{loading ? 'Creating…' : 'Create Account & Verify Email'}</Button>
-                <p className="text-[11px] text-muted-foreground text-center leading-snug">By signing up you agree to verify your email. School Admin can create school after verification.</p>
+              <form onSubmit={handleSignup} className="space-y-3.5">
+                <div><Label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-500">Full name</Label><Input className="login-input mt-1.5 min-h-[52px] rounded-2xl" value={name} onChange={event=>setName(event.target.value)} required autoComplete="name" placeholder="Your full name"/></div>
+                <div><Label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-500">Email address</Label><Input className="login-input mt-1.5 min-h-[52px] rounded-2xl" type="email" value={email} onChange={event=>setEmail(event.target.value)} required autoComplete="email" placeholder="you@school.edu"/></div>
+                <div><Label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-500">Password</Label><div className="relative mt-1.5"><Input className="login-input min-h-[52px] rounded-2xl pr-11" type={showPass?'text':'password'} value={password} onChange={event=>setPassword(event.target.value)} required minLength={6} autoComplete="new-password" placeholder="Minimum 6 characters"/><button aria-label={showPass?'Hide password':'Show password'} type="button" onClick={()=>setShowPass(value=>!value)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500">{showPass?<EyeOff size={17}/>:<Eye size={17}/>}</button></div></div>
+                <div><Label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-500">Teacher invite code <span className="normal-case tracking-normal">(optional)</span></Label><Input className="login-input mt-1.5 h-11 rounded-2xl font-mono uppercase tracking-wider" value={schoolCode} onChange={event=>setSchoolCode(event.target.value.toUpperCase())} placeholder="EDU-XXXXXX"/><p className="mt-2 text-[9px] leading-relaxed text-slate-600">Leave blank to create a new school after email verification.</p></div>
+                <Button disabled={loading} variant="gradient" size="lg" className="login-primary-button h-14 w-full rounded-full text-[13px]" type="submit">{loading?'Creating secure account…':<>Create & Verify Account <ArrowRight size={16} className="ml-2"/></>}</Button>
+                <p className="text-center text-[9px] leading-relaxed text-slate-600">Your email must be verified before any school data can be accessed.</p>
               </form>
             </TabsContent>
           </Tabs>
 
-          {user && !user.emailVerified && (
-            <div className="mt-5 p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-[13px] flex items-center justify-between">
-              <span>Email <b>{user.email}</b> not verified.</span>
-              <Button size="sm" variant="outline" className="rounded-full ml-2 h-8" onClick={()=>resendVerification().then(()=>toast.success('Verification sent')).catch((e:any)=>toast.error(e.message))}>Resend</Button>
-            </div>
-          )}
+          {user && !user.emailVerified && <div className="mt-5 flex items-center justify-between gap-2 rounded-2xl border border-amber-300/15 bg-amber-300/[.06] p-3 text-[10px] text-amber-200"><span>Email verification pending.</span><Button size="sm" variant="outline" className="h-8 rounded-full border-amber-300/15 bg-transparent" onClick={()=>resendVerification().then(()=>toast.success('Verification sent')).catch((error:any)=>toast.error(error.message))}>Resend</Button></div>}
 
-          <div className="mt-6 text-[11px] text-muted-foreground space-y-1 border-t border-slate-100 dark:border-zinc-800 pt-4 leading-snug">
-            <p className="font-medium text-zinc-900 dark:text-zinc-100">Production login</p>
-            <p>Create your own school admin account via Sign Up, verify email, then create school. Invite teachers with your school code.</p>
-          </div>
+          <div className="mt-5 flex items-center justify-center gap-2 border-t border-white/[.06] pt-4 text-[9px] text-slate-600"><ShieldCheck size={12} className="text-emerald-400/70"/> Encrypted • Role-based • Firebase secured</div>
         </motion.div>
-      </div>
+      </section>
 
-      <div className="md:hidden text-center text-[11px] text-white/40 pb-6 pt-2">EduSphere AI © {new Date().getFullYear()} • PWA • Android</div>
+      <div className="relative z-[2] pb-[max(1rem,env(safe-area-inset-bottom))] text-center text-[8px] uppercase tracking-[.16em] text-slate-700 md:hidden">EduSphere AI © {new Date().getFullYear()}</div>
     </div>
   )
 }

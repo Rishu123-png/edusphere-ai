@@ -102,7 +102,7 @@ export default function OnboardingPage(){
                 classTeacherOf = match[1]?.classTeacherOf || ''
               }
             }
-          } catch {}
+          } catch (e) { console.warn(e); }
 
           await update(ref(db, `users/${user.uid}`), {
             schoolId: found.id,
@@ -223,4 +223,3 @@ export default function OnboardingPage(){
     </div>
   )
 }
-

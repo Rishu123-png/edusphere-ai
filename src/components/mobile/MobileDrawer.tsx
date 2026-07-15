@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Users, GraduationCap, ClipboardCheck, FileText, Brain, CalendarClock, Bell, MessageCircle, Settings, Shield, BarChart3, CalendarDays, UserCircle, X } from 'lucide-react'
+import { LayoutDashboard, Users, GraduationCap, ClipboardCheck, FileText, Brain, CalendarClock, Bell, MessageCircle, Settings, Shield, BarChart3, CalendarDays, UserCircle, X, LogOut, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
 import { Drawer } from 'vaul'
@@ -22,20 +22,20 @@ const nav = [
 ]
 
 export default function MobileDrawer({ open, onOpenChange }: { open: boolean, onOpenChange: (o:boolean)=>void }) {
-  const { profile } = useAuth()
+  const { profile, logout } = useAuth()
   const role = profile?.role || 'student'
   const items = nav.filter(n => n.roles.includes(role))
 
   return (
     <Drawer.Root open={open} onOpenChange={onOpenChange}>
       <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" />
-        <Drawer.Content className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-[32px] bg-white dark:bg-zinc-900 border-t border-slate-100 dark:border-zinc-800 max-h-[88vh]">
+        <Drawer.Overlay className="fixed inset-0 bg-black/65 backdrop-blur-md z-50" />
+        <Drawer.Content className="mobile-drawer fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-[32px] bg-white dark:bg-zinc-900 border-t border-slate-100 dark:border-zinc-800 max-h-[88vh]">
           <div className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-slate-200 dark:bg-zinc-700" />
           <div className="p-5 flex items-center justify-between border-b border-slate-100 dark:border-zinc-800">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center text-white font-bold">
-                {profile?.displayName?.[0] || 'E'}
+              <div className="brand-orbit w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold">
+                <Sparkles size={19}/>
               </div>
               <div>
                 <div className="font-bold">{profile?.displayName || 'EduSphere User'}</div>
@@ -53,7 +53,8 @@ export default function MobileDrawer({ open, onOpenChange }: { open: boolean, on
             ))}
           </div>
           <div className="p-4 border-t border-slate-100 dark:border-zinc-800 safe-bottom">
-            <div className="text-[11px] text-muted-foreground">EduSphere AI v2.1 • PWA • Mobile First • {new Date().getFullYear()}</div>
+            <button onClick={async()=>{ onOpenChange(false); await logout() }} className="mb-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-red-400/15 bg-red-500/10 px-4 py-3 text-[13px] font-bold text-red-300"><LogOut size={16}/> Sign out</button>
+            <div className="text-[10px] text-muted-foreground text-center uppercase tracking-[.12em]">EduSphere AI • Secure Campus OS • {new Date().getFullYear()}</div>
           </div>
         </Drawer.Content>
       </Drawer.Portal>

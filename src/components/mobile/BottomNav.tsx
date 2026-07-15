@@ -1,11 +1,12 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Users, ClipboardCheck, FileText, Settings, Brain } from 'lucide-react'
+import { LayoutDashboard, Users, ClipboardCheck, FileText, Settings, Brain, UserCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
 import { AnimeBounceClick } from '../AnimeWrapper'
 
 const tabs = [
   { to: '/', label: 'Home', icon: LayoutDashboard, roles: ['super_admin','school_admin','teacher','student','parent'] },
+  { to: '/parent', label: 'My Child', icon: UserCircle, roles: ['parent'] },
   { to: '/students', label: 'Students', icon: Users, roles: ['super_admin','school_admin','teacher'] },
   { to: '/attendance', label: 'Attendance', icon: ClipboardCheck, roles: ['super_admin','school_admin','teacher'] },
   { to: '/marks', label: 'Marks', icon: FileText, roles: ['super_admin','school_admin','teacher','student','parent'] },

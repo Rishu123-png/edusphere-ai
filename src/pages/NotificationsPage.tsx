@@ -42,8 +42,8 @@ export default function NotificationsPage(){
   return <div className="page-container space-y-4">
     <PageHeader title="Notifications" subtitle="Smart alerts from your school activity" />
     <div className="grid gap-3">
-      {notifs.map((n)=>(
-        <Card key={n.id} className="rounded-[20px]">
+      {notifs.map((n, index)=>(
+        <Card key={n.id} className="notification-card rounded-[20px]" style={{ animationDelay: `${Math.min(index, 8) * 55}ms` }}>
           <CardContent className="p-4 flex items-center gap-3">
             {(() => {
               const meta = iconFor(n.type || 'attendance')

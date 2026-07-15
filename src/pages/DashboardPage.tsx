@@ -1,3 +1,4 @@
+import ModuleArchitectureBanner from '@/components/ModuleArchitectureBanner'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSchool } from '@/contexts/SchoolContext'
@@ -229,6 +230,8 @@ export default function DashboardPage(){
       </div>
     </section>
 
+    <ModuleArchitectureBanner />
+
     <div className="md:hidden flex gap-3 overflow-x-auto scrollbar-hide snap-x snap-mandatory pb-1 -mx-1 px-1">
       {kpis.map((k)=>(
         <div key={k.label} className="kpi-card min-w-[152px] max-w-[152px] shrink-0 snap-start">
@@ -342,7 +345,7 @@ export default function DashboardPage(){
         <CardContent className="text-[13px] space-y-2.5 mt-1">
           <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-red-500"/> {counts.atRisk} students below 75% from saved attendance</div>
           <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-amber-500"/> {counts.absent} absent today</div>
-          <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500"/> {counts.presentCount} present today</div>
+<div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500"/> {counts.presentCount} present today</div>
         </CardContent>
       </Card>
     </div>
@@ -378,7 +381,7 @@ export default function DashboardPage(){
             {recentActivities.map((a,i)=><li key={i} className="flex gap-2"><span className="text-foreground font-medium">{a.time}</span> {a.text}</li>)}
             {!recentActivities.length && <li>No activity saved today yet.</li>}
           </ul>
-        </CardContent>
+</CardContent>
       </Card>
       <Card className="hidden md:block">
         <CardTitle>Quick Actions</CardTitle>

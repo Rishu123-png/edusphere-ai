@@ -23,20 +23,26 @@ export default function BottomNav(){
   const loc = useLocation()
 
   return (
-    <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 px-3 safe-bottom pointer-events-none">
-      <div className="mx-auto max-w-[420px] bottom-nav-glass rounded-full flex items-center justify-around p-1.5 shadow-[0_12px_40px_rgba(0,0,0,0.15)] pointer-events-auto">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 pointer-events-none" aria-label="Primary navigation">
+      <div className="bottom-nav-glass mx-auto max-w-[480px] flex items-center justify-around px-2 pt-2 pointer-events-auto safe-bottom">
         {visibleTabs.map(item => {
           const active = loc.pathname === item.to || (item.to !== '/' && loc.pathname.startsWith(item.to))
           return (
-            <AnimeBounceClick key={item.to}>
-              <NavLink to={item.to} className={cn("flex flex-col items-center gap-1 px-3 py-2 rounded-full transition-all min-w-[56px]", active ? "bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 shadow" : "text-zinc-500 dark:text-zinc-400") }>
-                <item.icon size={20} strokeWidth={active ? 2.5 : 2} />
-                <span className="text-[10px] font-semibold leading-none">{item.label}</span>
+            <AnimeBounceClick key={item.to} className="flex-1">
+              <NavLink
+                to={item.to}
+                aria-current={active ? 'page' : undefined}
+                className={cn('mobile-nav-item relative mx-auto flex min-h-[55px] max-w-[72px] flex-col items-center justify-center gap-1 rounded-2xl transition-all', active ? 'mobile-nav-active text-cyan-300' : 'text-slate-500')}
+              >
+                <span className="nav-icon-wrap relative grid h-7 w-9 place-items-center rounded-xl">
+                  <item.icon size={20} strokeWidth={active ? 2.5 : 1.9} />
+                </span>
+                <span className="text-[9px] font-semibold leading-none tracking-wide">{item.label}</span>
               </NavLink>
             </AnimeBounceClick>
           )
         })}
       </div>
-    </div>
+    </nav>
   )
 }

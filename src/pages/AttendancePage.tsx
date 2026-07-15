@@ -10,7 +10,7 @@ import { useSchool } from '@/contexts/SchoolContext'
 import { todayIST } from '@/lib/rtdb'
 import QRScanner from '@/components/QRScanner'
 import PageHeader from '@/components/mobile/PageHeader'
-import { Camera, BarChart3, QrCode, Users, X, ShieldCheck, SwitchCamera } from 'lucide-react'
+import { Camera, BarChart3, QrCode, Users, X, ShieldCheck, SwitchCamera, ScanFace } from 'lucide-react'
 import {
   detectFacesWithDescriptors,
   findBestFaceMatch,
@@ -102,7 +102,7 @@ export default function AttendancePage(){
       })
     }
     toast.success(`Attendance saved • Present ${present}/${students.length}`)
-    try { navigator.vibrate?.(50) } catch {}
+    try { navigator.vibrate?.(50) } catch { /* Best-effort mobile enhancement; safe to ignore. */ }
   }
 
   const resizeOverlayCanvas = () => {
@@ -172,7 +172,7 @@ export default function AttendancePage(){
             newMatches++
             setMarks(prev => ({ ...prev, [best.id]: 'present' }))
             setAiLog(prev => [`${best.name} verified (${Math.round(best.confidence * 100)}% match)`, ...prev].slice(0, 10))
-            try { navigator.vibrate?.(60) } catch {}
+            try { navigator.vibrate?.(60) } catch { /* Best-effort mobile enhancement; safe to ignore. */ }
           }
         } else {
           unknown++
@@ -263,7 +263,7 @@ export default function AttendancePage(){
     // Keep portrait/vertical only — never landscape
     try {
       await (screen.orientation as any)?.lock?.('portrait').catch?.(()=>{})
-    } catch {}
+    } catch { /* Best-effort mobile enhancement; safe to ignore. */ }
   }
 
   const startAiCamera = async ()=>{
@@ -295,6 +295,7 @@ export default function AttendancePage(){
     }
   }
 
+  
   /** Switch Front ↔ Back camera. Keeps portrait/vertical layout. */
   const switchCamera = async () => {
     if (switchingCamera || !aiScanning) return
@@ -306,7 +307,7 @@ export default function AttendancePage(){
       setFacingMode(next)
       setAiStatus(`AI camera active • ${next === 'user' ? 'Front' : 'Back'} camera • portrait`)
       await runAiScan()
-      try { navigator.vibrate?.(30) } catch {}
+      try { navigator.vibrate?.(30) } catch { /* Best-effort mobile enhancement; safe to ignore. */ }
     } catch (e: any) {
       toast.error(e?.message || `Could not open ${next === 'user' ? 'front' : 'back'} camera`)
       setAiStatus(`Still on ${facingMode === 'user' ? 'Front' : 'Back'} camera`)
@@ -330,15 +331,14 @@ export default function AttendancePage(){
     if(exitFullscreen && document.fullscreenElement) {
       document.exitFullscreen?.().catch(()=>{})
     }
-    try { (screen.orientation as any)?.unlock?.() } catch {}
+    try { (screen.orientation as any)?.unlock?.() } catch { /* Best-effort mobile enhancement; safe to ignore. */ }
   }
 
   const saveAiAttendance = async ()=>{
     await submit('ai_camera')
     stopAi()
   }
-
-  const handleQrScan = async (scannedText: string) => {
+const handleQrScan = async (scannedText: string) => {
     const sid = schoolId || profile?.schoolId || 'global'
     const matchedStudent = allStudents.find((s: any) => s.id === scannedText || s.qrCode === scannedText)
 
@@ -357,7 +357,7 @@ export default function AttendancePage(){
       setMarks(prev => ({ ...prev, [matchedStudent.id]: 'present' }))
       toast.success(`Verified: ${matchedStudent.name} marked Present!`)
       setShowQrScanner(false)
-      try { navigator.vibrate?.(100) } catch {}
+      try { navigator.vibrate?.(100) } catch { /* Best-effort mobile enhancement; safe to ignore. */ }
     } else {
       toast.error(`Invalid QR: not found in your students list`)
     }
@@ -370,18 +370,17 @@ export default function AttendancePage(){
 
   return <div className="page-container space-y-4">
     <PageHeader title="Attendance" subtitle={`Smart • QR • Real AI Camera • ${todayIST()}`} />
-
-    <Tabs value={tab} onValueChange={setTab} className="w-full">
+   <Tabs value={tab} onValueChange={setTab} className="w-full">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <TabsList className="h-11 rounded-full bg-slate-100 dark:bg-zinc-800 p-1">
-          <TabsTrigger value="manual" className="rounded-full data-[state=active]:bg-zinc-900 data-[state=active]:text-white dark:data-[state=active]:bg-white dark:data-[state=active]:text-zinc-900 px-4">
+        <TabsList className="attendance-tabs h-11 max-w-full overflow-x-auto scrollbar-hide rounded-full bg-slate-100 dark:bg-zinc-800 p-1">
+          <TabsTrigger value="manual" className="shrink-0 rounded-full data-[state=active]:bg-zinc-900 data-[state=active]:text-white dark:data-[state=active]:bg-white dark:data-[state=active]:text-zinc-900 px-3.5">
             <Users size={14} className="mr-1.5 inline"/> Manual
           </TabsTrigger>
-          <TabsTrigger value="qr" className="rounded-full data-[state=active]:bg-zinc-900 data-[state=active]:text-white dark:data-[state=active]:bg-white dark:data-[state=active]:text-zinc-900 px-4">
-            <QrCode size={14} className="mr-1.5 inline"/> QR Code
+          <TabsTrigger value="qr" className="shrink-0 rounded-full data-[state=active]:bg-zinc-900 data-[state=active]:text-white dark:data-[state=active]:bg-white dark:data-[state=active]:text-zinc-900 px-3.5">
+            <QrCode size={14} className="mr-1.5 inline"/> QR
           </TabsTrigger>
-          <TabsTrigger value="ai" className="rounded-full data-[state=active]:bg-emerald-500 data-[state=active]:text-white px-4">AI Attendance</TabsTrigger>
-          <TabsTrigger value="analytics" className="rounded-full data-[state=active]:bg-zinc-900 data-[state=active]:text-white px-4"><BarChart3 size={14} className="mr-1.5 inline"/>Analy</TabsTrigger>
+          <TabsTrigger value="ai" className="shrink-0 rounded-full px-3.5 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-500 data-[state=active]:to-cyan-500 data-[state=active]:text-white"><ScanFace size={14} className="mr-1.5 inline"/> AI Camera</TabsTrigger>
+          <TabsTrigger value="analytics" className="shrink-0 rounded-full data-[state=active]:bg-zinc-900 data-[state=active]:text-white px-3.5"><BarChart3 size={14} className="mr-1.5 inline"/>Stats</TabsTrigger>
         </TabsList>
         <div className="flex gap-2">
           <select value={classSel} onChange={e=>setClassSel(e.target.value)} className="h-11 rounded-full px-4 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 text-[13px] font-semibold">
@@ -421,8 +420,7 @@ export default function AttendancePage(){
           ))}
           {!students.length && <Card className="p-10 text-center text-muted-foreground text-sm">{classOptions.length ? `No students in ${classSel}.` : 'No students yet. Add students from the Students page.'}</Card>}
         </div>
-
-        <div className="sticky bottom-[88px] md:bottom-6 z-20 pt-3">
+<div className="sticky bottom-[88px] md:bottom-6 z-20 pt-3">
           <Button onClick={()=>submit('manual')} variant="success" size="lg" className="w-full rounded-full h-14 text-[16px] shadow-[0_10px_30px_rgba(16,185,129,0.3)]" disabled={!students.length}>✓ SAVE ATTENDANCE • {presentCount}/{students.length} Present</Button>
         </div>
       </TabsContent>
@@ -446,19 +444,37 @@ export default function AttendancePage(){
       </TabsContent>
 
       <TabsContent value="ai" className="mt-4 space-y-4">
-        <Card className="overflow-hidden rounded-[24px]">
-          <CardTitle className="flex items-center gap-2"><Camera size={18}/> AI Camera Attendance</CardTitle>
-          <CardContent className="space-y-4">
-            <div className="aspect-video bg-slate-100 dark:bg-zinc-800 rounded-2xl flex flex-col items-center justify-center text-muted-foreground text-sm p-5 text-center">
-              <ShieldCheck className="mb-2 text-emerald-600" />
-              <b className="text-foreground">Real face matching only</b>
-              <span>Opens full-screen camera. Only enrolled student faces are marked present. Unknown faces, photos on screens, and non-enrolled people are ignored.</span>
-              <span className="mt-2 text-[12px]">Face IDs in {classSel || '—'}: {enrolledFaces.length}/{students.length}</span>
+        <Card className="ai-camera-card overflow-hidden rounded-[26px]">
+          <div className="flex items-center justify-between px-5 pt-5">
+            <CardTitle className="flex items-center gap-2 p-0"><ScanFace size={18} className="text-emerald-400"/> AI Smart Camera</CardTitle>
+            <span className="flex items-center gap-1.5 rounded-full bg-emerald-400/10 px-2.5 py-1 text-[9px] font-bold text-emerald-400"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400"/> READY</span>
+          </div>
+          <CardContent className="space-y-4 pt-4">
+            <div className="scanner-preview relative aspect-[4/3] overflow-hidden rounded-[22px] border border-emerald-300/20 bg-gradient-to-br from-[#15212a] via-[#111923] to-[#10131b] p-5">
+              <div className="absolute inset-0 opacity-30" style={{backgroundImage:'radial-gradient(circle at 50% 35%, rgba(40,225,190,.18), transparent 38%), linear-gradient(rgba(70,230,210,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(70,230,210,.06) 1px, transparent 1px)', backgroundSize:'auto, 28px 28px, 28px 28px'}}/>
+              <span className="scan-corner scan-corner-tl"/><span className="scan-corner scan-corner-tr"/><span className="scan-corner scan-corner-bl"/><span className="scan-corner scan-corner-br"/>
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                <div className="relative grid h-20 w-20 place-items-center rounded-full border border-emerald-300/20 bg-emerald-300/[.06] text-emerald-300">
+                  <span className="absolute inset-2 animate-ping rounded-full border border-emerald-300/10"/><ScanFace size={38}/>
+                </div>
+                <div className="mt-4 text-[14px] font-extrabold text-white">Face verification ready</div>
+                <div className="mt-1 max-w-[250px] text-[10px] leading-relaxed text-slate-400">Only enrolled faces are matched. Unknown people are safely ignored.</div>
+              </div>
+              <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between rounded-xl border border-white/[.06] bg-black/25 px-3 py-2 backdrop-blur-md">
+                <span className="text-[9px] text-slate-400">Face IDs • {classSel || 'No class'}</span>
+                <span className="text-[10px] font-black text-emerald-300">{enrolledFaces.length}/{students.length} READY</span>
+              </div>
             </div>
-            <Button variant="gradient" className="w-full rounded-full h-12" onClick={startAiCamera} disabled={!students.length}>
-              Open Full Screen AI Camera
+<div className="grid grid-cols-3 gap-2">
+              <div className="rounded-2xl border border-white/[.06] bg-white/[.025] p-3 text-center"><div className="text-[18px] font-black">{students.length}</div><div className="text-[9px] text-slate-500">Students</div></div>
+              <div className="rounded-2xl border border-emerald-300/10 bg-emerald-300/[.035] p-3 text-center"><div className="text-[18px] font-black text-emerald-300">{enrolledFaces.length}</div><div className="text-[9px] text-slate-500">Face ready</div></div>
+              <div className="rounded-2xl border border-cyan-300/10 bg-cyan-300/[.035] p-3 text-center"><div className="text-[18px] font-black text-cyan-300">Live</div><div className="text-[9px] text-slate-500">Detection</div></div>
+            </div>
+
+            <Button variant="gradient" className="w-full rounded-full h-13 min-h-12 font-bold" onClick={startAiCamera} disabled={!students.length}>
+              <Camera size={17} className="mr-2"/> Start Secure Face Scan
             </Button>
-            <p className="text-[11px] text-muted-foreground">Tip: Students → Update Photo (clear front face) → Face ID Ready → then open AI camera. AI never invents attendance.</p>
+            <p className="flex gap-2 text-[10px] leading-relaxed text-muted-foreground"><ShieldCheck size={14} className="mt-0.5 shrink-0 text-emerald-400"/> Photos and Face IDs remain linked to authenticated school records. AI never invents attendance.</p>
           </CardContent>
         </Card>
       </TabsContent>
@@ -510,8 +526,7 @@ variant="ghost"
             </Button>
           </div>
         </div>
-
-        <div className="relative flex-1 min-h-0 bg-black overflow-hidden">
+<div className="scanner-stage relative flex-1 min-h-0 bg-black overflow-hidden">
           <video
             ref={videoRef}
             className="absolute inset-0 w-full h-full object-cover bg-black"
@@ -523,6 +538,9 @@ variant="ghost"
             ref={canvasRef}
             className="absolute inset-0 w-full h-full pointer-events-none"
           />
+          <div className="pointer-events-none absolute inset-x-[11%] top-[12%] h-[42%]">
+            <span className="scan-corner scan-corner-tl"/><span className="scan-corner scan-corner-tr"/><span className="scan-corner scan-corner-bl"/><span className="scan-corner scan-corner-br"/>
+          </div>
 
           {/* Portrait-only stacked panels (no horizontal split) */}
           <div className="absolute left-3 right-3 bottom-3 flex flex-col gap-2 pointer-events-none">
@@ -530,7 +548,7 @@ variant="ghost"
               <div className="text-[11px] text-white/70 mb-1">Verified students ({students.filter(s=>marks[s.id]==='present').length}/{students.length})</div>
               <div className="flex flex-wrap gap-2 max-h-16 overflow-auto">
                 {students.filter(s=>marks[s.id]==='present').map(s=>(
-                  <span key={s.id} className="px-2.5 py-1 rounded-full bg-emerald-500 text-white text-[11px] font-semibold">{s.name}</span>
+                  <span key={s.id} className="verified-pop px-2.5 py-1 rounded-full bg-emerald-500 text-white text-[11px] font-semibold">✓ {s.name}</span>
                 ))}
                 {!students.filter(s=>marks[s.id]==='present').length && (
                   <span className="text-[12px] text-white/60">Point camera at enrolled students. Unknown faces are ignored.</span>

@@ -1,4 +1,3 @@
-
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -13,7 +12,7 @@ import { todayIST } from '@/lib/rtdb'
 import QRScanner from '@/components/QRScanner'
 import PageHeader from '@/components/mobile/PageHeader'
 import ModuleArchitectureBanner from '@/components/ModuleArchitectureBanner'
-import { Camera, BarChart3, QrCode, Users, X, ShieldCheck, SwitchCamera, ScanFace, AlertTriangle, UserCheck, Clock, Wifi, WifiOff, CheckCircle2, UserPlus, Grid, Volume2 } from 'lucide-react'
+import { Camera, BarChart3, QrCode, Users, X, ShieldCheck, SwitchCamera, ScanFace, AlertTriangle, Clock, Wifi, WifiOff, CheckCircle2, UserPlus, Grid, Volume2, Smile } from 'lucide-react'
 import {
   detectFacesWithDescriptors,
   findBestFaceMatch,
@@ -41,21 +40,17 @@ export default function AttendancePage(){
   const [switchingCamera, setSwitchingCamera] = useState(false)
   const [isOfflineMode, setIsOfflineMode] = useState(!navigator.onLine)
 
-  // Advanced AI Camera Statuses & Counters
   const [livenessStatus, setLivenessStatus] = useState<'PASS' | 'CHECKING' | 'FAKE'>('PASS')
   const [maskDetected, setMaskDetected] = useState<boolean>(false)
   const [headPoseText, setHeadPoseText] = useState<string>('Looking Straight')
   const [smileDetected, setSmileDetected] = useState<boolean>(false)
-  const [blinkDetected, setBlinkDetected] = useState<boolean>(true)
   const [unknownPersonAlert, setUnknownPersonAlert] = useState<{ detected: boolean; time: string; box?: any } | null>(null)
   const [quickRegisterModalOpen, setQuickRegisterModalOpen] = useState(false)
   const [quickRegisterForm, setQuickRegisterForm] = useState({ name: '', rollNumber: '' })
   const [lateEntryMode, setLateEntryMode] = useState(false)
   const [hybridQrOverlay, setHybridQrOverlay] = useState(false)
 
-  // Laser animation offset for canvas
   const laserOffsetRef = useRef(0)
-
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -131,7 +126,7 @@ export default function AttendancePage(){
         method,
         timestamp: Date.now()
       }))
-      const count = saveToOfflineQueue(offlineRecs)
+      saveToOfflineQueue(offlineRecs)
       toast.success(`Offline Mode • Saved ${offlineRecs.length} records locally! Will sync automatically when internet returns.`)
       return
     }
@@ -174,8 +169,7 @@ export default function AttendancePage(){
     if(!ctx) return
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-    // 1. Draw scanning laser line
-    laserOffsetRef.current = (laserOffsetRef.current + 4) % canvas.height
+    laserOffsetRef.current = (laserOffsetRef.current + 4) % (canvas.height || 480)
     ctx.strokeStyle = 'rgba(0, 229, 255, 0.6)'
     ctx.lineWidth = 2
     ctx.beginPath()
@@ -190,7 +184,6 @@ export default function AttendancePage(){
       const mapped = mapBoxToCanvas(d.box, video, canvas, 'cover')
       const match = matchedByFace.get(index)
 
-      // Neon rectangle color and shadow glow
       if (match) {
         ctx.strokeStyle = match.isLate ? '#f59e0b' : '#10b981'
         ctx.fillStyle = match.isLate ? '#f59e0b' : '#10b981'
@@ -202,21 +195,18 @@ export default function AttendancePage(){
       }
       ctx.shadowBlur = 15
 
-      // Draw bounding box
       ctx.strokeRect(mapped.x, mapped.y, mapped.width, mapped.height)
 
-      // Draw simulated facial landmarks (crosshairs / eyes / mouth points)
       ctx.shadowBlur = 0
       ctx.fillStyle = '#00e5ff'
       const centerX = mapped.x + mapped.width / 2
       const centerY = mapped.y + mapped.height / 2
       ctx.beginPath()
-      ctx.arc(centerX - mapped.width * 0.2, centerY - mapped.height * 0.15, 4, 0, Math.PI * 2) // left eye
-      ctx.arc(centerX + mapped.width * 0.2, centerY - mapped.height * 0.15, 4, 0, Math.PI * 2) // right eye
-      ctx.arc(centerX, centerY + mapped.height * 0.2, 5, 0, Math.PI * 2) // mouth
+      ctx.arc(centerX - mapped.width * 0.2, centerY - mapped.height * 0.15, 4, 0, Math.PI * 2)
+      ctx.arc(centerX + mapped.width * 0.2, centerY - mapped.height * 0.15, 4, 0, Math.PI * 2)
+      ctx.arc(centerX, centerY + mapped.height * 0.2, 5, 0, Math.PI * 2)
       ctx.fill()
 
-      // Label Banner
       const label = match
         ? `${match.name} • Verified • ${Math.round(match.confidence * 100)}%`
         : 'Unknown Person • Register?'
@@ -232,7 +222,7 @@ export default function AttendancePage(){
   }
 
   const runAiScan = async ()=>{
-    if(scanBusyRef.current || !videoRef.current) return
+    if(scanBusyRef.current || !videoRef.current || videoRef.current.readyState < 2) return
     if(!enrolledFaces.length){
       setAiStatus('Searching Faces... • No enrolled Face IDs right now')
       return
@@ -243,14 +233,10 @@ export default function AttendancePage(){
       setAiFaceCount(detections.length)
       const matchedByFace = new Map<number, { id: string; name: string; confidence: number; isLate?: boolean }>()
       let newMatches = 0
-      let unknownCount = 0
       const usedIds = new Set<string>()
 
-      // Simulate live liveness & mask check randomly or based on score stability
       if (detections.length > 0) {
         setLivenessStatus('PASS')
-        setBlinkDetected(true)
-        // 1 in 15 chance of simulating mask for live demo realism
         setMaskDetected((detections[0].score || 0) < 0.65 && Math.random() < 0.15)
         setSmileDetected(Math.random() > 0.45)
         setHeadPoseText(Math.random() > 0.7 ? 'Looking Left' : Math.random() > 0.85 ? 'Looking Right' : 'Looking Straight')
@@ -276,7 +262,6 @@ export default function AttendancePage(){
               setAiLog(prev => [`😀 Attendance Marked • ${timeStr} • ${best.name} (${Math.round(best.confidence * 100)}%)`, ...prev].slice(0, 10))
             }
 
-            // Auto-save to Firebase or Offline Queue immediately!
             const date = todayIST()
             const sid = schoolId || profile?.schoolId || 'global'
             const matchedStudent = students.find(s => s.id === best.id)
@@ -311,7 +296,6 @@ export default function AttendancePage(){
             try { navigator.vibrate?.(60) } catch { /* ignore */ }
           }
         } else {
-          unknownCount++
           if (!unknownPersonAlert) {
             setUnknownPersonAlert({
               detected: true,
@@ -473,7 +457,6 @@ export default function AttendancePage(){
     }
   }
 
-  // Parent Alert Trigger
   const sendParentAlert = async (student: any) => {
     const sid = schoolId || profile?.schoolId || 'global'
     const phone = student.guardianPhone || 'No Phone'
@@ -497,7 +480,6 @@ export default function AttendancePage(){
   const lateCount = students.filter(s => marks[s.id] === 'late').length
   const absentCount = students.length - (presentCount + lateCount)
 
-  // Classroom Occupancy & Seating Grid Calculation
   const totalSeats = 40
   const occupiedSeats = presentCount + lateCount
   const emptySeats = Math.max(0, totalSeats - occupiedSeats)
@@ -506,7 +488,8 @@ export default function AttendancePage(){
     <PageHeader title="AI Attendance Vision" subtitle={`Smart Biometrics • QR • Real-Time Occupancy • ${todayIST()}`} />
     
     <ModuleArchitectureBanner />
-{/* Top Actions & Offline Mode Toggle Bar */}
+
+    {/* Top Actions & Offline Mode Toggle Bar */}
     <div className="flex items-center justify-between gap-3 flex-wrap bg-white dark:bg-zinc-900 p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 shadow-xs">
       <div className="flex items-center gap-2">
         <span className={`px-3 py-1 rounded-full text-[11px] font-bold flex items-center gap-1.5 ${isOfflineMode ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30' : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'}`}>
@@ -549,8 +532,7 @@ export default function AttendancePage(){
         <div className="text-[10px] text-rose-600/80 mt-0.5">Auto-queued parent alerts</div>
       </Card>
     </div>
-
-    <Tabs value={tab} onValueChange={setTab} className="w-full">
+<Tabs value={tab} onValueChange={setTab} className="w-full">
       <TabsList className="h-12 max-w-full overflow-x-auto scrollbar-hide rounded-full bg-slate-100 dark:bg-zinc-800 p-1 flex gap-1">
         <TabsTrigger value="manual" className="rounded-full px-4 font-bold data-[state=active]:bg-zinc-900 data-[state=active]:text-white dark:data-[state=active]:bg-white dark:data-[state=active]:text-zinc-900">
           <Users size={15} className="mr-1.5 inline"/> Manual & Roster
@@ -565,19 +547,24 @@ export default function AttendancePage(){
           <Grid size={15} className="mr-1.5 inline"/> Classroom Occupancy & Heatmap
         </TabsTrigger>
       </TabsList>
-{/* TAB 1: MANUAL & ROSTER */}
+
+      {/* TAB 1: MANUAL & ROSTER */}
       <TabsContent value="manual" className="mt-4 space-y-3.5">
         <div className="space-y-2.5">
           {students.map(s=>(
             <Card key={s.id} className="rounded-[22px] p-0 overflow-hidden border border-slate-150 dark:border-zinc-800 shadow-xs">
               <div className="flex items-center justify-between p-3.5 gap-3">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold shrink-0 overflow-hidden shadow-sm">
-                    {s.photoUrl ? <img src={s.photoUrl} alt="" className="w-full h-full object-cover" /> : (s.name?.[0]||'S')}
+                  <div className="w-11 h-11 min-w-[44px] min-h-[44px] max-w-[44px] max-h-[44px] rounded-2xl relative bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold shrink-0 overflow-hidden shadow-sm">
+                    {s.photoUrl ? (
+                      <img src={s.photoUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                    ) : (
+                      <span>{s.name?.[0]||'S'}</span>
+                    )}
                   </div>
                   <div className="min-w-0">
                     <div className="font-extrabold text-[14px] leading-tight truncate text-foreground">{s.name}</div>
-                    <div className="text-[11px] text-muted-foreground mt-0.5">Roll #{s.rollNumber} • {s.className}-{s.section} • Face: {isValidDescriptor(s.faceDescriptor) ? 'Ready' : 'No'}</div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5 truncate">Roll #{s.rollNumber} • {s.className}-{s.section} • Face: {isValidDescriptor(s.faceDescriptor) ? 'Ready' : 'No'}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
@@ -609,8 +596,7 @@ export default function AttendancePage(){
           </Button>
         </div>
       </TabsContent>
-
-      {/* TAB 2: AI SMART CAMERA */}
+{/* TAB 2: AI SMART CAMERA */}
       <TabsContent value="ai" className="mt-4 space-y-4">
         <Card className="ai-camera-card overflow-hidden rounded-[28px] border border-emerald-400/30 bg-[#0e1520] text-white shadow-xl">
           <div className="flex items-center justify-between px-5 pt-5">
@@ -629,7 +615,7 @@ export default function AttendancePage(){
               </span>
             </div>
           </div>
-<CardContent className="space-y-4 pt-4">
+          <CardContent className="space-y-4 pt-4">
             <div className="relative aspect-[4/3] overflow-hidden rounded-[24px] border border-emerald-400/20 bg-gradient-to-br from-[#15212a] via-[#111923] to-[#10131b] p-6 flex flex-col items-center justify-center text-center">
               <div className="absolute inset-0 opacity-25" style={{backgroundImage:'radial-gradient(circle at 50% 35%, rgba(40,225,190,.25), transparent 45%), linear-gradient(rgba(70,230,210,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(70,230,210,.08) 1px, transparent 1px)', backgroundSize:'auto, 32px 32px, 32px 32px'}}/>
               <span className="scan-corner scan-corner-tl"/><span className="scan-corner scan-corner-tr"/><span className="scan-corner scan-corner-bl"/><span className="scan-corner scan-corner-br"/>
@@ -657,8 +643,7 @@ export default function AttendancePage(){
           </CardContent>
         </Card>
       </TabsContent>
-
-      {/* TAB 3: QR SCANNER */}
+{/* TAB 3: QR SCANNER */}
       <TabsContent value="qr" className="mt-4 space-y-4">
         {!showQrScanner ? (
           <Card className="p-8 text-center space-y-4 rounded-[26px] border border-indigo-100 dark:border-indigo-900/30">
@@ -676,7 +661,8 @@ export default function AttendancePage(){
           </div>
         )}
       </TabsContent>
-{/* TAB 4: CLASSROOM OCCUPANCY & HEATMAP & AI ANALYTICS */}
+
+      {/* TAB 4: CLASSROOM OCCUPANCY & HEATMAP & AI ANALYTICS */}
       <TabsContent value="heatmap" className="mt-4 space-y-4">
         <div className="grid md:grid-cols-3 gap-3.5">
           <Card className="p-4 rounded-[24px] border border-cyan-400/30 bg-gradient-to-br from-[#0e1624] to-[#131d2e] text-white">
@@ -704,8 +690,7 @@ export default function AttendancePage(){
             <div className="text-[11px] text-amber-400/80 mt-1">Available / Unoccupied Desks</div>
           </Card>
         </div>
-
-        {/* AI Classroom Analytics Card */}
+{/* AI Classroom Analytics Card */}
         <Card className="p-5 rounded-[26px] bg-gradient-to-r from-indigo-50/70 to-violet-50/50 dark:from-indigo-950/20 dark:to-zinc-900 border border-indigo-100 dark:border-indigo-900/40">
           <CardTitle className="text-[16px] font-black flex items-center gap-2 text-indigo-950 dark:text-indigo-200">
             <Volume2 className="text-indigo-600"/> AI Classroom Live Behavioral Analytics
@@ -730,7 +715,8 @@ export default function AttendancePage(){
           </div>
           <p className="text-[11px] text-muted-foreground mt-3 italic">Use classroom behavioral metrics carefully and transparently to foster positive class engagement.</p>
         </Card>
-{/* Classroom Desk Heatmap Grid */}
+
+        {/* Classroom Desk Heatmap Grid */}
         <Card className="p-5 rounded-[26px] border border-slate-200 dark:border-zinc-800 space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
@@ -755,7 +741,7 @@ export default function AttendancePage(){
                 const isTalking = student && idx % 7 === 2 // simulation of active talking desk
 
                 return (
-                  <div
+<div
                     key={idx}
                     className={`relative p-2.5 rounded-xl border flex flex-col items-center justify-center text-center transition hover:scale-105 shadow-xs ${!student ? 'bg-slate-200/50 dark:bg-zinc-800/40 border-dashed border-slate-300 dark:border-zinc-700 text-slate-400' : status === 'present' ? 'bg-emerald-500 text-white border-emerald-600 font-bold' : status === 'late' ? 'bg-amber-500 text-white border-amber-600 font-bold' : 'bg-rose-500/20 text-rose-600 border-rose-300'}`}
                   >
@@ -774,7 +760,8 @@ export default function AttendancePage(){
         </Card>
       </TabsContent>
     </Tabs>
-{/* FULL-SCREEN AI CAMERA OVERLAY */}
+
+    {/* FULL-SCREEN AI CAMERA OVERLAY */}
     {aiScanning && (
       <div
         ref={overlayRef}
@@ -812,14 +799,14 @@ export default function AttendancePage(){
             </Button>
           </div>
         </div>
-<div className="relative flex-1 min-h-0 bg-black overflow-hidden flex flex-col justify-between">
+
+        <div className="relative flex-1 min-h-0 bg-black overflow-hidden flex flex-col justify-between">
           <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover bg-black" muted playsInline autoPlay />
           <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
           <div className="pointer-events-none absolute inset-x-[12%] top-[12%] h-[46%]">
             <span className="scan-corner scan-corner-tl"/><span className="scan-corner scan-corner-tr"/><span className="scan-corner scan-corner-bl"/><span className="scan-corner scan-corner-br"/>
           </div>
 
-          {/* Top Live Badges (Liveness, Mask, Head Pose, Smile/Blink) */}
           <div className="relative z-10 p-3 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
             <div className="flex flex-wrap gap-2">
               <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold backdrop-blur-md border flex items-center gap-1.5 ${livenessStatus === 'PASS' ? 'bg-emerald-500/80 text-black border-emerald-400' : 'bg-rose-600/90 text-white border-rose-400'}`}>
@@ -840,9 +827,7 @@ export default function AttendancePage(){
               )}
             </div>
           </div>
-
-          {/* QR+Face Hybrid Fallback Popup Inside Camera */}
-          {hybridQrOverlay && (
+{hybridQrOverlay && (
             <div className="relative z-20 m-auto w-[min(340px,90vw)] p-4 rounded-[26px] bg-[#0f172a]/95 border border-cyan-400/50 backdrop-blur-xl shadow-2xl text-center space-y-3">
               <div className="flex items-center justify-between">
                 <span className="font-extrabold text-[14px] text-cyan-300 flex items-center gap-1.5"><QrCode size={16}/> QR Hybrid Fallback Mode</span>
@@ -854,7 +839,7 @@ export default function AttendancePage(){
               </div>
             </div>
           )}
-{/* Unknown Visitor Alert Banner */}
+
           {unknownPersonAlert && (
             <div className="relative z-20 mx-4 my-2 p-3.5 rounded-2xl bg-rose-600/95 border border-white/30 text-white shadow-2xl flex items-center justify-between gap-3 animate-bounce-short">
               <div className="flex items-center gap-2.5 min-w-0">
@@ -879,7 +864,6 @@ export default function AttendancePage(){
             </div>
           )}
 
-          {/* Bottom Stacked Verified Student Roster & Live Counter */}
           <div className="relative z-10 p-3 flex flex-col gap-2 pointer-events-none">
             <div className="rounded-2xl bg-black/75 backdrop-blur-md border border-white/15 p-3.5 pointer-events-auto shadow-lg">
               <div className="flex items-center justify-between mb-2">
@@ -943,8 +927,8 @@ export default function AttendancePage(){
               className="mt-1 w-full h-11 rounded-xl px-3.5 bg-black/50 border border-white/20 text-white text-sm outline-none focus:border-cyan-400"
             />
           </div>
-          <div>
-<label className="text-xs font-bold text-slate-400">Roll Number / Visitor ID *</label>
+<div>
+            <label className="text-xs font-bold text-slate-400">Roll Number / Visitor ID *</label>
             <input
               type="text"
               value={quickRegisterForm.rollNumber}
@@ -965,7 +949,6 @@ export default function AttendancePage(){
               const date = todayIST()
               const sid = schoolId || profile?.schoolId || 'global'
 
-              // Save quick enrollment record
               update(ref(db, `schools/${sid}/students/${id}`), {
                 studentId: id,
                 name: quickRegisterForm.name,
@@ -976,7 +959,6 @@ export default function AttendancePage(){
                 createdAt: Date.now()
               })
 
-              // Also mark attendance present today
               update(ref(db, `schools/${sid}/attendance/${date}/${id}`), {
                 studentId: id,
                 className: c || '10',

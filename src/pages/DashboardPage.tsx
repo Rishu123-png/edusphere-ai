@@ -1,3 +1,4 @@
+
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSchool } from '@/contexts/SchoolContext'
@@ -7,8 +8,10 @@ import { db } from '@/lib/firebase'
 import { ref, onValue } from 'firebase/database'
 import { aiDailySummary } from '@/lib/ai'
 import { todayIST } from '@/lib/rtdb'
-import { Users, GraduationCap, CheckCircle2, Clock3, AlertTriangle, Sparkles, TrendingUp, Award, Activity } from 'lucide-react'
+import { Users, GraduationCap, CheckCircle2, Clock3, AlertTriangle, Sparkles, TrendingUp, Award, Activity, Camera, UserPlus, FilePenLine, MessageCircle, CalendarDays, BrainCircuit, ArrowUpRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Link } from 'react-router-dom'
+import NeonGauge from '@/components/mobile/NeonGauge'
 
 const dateKey = (daysAgo = 0) => new Date(Date.now() - daysAgo * 86400000).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
 const dayLabel = (daysAgo = 0) => new Date(Date.now() - daysAgo * 86400000).toLocaleDateString('en-IN', { weekday: 'short', timeZone: 'Asia/Kolkata' })
@@ -183,24 +186,47 @@ export default function DashboardPage(){
     })
 
   return <div className="page-container space-y-5">
-    <div className="rounded-[28px] bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-600 p-[1px] shadow-[0_12px_40px_rgba(79,70,229,0.25)]">
-      <div className="rounded-[27px] bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-500 p-5 md:p-6 text-white relative overflow-hidden">
-        <div className="absolute -right-10 -top-10 w-40 h-40 bg-white/15 rounded-full blur-2xl" />
-        <div className="absolute -left-10 -bottom-10 w-32 h-32 bg-white/10 rounded-full blur-xl" />
+    <section className="dashboard-hero relative overflow-hidden rounded-[28px] p-[1px] shadow-[0_18px_55px_rgba(0,0,0,.25)]">
+      <div className="relative overflow-hidden rounded-[27px] bg-gradient-to-br from-[#15202d] via-[#101621] to-[#10101a] p-5 text-white md:bg-gradient-to-br md:from-indigo-600 md:via-violet-600 md:to-fuchsia-500 md:p-6">
+        <div className="absolute -right-12 -top-16 h-52 w-52 rounded-full bg-cyan-400/10 blur-3xl md:bg-white/15" />
+        <div className="absolute -bottom-16 -left-10 h-44 w-44 rounded-full bg-violet-500/15 blur-3xl md:bg-white/10" />
         <div className="relative z-10">
-          <div className="flex items-center gap-2 text-white/80 text-[12px]"><Sparkles size={14}/> {new Date().toLocaleDateString('en-IN', { weekday:'long', year:'numeric', month:'long', day:'numeric', timeZone:'Asia/Kolkata' })}</div>
-          <h1 className="text-[22px] md:text-[28px] font-extrabold tracking-tight mt-1 leading-tight">Good Morning, {profile?.displayName?.split(' ')[0] || profile?.email?.split('@')[0] || 'Admin'}!</h1>
-          <p className="text-white/80 text-[13px] md:text-[14px] mt-1 max-w-[85%]">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[.13em] text-cyan-200/70 md:text-[12px] md:normal-case md:tracking-normal md:text-white/80"><Sparkles size={13}/> Live campus intelligence</div>
+              <h1 className="mt-1.5 text-[24px] font-black leading-tight tracking-[-.035em] md:text-[28px]">Good Morning, {profile?.displayName?.split(' ')[0] || profile?.email?.split('@')[0] || 'Admin'}!</h1>
+              <p className="mt-1 max-w-[90%] text-[11px] leading-relaxed text-slate-400 md:text-[14px] md:text-white/80">
+                {school?.name || 'Your school'} • {new Date().toLocaleDateString('en-IN', { weekday:'short', month:'short', day:'numeric', timeZone:'Asia/Kolkata' })}
+              </p>
+            </div>
+            <Link to="/ai" className="md:hidden grid h-10 w-10 shrink-0 place-items-center rounded-full border border-cyan-300/15 bg-cyan-300/[.07] text-cyan-300"><ArrowUpRight size={17}/></Link>
+          </div>
+
+          <div className="mt-1 grid grid-cols-[1.25fr_.75fr] items-center gap-1 md:hidden">
+            <NeonGauge value={counts.present} size={190} label="Today's Attendance" caption="Live from saved records" />
+            <div className="space-y-2">
+              <div className="rounded-2xl border border-white/[.07] bg-white/[.035] p-3">
+                <div className="text-[9px] uppercase tracking-[.13em] text-slate-500">Present</div>
+                <div className="mt-0.5 text-[22px] font-black text-emerald-300">{counts.presentCount}</div>
+              </div>
+              <div className="rounded-2xl border border-white/[.07] bg-white/[.035] p-3">
+                <div className="text-[9px] uppercase tracking-[.13em] text-slate-500">Needs attention</div>
+                <div className="mt-0.5 text-[22px] font-black text-amber-300">{counts.atRisk}</div>
+              </div>
+            </div>
+          </div>
+
+          <p className="hidden md:block text-white/80 text-[14px] mt-1 max-w-[85%]">
             Welcome to {school?.name || 'your school'}. Today&apos;s saved attendance is {counts.present}% from your real records.
           </p>
           {todayHoliday && (
-            <div className="mt-3 inline-flex px-3 py-1.5 rounded-full bg-white/15 text-[12px] font-semibold">
-              🏖 Holiday today: {todayHoliday.title || todayHoliday.name} — schedule & teacher alerts off
+            <div className="mt-3 inline-flex rounded-full bg-amber-400/10 px-3 py-1.5 text-[11px] font-semibold text-amber-200 md:bg-white/15 md:text-white">
+              Holiday today: {todayHoliday.title || todayHoliday.name} — schedule alerts paused
             </div>
           )}
         </div>
       </div>
-    </div>
+    </section>
 
     <div className="md:hidden flex gap-3 overflow-x-auto scrollbar-hide snap-x snap-mandatory pb-1 -mx-1 px-1">
       {kpis.map((k)=>(
@@ -222,6 +248,29 @@ export default function DashboardPage(){
           </CardContent>
         </Card>
       ))}
+    </div>
+
+    <div className="md:hidden">
+      <div className="mb-2.5 flex items-center justify-between px-1">
+        <h2 className="text-[14px] font-extrabold tracking-tight">Quick actions</h2>
+        <span className="text-[9px] uppercase tracking-[.14em] text-slate-500">Swipe</span>
+      </div>
+      <div className="-mx-1 flex snap-x gap-2.5 overflow-x-auto px-1 pb-1 scrollbar-hide">
+        {[
+          { label: 'AI Camera', hint: 'Face scan', to: '/attendance', icon: Camera, color: 'from-emerald-400/20 to-cyan-500/10 text-emerald-300' },
+          { label: 'Add Student', hint: 'New profile', to: '/students', icon: UserPlus, color: 'from-blue-400/20 to-indigo-500/10 text-blue-300' },
+          { label: 'Enter Marks', hint: 'Publish score', to: '/marks', icon: FilePenLine, color: 'from-violet-400/20 to-fuchsia-500/10 text-violet-300' },
+          { label: 'AI Predict', hint: 'Risk & grades', to: '/ai', icon: BrainCircuit, color: 'from-cyan-400/20 to-violet-500/10 text-cyan-300' },
+          { label: 'Calendar', hint: 'School plan', to: '/calendar', icon: CalendarDays, color: 'from-amber-400/20 to-orange-500/10 text-amber-300' },
+          ...(isAdmin ? [{ label: 'WhatsApp', hint: 'Parent alerts', to: '/whatsapp', icon: MessageCircle, color: 'from-emerald-400/20 to-teal-500/10 text-emerald-300' }] : []),
+        ].map(action => (
+          <Link key={action.label} to={action.to} className="card-premium min-w-[118px] snap-start p-3.5 active:scale-[.97]">
+            <span className={`grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-br ${action.color}`}><action.icon size={18}/></span>
+            <span className="mt-3 block text-[12px] font-bold">{action.label}</span>
+            <span className="mt-0.5 block text-[9px] text-slate-500">{action.hint}</span>
+          </Link>
+        ))}
+      </div>
     </div>
 
     <div className="grid lg:grid-cols-3 gap-4">
@@ -331,7 +380,7 @@ export default function DashboardPage(){
           </ul>
         </CardContent>
       </Card>
-      <Card>
+      <Card className="hidden md:block">
         <CardTitle>Quick Actions</CardTitle>
         <CardContent>
           <div className="flex flex-wrap gap-2">

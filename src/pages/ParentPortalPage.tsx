@@ -136,8 +136,8 @@ export default function ParentPortalPage(){
           <div className="relative overflow-hidden rounded-[27px] bg-[#0e1520] p-4 text-white">
             <div className="absolute -right-16 -top-20 h-56 w-56 rounded-full bg-violet-500/10 blur-3xl"/>
             <div className="relative flex items-center gap-3">
-              <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-2xl border border-cyan-300/20 bg-gradient-to-br from-cyan-400/20 to-violet-500/20 text-[20px] font-black text-cyan-100">
-                {child.photoUrl ? <img src={child.photoUrl} alt="" className="h-full w-full object-cover"/> : (child.name?.[0] || 'S')}
+              <div className="grid h-14 w-14 min-w-[56px] min-h-[56px] max-w-[56px] max-h-[56px] shrink-0 relative place-items-center overflow-hidden rounded-2xl border border-cyan-300/20 bg-gradient-to-br from-cyan-400/20 to-violet-500/20 text-[20px] font-black text-cyan-100">
+                {child.photoUrl ? <img src={child.photoUrl} alt="" className="absolute inset-0 h-full w-full object-cover"/> : (child.name?.[0] || 'S')}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-[.14em] text-cyan-300/70"><Sparkles size={11}/> Live student profile</div>

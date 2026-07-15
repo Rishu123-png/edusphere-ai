@@ -35,7 +35,7 @@ export default function SettingsPage(){
             setAdminEmail(prev => prev || u.email || '')
             setAdminName(prev => prev || u.displayName || u.name || 'School Admin')
           }
-        } catch {}
+        } catch (e) { console.warn(e); }
       }
       // Fallback: first school_admin in same school
       if (school?.id || profile?.schoolId) {
@@ -50,7 +50,7 @@ export default function SettingsPage(){
             setAdminEmail(prev => prev || admin.email || '')
             setAdminName(prev => prev || admin.displayName || admin.name || 'School Admin')
           }
-        } catch {}
+        } catch (e) { console.warn(e); }
       }
     }
     loadAdmin()

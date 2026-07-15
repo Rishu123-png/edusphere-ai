@@ -3,12 +3,13 @@ import { Button } from '@/components/ui/button'
 import { predictMarks, attendanceRisk, aiDailySummary, getStudentAIInsights } from '@/lib/ai'
 import { useEffect, useMemo, useState, useRef } from 'react'
 import PageHeader from '@/components/mobile/PageHeader'
-import { Brain, AlertTriangle, Sparkles, RotateCcw, User, ChevronRight, TrendingUp, Award, CheckCircle, ShieldCheck } from 'lucide-react'
+import { Brain, AlertTriangle, Sparkles, RotateCcw, ChevronRight, TrendingUp, ShieldCheck, Target, BookOpen, Zap } from 'lucide-react'
 import { db } from '@/lib/firebase'
 import { ref, onValue } from 'firebase/database'
 import { useSchool } from '@/contexts/SchoolContext'
 import { todayIST } from '@/lib/rtdb'
 import { animate, stagger } from 'animejs'
+import NeonGauge from '@/components/mobile/NeonGauge'
 
 export default function AIPage(){
   const { schoolId } = useSchool()
@@ -61,6 +62,21 @@ export default function AIPage(){
     })
     return list
   }, [marksData])
+
+  const subjectPerformance = useMemo(() => {
+    const groups = new Map<string, { total: number; count: number }>()
+    allMarksList.forEach((mark: any) => {
+      const subject = String(mark.subject || 'Subject')
+      const max = Number(mark.maxMarks) || 100
+      const score = max ? (Number(mark.marksObtained) || 0) / max * 100 : 0
+      const current = groups.get(subject) || { total: 0, count: 0 }
+      groups.set(subject, { total: current.total + score, count: current.count + 1 })
+    })
+    return Array.from(groups.entries())
+      .map(([subject, item]) => ({ subject, score: Math.round(item.total / item.count) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 4)
+  }, [allMarksList])
 
   // Aggregate Class-Wise lists for dropdown options
   const classOptions = useMemo(()=>{
@@ -148,7 +164,65 @@ export default function AIPage(){
   }, [selectedStudentId, tick])
 
   return <div className="page-container space-y-4 pb-12">
-    <PageHeader title="AI Intelligence" subtitle="Dynamic predictive marks, attendance risk patterns, and individual recommendations" />
+    <PageHeader title="AI Intelligence" subtitle="Live predictions • attendance risk • personalized study signals" />
+
+    {/* Mobile hero mirrors the premium predictive dashboard while keeping every value data-backed. */}
+    <section className="ai-overview md:hidden overflow-hidden rounded-[28px] p-[1px]">
+      <div className="relative overflow-hidden rounded-[27px] bg-[#0e1520] px-4 pb-4 pt-4">
+        <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-violet-500/10 blur-3xl" />
+        <div className="relative flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.15em] text-cyan-300/80"><Sparkles size={13}/> Neural forecast</div>
+            <h2 className="mt-1 text-[18px] font-extrabold tracking-tight text-white">AI Predicted Performance</h2>
+          </div>
+          <span className="flex items-center gap-1 rounded-full border border-emerald-300/15 bg-emerald-400/[.07] px-2.5 py-1 text-[9px] font-bold text-emerald-300"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300"/> LIVE</span>
+        </div>
+
+        <NeonGauge
+          value={allMarksList.length ? pred.predicted : attendancePct}
+          size={252}
+          label={allMarksList.length ? 'Predicted Performance' : 'Attendance Signal'}
+          caption={allMarksList.length ? `${allMarksList.length} verified marks records` : 'Add marks to unlock grade forecast'}
+        />
+
+        <div className="-mt-2 grid grid-cols-2 gap-2.5">
+          <div className="rounded-2xl border border-white/[.07] bg-white/[.035] p-3.5">
+            <div className="flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-[.1em] text-slate-500"><ShieldCheck size={12}/> Attendance risk</div>
+            <div className={`mt-2 text-[20px] font-black capitalize ${!Object.keys(attendance).length ? 'text-slate-500' : overallRisk.risk === 'high' ? 'text-rose-300' : overallRisk.risk === 'medium' ? 'text-amber-300' : 'text-emerald-300'}`}>
+              {Object.keys(attendance).length ? overallRisk.risk : 'Waiting'}
+            </div>
+            <div className="mt-1 text-[9px] text-slate-500">Attendance rate: {attendancePct}%</div>
+          </div>
+          <div className="rounded-2xl border border-white/[.07] bg-white/[.035] p-3.5">
+            <div className="flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-[.1em] text-slate-500"><Target size={12}/> Target grade</div>
+            <div className="mt-2 text-[20px] font-black text-violet-300">{allMarksList.length ? pred.grade : '—'}</div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[.06]"><div className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-violet-500 transition-all duration-1000" style={{ width: `${allMarksList.length ? pred.predicted : 0}%` }}/></div>
+          </div>
+        </div>
+
+        <div className="mt-3 rounded-2xl border border-white/[.07] bg-white/[.025] p-3.5">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-[12px] font-bold text-white"><BookOpen size={14} className="text-cyan-300"/> Subject breakdown</div>
+            <span className="text-[9px] text-slate-500">Average</span>
+          </div>
+          {subjectPerformance.length ? (
+            <div className="space-y-2.5">
+              {subjectPerformance.map(item => (
+                <div key={item.subject}>
+                  <div className="mb-1 flex justify-between text-[10px]"><span className="max-w-[75%] truncate text-slate-400">{item.subject}</span><b className="text-slate-200">{item.score}%</b></div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-white/[.055]"><div className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-blue-400 to-violet-500" style={{ width: `${item.score}%` }}/></div>
+                </div>
+              ))}
+            </div>
+          ) : <div className="py-2 text-[10px] leading-relaxed text-slate-500">Publish subject marks to reveal animated performance bars.</div>}
+        </div>
+
+        <div className="mt-3 flex gap-3 rounded-2xl border border-cyan-300/10 bg-gradient-to-r from-cyan-400/[.06] to-violet-500/[.07] p-3.5">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-cyan-300/10 text-cyan-300"><Zap size={15}/></span>
+          <div><div className="text-[10px] font-bold uppercase tracking-[.12em] text-cyan-200">AI recommendation</div><p className="mt-1 text-[10px] leading-relaxed text-slate-400">{summary[0]}</p></div>
+        </div>
+      </div>
+    </section>
 
     {/* Class & Student Dropdown Selector for personalized insights */}
     <Card className="rounded-[24px] border border-indigo-100 dark:border-indigo-900/30 overflow-hidden bg-white dark:bg-zinc-900/90 shadow-sm">
@@ -300,7 +374,7 @@ export default function AIPage(){
                 <li>Calculated from authenticated school data only</li>
               </ul>
             </>
-          ) : (
+) : (
             <div className="text-[13px] text-muted-foreground p-3 rounded-2xl bg-slate-50 dark:bg-zinc-800">
               No marks published yet. Save marks on the Marks page to trigger real predictive model scoring.
             </div>

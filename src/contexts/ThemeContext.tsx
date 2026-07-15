@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
 
 type Theme = 'light' | 'dark' | 'system'
@@ -21,9 +20,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     try {
       if (typeof window === 'undefined') return 'system'
       const saved = localStorage.getItem('edusphere-theme') as Theme | null
-      return saved === 'light' || saved === 'dark' || saved === 'system' ? saved : 'system'
+      // The premium mobile experience is designed dark-first; users can still
+      // choose Light or System at any time from Settings.
+      return saved === 'light' || saved === 'dark' || saved === 'system' ? saved : 'dark'
     } catch {
-      return 'system'
+      return 'dark'
     }
   })
   const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() => getSystemTheme())

@@ -1,3 +1,4 @@
+
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import Layout from './components/Layout'
 import LoginPage from './pages/LoginPage'
@@ -21,6 +22,7 @@ import { UserRole } from './types'
 import { Button } from './components/ui/button'
 import { toast } from 'sonner'
 import { useEffect } from 'react'
+import { AnimePageTransition } from './components/AnimeWrapper'
 
 function RequireAuth({ children, allow }: { children: React.ReactNode, allow?: UserRole[] }) {
   const { user, profile, loading } = useAuth()
@@ -103,8 +105,8 @@ export default function App(){
     <>
       <ScrollToTop />
       <Routes>
-        <Route path="/login" element={<LoginPage/>} />
-        <Route path="/onboarding" element={<RequireAuth><OnboardingPage/></RequireAuth>} />
+        <Route path="/login" element={<AnimePageTransition><LoginPage/></AnimePageTransition>} />
+        <Route path="/onboarding" element={<RequireAuth><AnimePageTransition><OnboardingPage/></AnimePageTransition></RequireAuth>} />
         <Route element={<RequireAuth><Layout/></RequireAuth>}>
           <Route path="/" element={<DashboardPage/>}/>
           <Route path="/students" element={<RequireAuth allow={['super_admin','school_admin','teacher']}><StudentsPage/></RequireAuth>}/>

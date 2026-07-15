@@ -1,5 +1,5 @@
-
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { initOfflineAutoSync } from './lib/offlineSync'
 import Layout from './components/Layout'
 import LoginPage from './pages/LoginPage'
 import OnboardingPage from './pages/OnboardingPage'
@@ -101,6 +101,10 @@ function ScrollToTop(){
 }
 
 export default function App(){
+  useEffect(() => {
+    initOfflineAutoSync()
+  }, [])
+
   return (
     <>
       <ScrollToTop />

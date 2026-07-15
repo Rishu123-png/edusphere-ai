@@ -6,12 +6,14 @@ import { XAxis, YAxis, ResponsiveContainer, Tooltip, LineChart, Line, AreaChart,
 import { useEffect, useMemo, useState } from 'react'
 import { db } from '@/lib/firebase'
 import { ref, onValue } from 'firebase/database'
-import { aiDailySummary } from '@/lib/ai'
+import { aiDailySummary, generateSchoolForecast } from '@/lib/ai'
 import { todayIST } from '@/lib/rtdb'
 import { Users, GraduationCap, CheckCircle2, Clock3, AlertTriangle, Sparkles, TrendingUp, Award, Activity, Camera, UserPlus, FilePenLine, MessageCircle, CalendarDays, BrainCircuit, ArrowUpRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Link } from 'react-router-dom'
 import NeonGauge from '@/components/mobile/NeonGauge'
+import { MotionKPI } from '@/components/MotionWrapper'
+import { PremiumAnimatedHero } from '@/components/PremiumAnimatedHero'
 
 const dateKey = (daysAgo = 0) => new Date(Date.now() - daysAgo * 86400000).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
 const dayLabel = (daysAgo = 0) => new Date(Date.now() - daysAgo * 86400000).toLocaleDateString('en-IN', { weekday: 'short', timeZone: 'Asia/Kolkata' })
@@ -341,56 +343,4 @@ export default function DashboardPage(){
         <CardContent className="text-[13px] space-y-2.5 mt-1">
           <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-red-500"/> {counts.atRisk} students below 75% from saved attendance</div>
           <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-amber-500"/> {counts.absent} absent today</div>
-          <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500"/> {counts.presentCount} present today</div>
-        </CardContent>
-      </Card>
-    </div>
-
-    {/* Teacher Live Status — ADMIN ONLY */}
-    {isAdmin && (
-      <Card>
-        <CardTitle>Teacher Live Status</CardTitle>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-            {teachersWithPresence.map((t:any,i)=>(
-              <div key={t.uid || i} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-zinc-800/80 border border-slate-100 dark:border-zinc-700/50">
-                <div>
-                  <div className="font-semibold text-[14px]">{t.displayName || t.name || 'Teacher'}</div>
-                  <div className="text-[11px] text-muted-foreground">{(t.subjects||[]).join(', ') || t.email || 'No subjects'}</div>
-                </div>
-                <span className={`text-[11px] px-2.5 py-1 rounded-full font-medium ${t.isOnline ? 'bg-emerald-500/15 text-emerald-600' : 'bg-zinc-500/15 text-zinc-500'}`}>
-                  {t.isOnline ? 'Active' : 'Offline'}
-                </span>
-              </div>
-            ))}
-            {!teachersWithPresence.length && <div className="md:col-span-3 text-center text-muted-foreground p-6 rounded-2xl bg-slate-50 dark:bg-zinc-800/80">No teachers added yet.</div>}
-          </div>
-          <p className="text-[11px] text-muted-foreground mt-3">Admin-only • Updates when teachers login (live Firebase presence)</p>
-        </CardContent>
-      </Card>
-    )}
-
-    <div className="grid md:grid-cols-2 gap-4 pb-4">
-      <Card>
-        <CardTitle>Recent Activities</CardTitle>
-        <CardContent>
-          <ul className="text-[13px] space-y-2.5 text-muted-foreground">
-            {recentActivities.map((a,i)=><li key={i} className="flex gap-2"><span className="text-foreground font-medium">{a.time}</span> {a.text}</li>)}
-            {!recentActivities.length && <li>No activity saved today yet.</li>}
-          </ul>
-        </CardContent>
-      </Card>
-      <Card className="hidden md:block">
-        <CardTitle>Quick Actions</CardTitle>
-        <CardContent>
-          <div className="flex flex-wrap gap-2">
-            {(isAdmin
-              ? ['Mark Attendance','Add Student','Enter Marks','Send WhatsApp','Export Report','AI Predict']
-              : ['Mark Attendance','Add Student','Enter Marks','My Schedule','Calendar']
-            ).map(a=><span key={a} className="px-3.5 py-2 rounded-full bg-slate-100 dark:bg-zinc-800 text-[13px] font-medium hover:bg-slate-200 dark:hover:bg-zinc-700 cursor-pointer transition">{a}</span>)}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  </div>
-}
+          <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500"/>

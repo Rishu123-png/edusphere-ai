@@ -1,3 +1,4 @@
+
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -8,7 +9,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'vite.svg'],
+      includeAssets: ['favicon.svg', 'icons.svg'],
       manifest: false, // use public/manifest.webmanifest
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,webp,json}'],
@@ -32,6 +33,24 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src')
     }
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (id.includes('react') || id.includes('scheduler')) return 'vendor-react'
+          if (id.includes('firebase')) return 'vendor-firebase'
+          if (id.includes('face-api.js') || id.includes('@tensorflow')) return 'vendor-face-api'
+          if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('dompurify')) return 'vendor-pdf'
+          if (id.includes('xlsx')) return 'vendor-xlsx'
+          if (id.includes('recharts') || id.includes('d3-') || id.includes('victory-vendor')) return 'vendor-charts'
+          if (id.includes('framer-motion') || id.includes('animejs')) return 'vendor-animation'
+          if (id.includes('lucide-react')) return 'vendor-icons'
+        }
+      }
+    },
+    chunkSizeWarningLimit: 900
   },
   server: {
     host: true,

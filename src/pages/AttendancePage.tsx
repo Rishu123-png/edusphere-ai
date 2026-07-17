@@ -12,7 +12,7 @@ import { todayIST } from '@/lib/rtdb'
 import QRScanner from '@/components/QRScanner'
 import PageHeader from '@/components/mobile/PageHeader'
 import ModuleArchitectureBanner from '@/components/ModuleArchitectureBanner'
-import { Camera, BarChart3, QrCode, Users, X, ShieldCheck, SwitchCamera, ScanFace, AlertTriangle, Clock, Wifi, WifiOff, CheckCircle2, UserPlus, Grid, Volume2, Smile } from 'lucide-react'
+import { Camera, QrCode, Users, X, ShieldCheck, SwitchCamera, ScanFace, AlertTriangle, Clock, Wifi, WifiOff, UserPlus, Grid, Volume2 } from 'lucide-react'
 import {
   detectFacesWithDescriptors,
   findBestFaceMatch,
@@ -23,6 +23,55 @@ import {
   type LiveFaceDetection,
 } from '@/lib/faceRecognition'
 import { saveToOfflineQueue } from '@/lib/offlineSync'
+
+const AI_SCAN_INTERVAL_MS = 850
+const AI_DETECTION_TIMEOUT_MS = 4500
+const REQUIRED_CONFIRM_FRAMES = 3
+const AI_MARK_COOLDOWN_MS = 60_000
+const LIVENESS_HISTORY_LIMIT = 6
+
+type AiCheckKey = 'camera' | 'detect' | 'liveness' | 'match' | 'cooldown' | 'mark'
+type AiCheckState = 'idle' | 'checking' | 'pass' | 'fail'
+type CameraFit = 'contain' | 'cover'
+
+type AiCheckMap = Record<AiCheckKey, AiCheckState>
+
+type FaceSample = {
+  t: number
+  x: number
+  y: number
+  area: number
+  score: number
+}
+
+type ConfirmState = {
+  frames: number
+  samples: FaceSample[]
+  lastConfidence: number
+  lastSeenAt: number
+  livenessPassed: boolean
+  rejectedReason?: string
+}
+
+const initialAiChecks = (): AiCheckMap => ({
+  camera: 'idle',
+  detect: 'idle',
+  liveness: 'idle',
+  match: 'idle',
+  cooldown: 'idle',
+  mark: 'idle',
+})
+
+const aiCheckLabels: Record<AiCheckKey, string> = {
+  camera: 'Camera ready',
+  detect: 'Face scan',
+  liveness: 'Anti-spoof',
+  match: 'Student match',
+  cooldown: 'Cooldown safe',
+  mark: 'Auto-mark',
+}
+
+const formatClock = () => new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
 
 export default function AttendancePage(){
   const { profile } = useAuth()
@@ -43,12 +92,16 @@ export default function AttendancePage(){
   const [livenessStatus, setLivenessStatus] = useState<'PASS' | 'CHECKING' | 'FAKE'>('PASS')
   const [maskDetected, setMaskDetected] = useState<boolean>(false)
   const [headPoseText, setHeadPoseText] = useState<string>('Looking Straight')
-  const [smileDetected, setSmileDetected] = useState<boolean>(false)
   const [unknownPersonAlert, setUnknownPersonAlert] = useState<{ detected: boolean; time: string; box?: any } | null>(null)
   const [quickRegisterModalOpen, setQuickRegisterModalOpen] = useState(false)
   const [quickRegisterForm, setQuickRegisterForm] = useState({ name: '', rollNumber: '' })
   const [lateEntryMode, setLateEntryMode] = useState(false)
   const [hybridQrOverlay, setHybridQrOverlay] = useState(false)
+  const [aiChecks, setAiChecks] = useState<AiCheckMap>(initialAiChecks)
+  const [cameraFit, setCameraFit] = useState<CameraFit>('contain')
+  const [zoomReady, setZoomReady] = useState(false)
+  const [aiReviewOpen, setAiReviewOpen] = useState(false)
+  const [lastMarkedNames, setLastMarkedNames] = useState<string[]>([])
 
   const laserOffsetRef = useRef(0)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -58,8 +111,15 @@ export default function AttendancePage(){
   const scanBusyRef = useRef(false)
   const detectedIdsRef = useRef<Set<string>>(new Set())
   const streamRef = useRef<MediaStream | null>(null)
+  const confirmRef = useRef<Map<string, ConfirmState>>(new Map())
+  const lastMarkAtRef = useRef<Map<string, number>>(new Map())
+  const unknownAlertAtRef = useRef(0)
+  const marksRef = useRef(marks)
 
   useEffect(()=>{
+    marksRef.current = marks
+  }, [marks])
+useEffect(()=>{
     const handleOnline = () => setIsOfflineMode(false)
     const handleOffline = () => setIsOfflineMode(true)
     window.addEventListener('online', handleOnline)
@@ -106,6 +166,182 @@ export default function AttendancePage(){
       document.body.style.overflow = ''
     }
   }, [])
+
+  const updateAiCheck = (key: AiCheckKey, state: AiCheckState) => {
+    setAiChecks(prev => prev[key] === state ? prev : { ...prev, [key]: state })
+  }
+const resetAiSession = () => {
+    confirmRef.current.clear()
+    setAiChecks(initialAiChecks())
+    setAiReviewOpen(false)
+    setLastMarkedNames([])
+    setUnknownPersonAlert(null)
+    setLivenessStatus('CHECKING')
+    setMaskDetected(false)
+    setHeadPoseText('Passive liveness warming up')
+  }
+
+  const evaluatePassiveLiveness = (studentId: string, detection: LiveFaceDetection, confidence: number): ConfirmState => {
+    const video = videoRef.current
+    const frameW = video?.videoWidth || 1
+    const frameH = video?.videoHeight || 1
+    const area = (detection.box.width * detection.box.height) / Math.max(1, frameW * frameH)
+    const sample: FaceSample = {
+      t: Date.now(),
+      x: (detection.box.x + detection.box.width / 2) / frameW,
+      y: (detection.box.y + detection.box.height / 2) / frameH,
+      area,
+      score: detection.score || 0,
+    }
+
+    const previous = confirmRef.current.get(studentId) || {
+      frames: 0,
+      samples: [],
+      lastConfidence: confidence,
+      lastSeenAt: 0,
+      livenessPassed: false,
+    }
+
+    const samples = [...previous.samples, sample].slice(-LIVENESS_HISTORY_LIMIT)
+    const motion = samples.slice(1).reduce((sum, current, index) => {
+      const before = samples[index]
+      return sum + Math.hypot(current.x - before.x, current.y - before.y)
+    }, 0)
+    const areaValues = samples.map(item => item.area)
+    const areaRange = areaValues.length ? Math.max(...areaValues) - Math.min(...areaValues) : 0
+    const avgScore = samples.reduce((sum, item) => sum + item.score, 0) / Math.max(1, samples.length)
+
+    const faceLargeEnough = area >= 0.018
+    const highQuality = avgScore >= 0.58 && confidence >= 0.52
+    const hasNaturalMotion = motion >= 0.003 || areaRange >= 0.002 || samples.length >= 5
+    const livenessPassed = samples.length >= REQUIRED_CONFIRM_FRAMES && faceLargeEnough && highQuality && hasNaturalMotion
+    const rejectedReason = !faceLargeEnough
+      ? 'Move closer / face too small'
+      : !highQuality
+        ? 'Low light or blurred face'
+        : !hasNaturalMotion && samples.length >= 5
+          ? 'Static photo/screen suspected'
+          : undefined
+
+    const next: ConfirmState = {
+      frames: previous.frames + 1,
+      samples,
+      lastConfidence: confidence,
+      lastSeenAt: Date.now(),
+      livenessPassed,
+      rejectedReason,
+    }
+    confirmRef.current.set(studentId, next)
+    return next
+  }
+
+  const markStudentFromAi = async (studentId: string, statusToMark: 'present' | 'late', confidence: number) => {
+    const now = Date.now()
+    const lastMarkedAt = lastMarkAtRef.current.get(studentId) || 0
+    if (now - lastMarkedAt < AI_MARK_COOLDOWN_MS) {
+      updateAiCheck('cooldown', 'fail')
+      return false
+    }
+
+    const matchedStudent = students.find(s => s.id === studentId)
+    if (!matchedStudent) return false
+
+    lastMarkAtRef.current.set(studentId, now)
+    detectedIdsRef.current.add(studentId)
+    marksRef.current = { ...marksRef.current, [studentId]: statusToMark }
+    setMarks(prev => ({ ...prev, [studentId]: statusToMark }))
+    setLastMarkedNames(prev => [matchedStudent.name || 'Student', ...prev.filter(name => name !== matchedStudent.name)].slice(0, 5))
+
+    const timeStr = formatClock()
+    const icon = statusToMark === 'late' ? '⏰' : '✅'
+    setAiLog(prev => [
+      `${icon} ${statusToMark === 'late' ? 'Late' : 'Present'} • ${timeStr} • ${matchedStudent.name} • ${Math.round(confidence * 100)}% • liveness pass`,
+      ...prev,
+    ].slice(0, 12))
+
+    const date = todayIST()
+    const sid = schoolId || profile?.schoolId || 'global'
+    const payload = {
+      studentId: matchedStudent.id,
+      className: matchedStudent.className,
+      section: matchedStudent.section,
+      date,
+      status: statusToMark,
+      markedBy: profile?.uid || 'ai_camera',
+      method: 'ai_camera',
+      confidence: Math.round(confidence * 100),
+      antiSpoof: 'passive_liveness_passed',
+      timestamp: now,
+    }
+
+    if (isOfflineMode) {
+      saveToOfflineQueue([{
+        id: `${matchedStudent.id}_${date}`,
+        schoolId: sid,
+        date,
+        studentId: matchedStudent.id,
+        className: matchedStudent.className,
+        section: matchedStudent.section,
+        status: statusToMark as any,
+        markedBy: profile?.uid || 'ai_camera',
+        method: 'ai_camera',
+        timestamp: now,
+      }])
+    } else {
+      update(ref(db, `schools/${sid}/attendance/${date}/${matchedStudent.id}`), payload).catch(error => {
+        console.error('AI attendance write failed', error)
+        toast.error(`Cloud save failed for ${matchedStudent.name}. It will remain selected locally.`)
+      })
+    }
+
+    updateAiCheck('cooldown', 'pass')
+    updateAiCheck('mark', 'pass')
+    navigator.vibrate?.(55)
+    return true
+  }
+
+  const applyWidestCameraView = async (stream: MediaStream) => {
+    const track = stream.getVideoTracks()[0]
+    if (!track) return
+    try {
+      const capabilities = track.getCapabilities?.() as MediaTrackCapabilities & { zoom?: { min?: number; max?: number; step?: number } }
+      const zoomMin = capabilities?.zoom?.min
+      if (typeof zoomMin === 'number') {
+        await track.applyConstraints({ advanced: [{ zoom: zoomMin } as MediaTrackConstraintSet] })
+        setZoomReady(true)
+      } else {
+        setZoomReady(false)
+      }
+    } catch (error) {
+      console.warn('Wide/zoom-out camera control not supported', error)
+      setZoomReady(false)
+    }
+  }
+
+  const markMissingAbsent = () => {
+    const missing = students.filter(s => marks[s.id] !== 'present' && marks[s.id] !== 'late')
+    if (!missing.length) {
+      toast.success('All students are already detected.')
+      return
+    }
+    setMarks(prev => {
+      const next = { ...prev }
+      missing.forEach(s => { next[s.id] = 'absent' })
+      marksRef.current = next
+      return next
+    })
+    toast.success(`${missing.length} not-detected student(s) marked absent. Review and save when ready.`)
+    setAiReviewOpen(false)
+  }
+
+  const restartAiCheck = async () => {
+    detectedIdsRef.current = new Set(Object.entries(marks).filter(([,v])=>v==='present'||v==='late').map(([id])=>id))
+    confirmRef.current.clear()
+    setAiReviewOpen(false)
+    setAiLog(prev => [`🔁 ${formatClock()} • Teacher restarted camera check for missing students`, ...prev].slice(0, 12))
+    setAiStatus('Restarting AI scan for missing students…')
+    await runAiScan()
+  }
 
   const submit = async (method: 'manual' | 'ai_camera' | 'qr' = 'manual')=>{
     if(!students.length){ toast.error(classSel ? `No students in ${classSel}` : 'Select a class first'); return }
@@ -160,7 +396,7 @@ export default function AttendancePage(){
     canvas.style.height = `${rect.height}px`
   }
 
-  const drawDetections = (detections: LiveFaceDetection[], matchedByFace: Map<number, { id: string; name: string; confidence: number; isLate?: boolean }>) => {
+  const drawDetections = (detections: LiveFaceDetection[], matchedByFace: Map<number, { id: string; name: string; confidence: number; isLate?: boolean; status?: 'verified' | 'checking' | 'cooldown' }>) => {
     const video = videoRef.current
     const canvas = canvasRef.current
     if(!video || !canvas) return
@@ -181,10 +417,18 @@ export default function AttendancePage(){
     ctx.font = `700 ${Math.max(14, canvas.width / 38)}px Inter, system-ui, sans-serif`
 
     detections.forEach((d, index) => {
-      const mapped = mapBoxToCanvas(d.box, video, canvas, 'cover')
+      const mapped = mapBoxToCanvas(d.box, video, canvas, cameraFit)
       const match = matchedByFace.get(index)
 
-      if (match) {
+      if (match?.status === 'checking') {
+        ctx.strokeStyle = '#22d3ee'
+        ctx.fillStyle = '#22d3ee'
+        ctx.shadowColor = 'rgba(34, 211, 238, 0.8)'
+      } else if (match?.status === 'cooldown') {
+        ctx.strokeStyle = '#a78bfa'
+        ctx.fillStyle = '#a78bfa'
+        ctx.shadowColor = 'rgba(167, 139, 250, 0.8)'
+      } else if (match) {
         ctx.strokeStyle = match.isLate ? '#f59e0b' : '#10b981'
         ctx.fillStyle = match.isLate ? '#f59e0b' : '#10b981'
         ctx.shadowColor = match.isLate ? 'rgba(245, 158, 11, 0.8)' : 'rgba(16, 185, 129, 0.8)'
@@ -193,7 +437,7 @@ export default function AttendancePage(){
         ctx.fillStyle = '#f43f5e'
         ctx.shadowColor = 'rgba(244, 63, 94, 0.8)'
       }
-      ctx.shadowBlur = 15
+ctx.shadowBlur = 15
 
       ctx.strokeRect(mapped.x, mapped.y, mapped.width, mapped.height)
 
@@ -208,7 +452,11 @@ export default function AttendancePage(){
       ctx.fill()
 
       const label = match
-        ? `${match.name} • Verified • ${Math.round(match.confidence * 100)}%`
+        ? match.status === 'checking'
+          ? `${match.name} • checking liveness ${Math.round(match.confidence * 100)}%`
+          : match.status === 'cooldown'
+            ? `${match.name} • already marked`
+            : `${match.name} • Verified • ${Math.round(match.confidence * 100)}%`
         : 'Unknown Person • Register?'
       const padX = 12
       const labelH = Math.max(26, canvas.height / 26)
@@ -222,99 +470,121 @@ export default function AttendancePage(){
   }
 
   const runAiScan = async ()=>{
-    if(scanBusyRef.current || !videoRef.current || videoRef.current.readyState < 2) return
+    const video = videoRef.current
+    if(scanBusyRef.current || !video || video.readyState < 2) return
     if(!enrolledFaces.length){
-      setAiStatus('Searching Faces... • No enrolled Face IDs right now')
+      setAiStatus('No Face IDs enrolled for this class. Add student photos first.')
+      updateAiCheck('detect', 'fail')
       return
     }
-    scanBusyRef.current = true
-    try {
-      const detections = await detectFacesWithDescriptors(videoRef.current)
-      setAiFaceCount(detections.length)
-      const matchedByFace = new Map<number, { id: string; name: string; confidence: number; isLate?: boolean }>()
-      let newMatches = 0
-      const usedIds = new Set<string>()
 
-      if (detections.length > 0) {
-        setLivenessStatus('PASS')
-        setMaskDetected((detections[0].score || 0) < 0.65 && Math.random() < 0.15)
-        setSmileDetected(Math.random() > 0.45)
-        setHeadPoseText(Math.random() > 0.7 ? 'Looking Left' : Math.random() > 0.85 ? 'Looking Right' : 'Looking Straight')
+    scanBusyRef.current = true
+    updateAiCheck('detect', 'checking')
+    updateAiCheck('liveness', 'checking')
+    updateAiCheck('match', 'checking')
+    setAiStatus('AI is scanning faces → checking liveness → matching students…')
+
+    try {
+      const detections = await Promise.race([
+        detectFacesWithDescriptors(video),
+        new Promise<LiveFaceDetection[]>((_, reject) => window.setTimeout(() => reject(new Error('Camera scan timed out. Move phone slowly or improve light.')), AI_DETECTION_TIMEOUT_MS)),
+      ])
+
+      setAiFaceCount(detections.length)
+      updateAiCheck('detect', detections.length ? 'pass' : 'checking')
+
+      const matchedByFace = new Map<number, { id: string; name: string; confidence: number; isLate?: boolean; status?: 'verified' | 'checking' | 'cooldown' }>()
+      const usedIds = new Set<string>()
+      const newlyMarked: string[] = []
+      let unknownCount = 0
+      let checkingCount = 0
+      let blockedAsSpoof = 0
+
+      if (!detections.length) {
+        setLivenessStatus('CHECKING')
+        setMaskDetected(false)
+            setHeadPoseText('Move phone slowly across the classroom')
       }
 
-      detections.forEach((d, index) => {
-        const best = findBestFaceMatch(d.descriptor, enrolledFaces)
+      for (const [index, detection] of detections.entries()) {
+        const best = findBestFaceMatch(detection.descriptor, enrolledFaces)
         if(best && best.distance <= FACE_MATCH_THRESHOLD && !usedIds.has(best.id)) {
           usedIds.add(best.id)
+          updateAiCheck('match', 'pass')
+
           const isLate = lateEntryMode || (new Date().getHours() >= 9 && new Date().getMinutes() > 15)
-          matchedByFace.set(index, { id: best.id, name: best.name, confidence: best.confidence, isLate })
+          const statusToMark = isLate ? 'late' : 'present'
+          const liveness = evaluatePassiveLiveness(best.id, detection, best.confidence)
+          const alreadyMarked = detectedIdsRef.current.has(best.id) || marksRef.current[best.id] === 'present' || marksRef.current[best.id] === 'late'
+          const inCooldown = Date.now() - (lastMarkAtRef.current.get(best.id) || 0) < AI_MARK_COOLDOWN_MS
 
-          if(!detectedIdsRef.current.has(best.id)) {
-            detectedIdsRef.current.add(best.id)
-            newMatches++
-            const statusToMark = isLate ? 'late' : 'present'
-            setMarks(prev => ({ ...prev, [best.id]: statusToMark }))
-            
-            const timeStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-            if (isLate) {
-              setAiLog(prev => [`⏰ Late Entry • ${timeStr} • ${best.name} Verified (${Math.round(best.confidence * 100)}%)`, ...prev].slice(0, 10))
-            } else {
-              setAiLog(prev => [`😀 Attendance Marked • ${timeStr} • ${best.name} (${Math.round(best.confidence * 100)}%)`, ...prev].slice(0, 10))
-            }
-
-            const date = todayIST()
-            const sid = schoolId || profile?.schoolId || 'global'
-            const matchedStudent = students.find(s => s.id === best.id)
-            if (matchedStudent) {
-              if (isOfflineMode) {
-                saveToOfflineQueue([{
-                  id: `${matchedStudent.id}_${date}`,
-                  schoolId: sid,
-                  date,
-                  studentId: matchedStudent.id,
-                  className: matchedStudent.className,
-                  section: matchedStudent.section,
-                  status: statusToMark as any,
-                  markedBy: profile?.uid || 'ai_camera',
-                  method: 'ai_camera',
-                  timestamp: Date.now()
-                }])
-              } else {
-                update(ref(db, `schools/${sid}/attendance/${date}/${matchedStudent.id}`), {
-                  studentId: matchedStudent.id,
-                  className: matchedStudent.className,
-                  section: matchedStudent.section,
-                  date,
-                  status: statusToMark,
-                  markedBy: profile?.uid || 'ai_camera',
-                  method: 'ai_camera',
-                  timestamp: Date.now()
-                }).catch(()=>{})
-              }
-            }
-
-            try { navigator.vibrate?.(60) } catch { /* ignore */ }
+          if (alreadyMarked || inCooldown) {
+            matchedByFace.set(index, { id: best.id, name: best.name, confidence: best.confidence, isLate, status: 'cooldown' })
+            updateAiCheck('cooldown', 'pass')
+            continue
           }
+
+          if (!liveness.livenessPassed) {
+            checkingCount++
+            matchedByFace.set(index, { id: best.id, name: best.name, confidence: best.confidence, isLate, status: 'checking' })
+            if (liveness.rejectedReason) {
+              blockedAsSpoof++
+              setAiLog(prev => [`🛡️ ${formatClock()} • ${best.name}: ${liveness.rejectedReason}`, ...prev].slice(0, 12))
+            }
+            continue
+          }
+
+          updateAiCheck('liveness', 'pass')
+          matchedByFace.set(index, { id: best.id, name: best.name, confidence: best.confidence, isLate, status: 'verified' })
+          const marked = await markStudentFromAi(best.id, statusToMark, best.confidence)
+          if (marked) newlyMarked.push(best.name)
         } else {
-          if (!unknownPersonAlert) {
+          unknownCount++
+          updateAiCheck('match', best ? 'checking' : 'fail')
+          const now = Date.now()
+          if (now - unknownAlertAtRef.current > 7000) {
+            unknownAlertAtRef.current = now
             setUnknownPersonAlert({
               detected: true,
-              time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-              box: d.box
+              time: formatClock(),
+              box: detection.box
             })
           }
         }
-      })
+      }
 
       drawDetections(detections, matchedByFace)
-      const verified = detectedIdsRef.current.size
+
+      const newlyMarkedIds = newlyMarked
+        .map(name => students.find(s => s.name === name)?.id)
+        .filter((id): id is string => Boolean(id))
+      const verified = new Set([
+        ...Array.from(detectedIdsRef.current),
+        ...Object.entries(marksRef.current).filter(([, value]) => value === 'present' || value === 'late').map(([id]) => id),
+        ...newlyMarkedIds,
+      ]).size
+
+      const missingCount = Math.max(0, students.length - verified)
+      const detectionSummary = detections.length
+        ? `${detections.length} face(s) • ${newlyMarked.length} new • ${checkingCount} checking • ${unknownCount} unknown`
+        : 'No faces in frame'
+
+      setLivenessStatus(blockedAsSpoof ? 'FAKE' : detections.length ? (checkingCount ? 'CHECKING' : 'PASS') : 'CHECKING')
+      setMaskDetected(Boolean(detections.length && detections.some(d => d.score < 0.62)))
+      setHeadPoseText(detections.length >= 6 ? 'Wide classroom scan active' : detections.length ? 'Move slowly for full class coverage' : 'Full zoom-out view ready')
+
       setAiStatus(
-        detections.length
-          ? `😀 Face Found • Confidence 99% • ${verified}/${students.length} verified`
-          : `Searching Faces... • ${verified}/${students.length} verified`
+missingCount
+          ? `${detectionSummary} • ${verified}/${students.length} marked • ${missingCount} not detected`
+          : `All detected • ${verified}/${students.length} marked present/late`
       )
+
+      if (verified > 0 && missingCount > 0) setAiReviewOpen(true)
+      if (missingCount === 0 && students.length) setAiReviewOpen(false)
     } catch(e:any) {
+      updateAiCheck('detect', 'fail')
       setAiStatus(e?.message || 'AI face detection running...')
+      console.warn('AI camera scan failed', e)
     } finally {
       scanBusyRef.current = false
     }
@@ -325,8 +595,9 @@ export default function AttendancePage(){
     streamRef.current = null
 
     const tryConstraints: MediaStreamConstraints[] = [
-      { video: { facingMode: { exact: mode }, width: { ideal: 1080 }, height: { ideal: 1920 } }, audio: false },
-      { video: { facingMode: { ideal: mode }, width: { ideal: 1080 }, height: { ideal: 1920 } }, audio: false },
+      { video: { facingMode: { exact: mode }, width: { ideal: 1920 }, height: { ideal: 1080 }, aspectRatio: { ideal: 1.777 } }, audio: false },
+      { video: { facingMode: { ideal: mode }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false },
+      { video: { facingMode: { ideal: mode }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
       { video: { facingMode: mode }, audio: false },
     ]
 
@@ -340,6 +611,8 @@ export default function AttendancePage(){
     if (!stream) throw new Error('Could not open camera')
 
     streamRef.current = stream
+    await applyWidestCameraView(stream)
+    updateAiCheck('camera', 'pass')
     if(videoRef.current){
       videoRef.current.srcObject = stream
       videoRef.current.setAttribute('playsinline', 'true')
@@ -361,6 +634,7 @@ export default function AttendancePage(){
     if(!classSel){ toast.error('Add students first so a class is available'); return }
     if(!students.length){ toast.error(`No students in ${classSel}`); return }
     detectedIdsRef.current = new Set(Object.entries(marks).filter(([,v])=>v==='present'||v==='late').map(([id])=>id))
+    resetAiSession()
     setAiLog([])
     setAiFaceCount(0)
     setAiStatus('Opening full-screen camera…')
@@ -372,7 +646,7 @@ export default function AttendancePage(){
       await attachStream(facingMode)
       setAiStatus('Searching Faces...')
       await runAiScan()
-      scanTimerRef.current = window.setInterval(runAiScan, 1100)
+      scanTimerRef.current = window.setInterval(runAiScan, AI_SCAN_INTERVAL_MS)
     }catch(e:any){
       toast.error(e?.message || 'Camera permission denied')
       stopAi(false)
@@ -399,6 +673,7 @@ export default function AttendancePage(){
     setAiStatus('Camera off')
     setAiFaceCount(0)
     setSwitchingCamera(false)
+    setAiReviewOpen(false)
     document.body.style.overflow = ''
     if(scanTimerRef.current){ window.clearInterval(scanTimerRef.current); scanTimerRef.current = null }
     streamRef.current?.getTracks().forEach(t=>t.stop())
@@ -412,11 +687,16 @@ export default function AttendancePage(){
   }
 
   const saveAiAttendance = async ()=>{
+    const missing = students.filter(s => marks[s.id] !== 'present' && marks[s.id] !== 'late' && marks[s.id] !== 'absent')
+    if (missing.length && aiScanning) {
+      setAiReviewOpen(true)
+      toast.info(`${missing.length} student(s) not detected. Mark absent or scan again first.`)
+      return
+    }
     await submit('ai_camera')
     stopAi()
   }
-
-  const handleQrScan = async (scannedText: string) => {
+const handleQrScan = async (scannedText: string) => {
     const sid = schoolId || profile?.schoolId || 'global'
     const matchedStudent = allStudents.find((s: any) => s.id === scannedText || s.qrCode === scannedText)
 
@@ -447,6 +727,7 @@ export default function AttendancePage(){
           timestamp: Date.now()
         })
       }
+      marksRef.current = { ...marksRef.current, [matchedStudent.id]: 'present' }
       setMarks(prev => ({ ...prev, [matchedStudent.id]: 'present' }))
       toast.success(`Verified: ${matchedStudent.name} marked Present via QR!`)
       setShowQrScanner(false)
@@ -478,7 +759,9 @@ export default function AttendancePage(){
 
   const presentCount = students.filter(s => marks[s.id] === 'present').length
   const lateCount = students.filter(s => marks[s.id] === 'late').length
-  const absentCount = students.length - (presentCount + lateCount)
+  const absentCount = students.filter(s => marks[s.id] === 'absent').length
+  const notDetectedStudents = students.filter(s => marks[s.id] !== 'present' && marks[s.id] !== 'late' && marks[s.id] !== 'absent')
+  const unresolvedCount = notDetectedStudents.length
 
   const totalSeats = 40
   const occupiedSeats = presentCount + lateCount
@@ -561,7 +844,7 @@ export default function AttendancePage(){
                     ) : (
                       <span>{s.name?.[0]||'S'}</span>
                     )}
-                  </div>
+</div>
                   <div className="min-w-0">
                     <div className="font-extrabold text-[14px] leading-tight truncate text-foreground">{s.name}</div>
                     <div className="text-[11px] text-muted-foreground mt-0.5 truncate">Roll #{s.rollNumber} • {s.className}-{s.section} • Face: {isValidDescriptor(s.faceDescriptor) ? 'Ready' : 'No'}</div>
@@ -622,8 +905,8 @@ export default function AttendancePage(){
               <div className="relative grid h-20 w-20 place-items-center rounded-full border border-emerald-400/30 bg-emerald-400/10 text-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.3)]">
                 <span className="absolute inset-2 animate-ping rounded-full border border-emerald-400/20"/><ScanFace size={40}/>
               </div>
-              <div className="mt-4 text-[16px] font-black text-white">Smart Face Verification & Multi-Student Detection</div>
-              <div className="mt-1.5 max-w-[340px] text-[12px] leading-relaxed text-slate-400">Simultaneously detects and marks up to 10 classroom faces in under 1.2s. Features liveness & mask check.</div>
+              <div className="mt-4 text-[16px] font-black text-white">AI Camera v2 • Cooldown + Anti-Spoof Classroom Scan</div>
+              <div className="mt-1.5 max-w-[340px] text-[12px] leading-relaxed text-slate-400">Opens a mobile full-screen camera, uses full zoom-out classroom view, confirms faces across multiple frames, blocks duplicate marking with cooldown, and asks teacher to review not-detected students.</div>
               <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between rounded-xl border border-white/10 bg-black/40 px-3.5 py-2.5 backdrop-blur-md">
                 <span className="text-[11px] text-slate-300 font-semibold">Class: {classSel || 'No class selected'}</span>
                 <span className="text-[11px] font-black text-emerald-400">{enrolledFaces.length}/{students.length} EMBEDDINGS READY</span>
@@ -633,12 +916,12 @@ export default function AttendancePage(){
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-center"><div className="text-[20px] font-black text-white">{students.length}</div><div className="text-[10px] text-slate-400 font-bold">Total Class</div></div>
               <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-3 text-center"><div className="text-[20px] font-black text-emerald-400">{enrolledFaces.length}</div><div className="text-[10px] text-emerald-400/80 font-bold">Face Embeddings</div></div>
-              <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-3 text-center"><div className="text-[20px] font-black text-cyan-400">0.48</div><div className="text-[10px] text-cyan-400/80 font-bold">Match Threshold</div></div>
-              <div className="rounded-2xl border border-violet-400/20 bg-violet-400/10 p-3 text-center"><div className="text-[20px] font-black text-violet-300">PASS ✓</div><div className="text-[10px] text-violet-300/80 font-bold">Liveness Engine</div></div>
+              <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-3 text-center"><div className="text-[20px] font-black text-cyan-400">{Math.round(AI_MARK_COOLDOWN_MS/1000)}s</div><div className="text-[10px] text-cyan-400/80 font-bold">Cooldown Lock</div></div>
+              <div className="rounded-2xl border border-violet-400/20 bg-violet-400/10 p-3 text-center"><div className="text-[20px] font-black text-violet-300">{REQUIRED_CONFIRM_FRAMES}x</div><div className="text-[10px] text-violet-300/80 font-bold">Frame Confirm</div></div>
             </div>
 
             <Button variant="gradient" className="w-full rounded-full h-14 text-[16px] font-extrabold shadow-[0_10px_35px_rgba(16,185,129,0.4)]" onClick={startAiCamera} disabled={!students.length}>
-              <Camera size={19} className="mr-2"/> Start AI Full-Screen Camera Scan
+              <Camera size={19} className="mr-2"/> Start Beautiful AI Camera Scan
             </Button>
           </CardContent>
         </Card>
@@ -755,7 +1038,7 @@ export default function AttendancePage(){
                   </div>
                 )
               })}
-            </div>
+</div>
           </div>
         </Card>
       </TabsContent>
@@ -769,62 +1052,83 @@ export default function AttendancePage(){
         className="fixed inset-0 z-[99999] bg-black text-white flex flex-col"
         style={{ width: '100vw', height: '100dvh', maxHeight: '100dvh', maxWidth: '100vw', overflow: 'hidden' }}
       >
-        <div className="h-14 md:h-16 px-3 md:px-5 flex items-center justify-between bg-black/85 border-b border-white/10 shrink-0 pt-[env(safe-area-inset-top)]">
+        <div className="min-h-16 px-3 md:px-5 py-2 flex items-center justify-between gap-2 bg-black/85 border-b border-white/10 shrink-0 pt-[max(0.5rem,env(safe-area-inset-top))]">
           <div className="min-w-0">
             <div className="font-extrabold leading-tight truncate text-[15px] flex items-center gap-2">
               <ScanFace className="text-emerald-400"/> AI Classroom Vision • {classSel}
             </div>
             <div className="text-[11px] md:text-[12px] text-white/80 truncate mt-0.5 font-medium">{aiStatus} • Faces Detected: {aiFaceCount}</div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center justify-end gap-1.5 shrink-0 flex-wrap">
             <Button
               variant="ghost"
-              className="rounded-full text-white hover:bg-white/10 px-3 border border-white/15 text-xs font-bold"
-              onClick={() => setHybridQrOverlay(!hybridQrOverlay)}
-              title="Toggle QR Hybrid Fallback"
+              className="rounded-full text-white hover:bg-white/10 px-2.5 h-9 border border-white/15 text-[11px] font-bold"
+              onClick={() => setCameraFit(cameraFit === 'contain' ? 'cover' : 'contain')}
+              title="Toggle full zoom-out classroom view"
             >
-              <QrCode size={16} className="mr-1.5 text-cyan-400"/> {hybridQrOverlay ? 'Hide QR Fallback' : 'QR Fallback'}
+              {cameraFit === 'contain' ? 'Full View' : 'Fill'}
             </Button>
             <Button
               variant="ghost"
-              className="rounded-full text-white hover:bg-white/10 px-3 border border-white/15 text-xs font-bold"
+              className="rounded-full text-white hover:bg-white/10 px-2.5 h-9 border border-white/15 text-[11px] font-bold"
+              onClick={() => setHybridQrOverlay(!hybridQrOverlay)}
+              title="Toggle QR Hybrid Fallback"
+            >
+              <QrCode size={15} className="mr-1 text-cyan-400"/> {hybridQrOverlay ? 'Hide QR' : 'QR'}
+            </Button>
+            <Button
+              variant="ghost"
+              className="rounded-full text-white hover:bg-white/10 px-2.5 h-9 border border-white/15 text-[11px] font-bold"
               onClick={switchCamera}
               disabled={switchingCamera}
               title="Switch Front / Back camera"
             >
-              <SwitchCamera size={16} className="mr-1"/> {switchingCamera ? '…' : (facingMode === 'environment' ? 'Front' : 'Back')}
+              <SwitchCamera size={15} className="mr-1"/> {switchingCamera ? '…' : (facingMode === 'environment' ? 'Front' : 'Back')}
             </Button>
-            <Button variant="ghost" className="rounded-full bg-rose-600/30 text-rose-300 hover:bg-rose-600/50 px-3.5 border border-rose-500/40 font-bold" onClick={()=>stopAi()}>
-              <X size={18} className="mr-1"/> Close Camera
+            <Button variant="ghost" className="rounded-full bg-rose-600/30 text-rose-300 hover:bg-rose-600/50 px-2.5 h-9 border border-rose-500/40 text-[11px] font-bold" onClick={()=>stopAi()}>
+              <X size={15} className="mr-1"/> Close
             </Button>
           </div>
         </div>
 
         <div className="relative flex-1 min-h-0 bg-black overflow-hidden flex flex-col justify-between">
-          <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover bg-black" muted playsInline autoPlay />
+          <video ref={videoRef} className="absolute inset-0 w-full h-full bg-black" style={{ objectFit: cameraFit }} muted playsInline autoPlay />
           <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
           <div className="pointer-events-none absolute inset-x-[12%] top-[12%] h-[46%]">
             <span className="scan-corner scan-corner-tl"/><span className="scan-corner scan-corner-tr"/><span className="scan-corner scan-corner-bl"/><span className="scan-corner scan-corner-br"/>
           </div>
 
-          <div className="relative z-10 p-3 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
-            <div className="flex flex-wrap gap-2">
-              <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold backdrop-blur-md border flex items-center gap-1.5 ${livenessStatus === 'PASS' ? 'bg-emerald-500/80 text-black border-emerald-400' : 'bg-rose-600/90 text-white border-rose-400'}`}>
-                <ShieldCheck size={14}/> Liveness: {livenessStatus === 'PASS' ? 'PASS ✓ (Blinks & Depth Real)' : 'FAKE ALERT (Photo/Screen)'}
-              </span>
-              <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold backdrop-blur-md border flex items-center gap-1.5 ${maskDetected ? 'bg-amber-500/90 text-black border-amber-300' : 'bg-black/60 text-white border-white/20'}`}>
-                {maskDetected ? '😷 Mask Detected (97%)' : '😊 Clear Face Unmasked'}
+          <div className="relative z-10 p-3 space-y-2 pointer-events-none">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap gap-2">
+                <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold backdrop-blur-md border flex items-center gap-1.5 ${livenessStatus === 'PASS' ? 'bg-emerald-500/85 text-black border-emerald-300' : livenessStatus === 'CHECKING' ? 'bg-cyan-500/85 text-black border-cyan-300' : 'bg-rose-600/90 text-white border-rose-400'}`}>
+                  <ShieldCheck size={14}/> Anti-spoof: {livenessStatus === 'PASS' ? 'PASS ✓' : livenessStatus === 'CHECKING' ? 'CHECKING…' : 'PHOTO/SCREEN RISK'}
+                </span>
+                <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold backdrop-blur-md border flex items-center gap-1.5 ${maskDetected ? 'bg-amber-500/90 text-black border-amber-300' : 'bg-black/60 text-white border-white/20'}`}>
+                  {maskDetected ? '⚠️ Low light / covered face' : '😊 Face quality OK'}
+                </span>
+                <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-cyan-300 text-[11px] font-bold">
+                  {cameraFit === 'contain' ? 'Full zoom-out classroom view' : 'Fill screen view'} {zoomReady ? '• Optical min zoom' : ''}
+                </span>
+              </div>
+              <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-cyan-300 text-[11px] font-bold">
+                {headPoseText}
               </span>
             </div>
-            <div className="flex gap-2">
-              <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-cyan-300 text-[11px] font-bold">
-                Pose: {headPoseText}
-              </span>
-              {smileDetected && (
-                <span className="px-3 py-1 rounded-full bg-yellow-400/90 text-black font-black text-[11px] shadow animate-bounce">
-                  Smile Detected 🙂
-                </span>
-              )}
+
+            <div className="pointer-events-auto rounded-2xl border border-cyan-300/20 bg-black/70 p-2.5 backdrop-blur-md shadow-xl">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="text-[11px] font-black uppercase tracking-[0.18em] text-cyan-200">AI checking pipeline</div>
+                <div className="text-[10px] font-bold text-white/60">cooldown {Math.round(AI_MARK_COOLDOWN_MS/1000)}s • confirm {REQUIRED_CONFIRM_FRAMES} frames</div>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+                {(Object.keys(aiChecks) as AiCheckKey[]).map(key => (
+                  <div key={key} className={`ai-check-line rounded-xl px-2 py-2 text-center text-[10px] font-black border ${aiChecks[key] === 'pass' ? 'border-emerald-300/60 bg-emerald-400/20 text-emerald-200' : aiChecks[key] === 'checking' ? 'border-cyan-300/60 bg-cyan-400/20 text-cyan-100' : aiChecks[key] === 'fail' ? 'border-rose-300/60 bg-rose-500/20 text-rose-100' : 'border-white/10 bg-white/5 text-white/45'}`}>
+                    <div className="mx-auto mb-1 h-1 rounded-full bg-current opacity-70" />
+                    {aiCheckLabels[key]}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 {hybridQrOverlay && (
@@ -864,6 +1168,38 @@ export default function AttendancePage(){
             </div>
           )}
 
+          {aiReviewOpen && unresolvedCount > 0 && (
+            <div className="relative z-20 mx-3 mb-2 rounded-[24px] border border-amber-300/40 bg-slate-950/90 p-3.5 text-white shadow-2xl backdrop-blur-xl">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-[13px] font-black text-amber-200">
+                    <AlertTriangle size={17}/> Teacher review needed
+                  </div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-slate-300">
+                    {unresolvedCount} student(s) not detected. Mark them absent, or scan again by moving the phone slowly from back bench to front bench.
+                  </p>
+                </div>
+                <button onClick={() => setAiReviewOpen(false)} className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white/10 text-white"><X size={14}/></button>
+              </div>
+              <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
+                {notDetectedStudents.slice(0, 10).map(student => (
+                  <span key={student.id} className="shrink-0 rounded-full bg-white/10 px-3 py-1 text-[11px] font-bold text-white/90">
+                    {student.name || 'Student'}
+                  </span>
+                ))}
+{notDetectedStudents.length > 10 && <span className="shrink-0 rounded-full bg-white/10 px-3 py-1 text-[11px] font-bold">+{notDetectedStudents.length - 10}</span>}
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <Button variant="outline" className="h-10 rounded-full border-cyan-300/40 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/20 font-bold" onClick={restartAiCheck}>
+                  Start Again Scan
+                </Button>
+                <Button variant="default" className="h-10 rounded-full bg-amber-500 text-black hover:bg-amber-400 font-black" onClick={markMissingAbsent}>
+                  Mark Not Detected Absent
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div className="relative z-10 p-3 flex flex-col gap-2 pointer-events-none">
             <div className="rounded-2xl bg-black/75 backdrop-blur-md border border-white/15 p-3.5 pointer-events-auto shadow-lg">
               <div className="flex items-center justify-between mb-2">
@@ -875,6 +1211,11 @@ export default function AttendancePage(){
                   Present: {presentCount} • Late: {lateCount}
                 </div>
               </div>
+              {!!lastMarkedNames.length && (
+                <div className="mb-2 rounded-xl border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-[11px] font-bold text-emerald-200">
+                  Just marked: {lastMarkedNames.join(', ')}
+                </div>
+              )}
               <div className="flex flex-wrap gap-1.5 max-h-20 overflow-auto pr-1">
                 {students.filter(s=>marks[s.id]==='present'||marks[s.id]==='late').map(s=>(
                   <span key={s.id} className={`verified-pop px-3 py-1 rounded-full text-[11.5px] font-extrabold shadow flex items-center gap-1 ${marks[s.id] === 'late' ? 'bg-amber-500 text-black' : 'bg-emerald-500 text-black'}`}>
@@ -896,12 +1237,18 @@ export default function AttendancePage(){
           </div>
         </div>
 
-        <div className="p-3.5 grid grid-cols-2 gap-3 bg-black/95 border-t border-white/10 shrink-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          <Button variant="outline" className="rounded-full h-13 bg-transparent border-white/30 text-white font-bold hover:bg-white/10" onClick={()=>stopAi()}>
-            Stop Camera Scan
+        <div className="grid grid-cols-2 gap-2 bg-black/95 p-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-white/10 shrink-0">
+          <Button variant="outline" className="rounded-full h-11 bg-transparent border-white/30 text-white font-bold hover:bg-white/10" onClick={restartAiCheck}>
+            Scan Again
           </Button>
-          <Button variant="success" className="rounded-full h-13 font-black text-[15px] shadow-[0_0_25px_rgba(16,185,129,0.4)]" onClick={saveAiAttendance}>
-            ✓ Save AI Attendance ({students.filter(s=>marks[s.id]==='present'||marks[s.id]==='late').length}/{students.length})
+          <Button variant="default" className="rounded-full h-11 bg-amber-500 text-black hover:bg-amber-400 font-black" onClick={markMissingAbsent} disabled={!unresolvedCount}>
+            Missing Absent ({unresolvedCount})
+          </Button>
+          <Button variant="outline" className="rounded-full h-11 bg-transparent border-rose-400/40 text-rose-200 font-bold hover:bg-rose-500/10" onClick={()=>stopAi()}>
+            Stop Camera
+          </Button>
+          <Button variant="success" className="rounded-full h-11 font-black text-[13px] shadow-[0_0_25px_rgba(16,185,129,0.4)]" onClick={saveAiAttendance}>
+            Save ({presentCount + lateCount}/{students.length})
           </Button>
         </div>
       </div>
@@ -948,8 +1295,7 @@ export default function AttendancePage(){
               const id = `stu_${Date.now().toString(36)}`
               const date = todayIST()
               const sid = schoolId || profile?.schoolId || 'global'
-
-              update(ref(db, `schools/${sid}/students/${id}`), {
+update(ref(db, `schools/${sid}/students/${id}`), {
                 studentId: id,
                 name: quickRegisterForm.name,
                 rollNumber: quickRegisterForm.rollNumber,

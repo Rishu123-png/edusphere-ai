@@ -1,43 +1,58 @@
+import { lazy, Suspense, useEffect, type ReactNode } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { sendEmailVerification } from 'firebase/auth'
 import { initOfflineAutoSync } from './lib/offlineSync'
+import { auth } from './lib/firebase'
 import Layout from './components/Layout'
-import LoginPage from './pages/LoginPage'
-import OnboardingPage from './pages/OnboardingPage'
-import DashboardPage from './pages/DashboardPage'
-import StudentsPage from './pages/StudentsPage'
-import TeachersPage from './pages/TeachersPage'
-import AttendancePage from './pages/AttendancePage'
-import MarksPage from './pages/MarksPage'
-import AIPage from './pages/AIPage'
-import SchedulePage from './pages/SchedulePage'
-import NotificationsPage from './pages/NotificationsPage'
-import WhatsAppPage from './pages/WhatsAppPage'
-import SettingsPage from './pages/SettingsPage'
-import SuperAdminPage from './pages/SuperAdminPage'
-import ReportsPage from './pages/ReportsPage'
-import CalendarPage from './pages/CalendarPage'
-import ParentPortalPage from './pages/ParentPortalPage'
 import { useAuth } from './contexts/AuthContext'
 import { UserRole } from './types'
 import { Button } from './components/ui/button'
 import { toast } from 'sonner'
-import { useEffect } from 'react'
 import { AnimePageTransition } from './components/AnimeWrapper'
 
-function RequireAuth({ children, allow }: { children: React.ReactNode, allow?: UserRole[] }) {
+const LoginPage = lazy(() => import('./pages/LoginPage'))
+const OnboardingPage = lazy(() => import('./pages/OnboardingPage'))
+const DashboardPage = lazy(() => import('./pages/DashboardPage'))
+const StudentsPage = lazy(() => import('./pages/StudentsPage'))
+const TeachersPage = lazy(() => import('./pages/TeachersPage'))
+const AttendancePage = lazy(() => import('./pages/AttendancePage'))
+const MarksPage = lazy(() => import('./pages/MarksPage'))
+const AIPage = lazy(() => import('./pages/AIPage'))
+const SchedulePage = lazy(() => import('./pages/SchedulePage'))
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage'))
+const WhatsAppPage = lazy(() => import('./pages/WhatsAppPage'))
+const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const SuperAdminPage = lazy(() => import('./pages/SuperAdminPage'))
+const ReportsPage = lazy(() => import('./pages/ReportsPage'))
+const CalendarPage = lazy(() => import('./pages/CalendarPage'))
+const ParentPortalPage = lazy(() => import('./pages/ParentPortalPage'))
+
+function AppLoader({ label = 'Loading EduSphere AI…' }: { label?: string }) {
+  return (
+    <div className="min-h-[55vh] flex items-center justify-center p-6">
+      <div className="text-center space-y-3">
+        <div className="w-12 h-12 mx-auto rounded-full bg-gradient-to-br from-indigo-600 to-violet-600 animate-pulse" />
+        <div className="font-bold">{label}</div>
+        <div className="text-xs text-muted-foreground">Mobile-first • Fast • Secure</div>
+      </div>
+    </div>
+  )
+}
+
+function PageSuspense({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<AppLoader />}>{children}</Suspense>
+}
+
+function RequireAuth({ children, allow }: { children: ReactNode, allow?: UserRole[] }) {
   const { user, profile, loading } = useAuth()
   const location = useLocation()
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-white dark:bg-zinc-950 p-6">
-      <div className="text-center space-y-3">
-        <div className="w-12 h-12 mx-auto rounded-full bg-gradient-to-br from-indigo-600 to-violet-600 animate-pulse" />
-        <div className="font-bold">Booting EduSphere AI…</div>
-        <div className="text-xs text-muted-foreground">Mobile-first • Fast • Secure</div>
-      </div>
+      <AppLoader label="Booting EduSphere AI…" />
     </div>
   )
-  if (!user) return <Navigate to="/login" replace />
+  if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />
 
   // Strict email verification for all production accounts
   if (!user.emailVerified) {
@@ -55,15 +70,12 @@ function RequireAuth({ children, allow }: { children: React.ReactNode, allow?: U
           <div className="flex flex-col gap-2 pt-2">
             <Button variant="gradient" className="rounded-full" onClick={() => window.location.reload()}>I Have Verified My Email</Button>
             <Button variant="outline" className="rounded-full" onClick={async () => {
-              const { sendEmailVerification } = await import('firebase/auth')
-              const { auth } = await import('@/lib/firebase')
               if (auth.currentUser) {
                 await sendEmailVerification(auth.currentUser)
                 toast.success('Verification link re-sent!')
               }
             }}>Resend Verification Link</Button>
             <Button variant="ghost" className="rounded-full" onClick={async () => {
-              const { auth } = await import('@/lib/firebase')
               await auth.signOut()
               window.location.reload()
             }}>Sign Out & Try Another Account</Button>
@@ -76,7 +88,7 @@ function RequireAuth({ children, allow }: { children: React.ReactNode, allow?: U
   // School onboarding check: only redirect if profile is loaded and user has NO schoolId
   const isSuperAdmin = profile?.role === 'super_admin'
   const isOnboardingPath = location.pathname === '/onboarding'
-  
+
   // Only force onboarding when we have a profile but it has no school (and not super admin)
   if (!isSuperAdmin && profile && !profile.schoolId && !isOnboardingPath) {
     return <Navigate to="/onboarding" replace />
@@ -101,31 +113,29 @@ function ScrollToTop(){
 }
 
 export default function App(){
-  useEffect(() => {
-    initOfflineAutoSync()
-  }, [])
+  useEffect(() => initOfflineAutoSync(), [])
 
   return (
     <>
       <ScrollToTop />
       <Routes>
-        <Route path="/login" element={<AnimePageTransition><LoginPage/></AnimePageTransition>} />
-        <Route path="/onboarding" element={<RequireAuth><AnimePageTransition><OnboardingPage/></AnimePageTransition></RequireAuth>} />
+        <Route path="/login" element={<PageSuspense><AnimePageTransition><LoginPage/></AnimePageTransition></PageSuspense>} />
+        <Route path="/onboarding" element={<RequireAuth><PageSuspense><AnimePageTransition><OnboardingPage/></AnimePageTransition></PageSuspense></RequireAuth>} />
         <Route element={<RequireAuth><Layout/></RequireAuth>}>
-          <Route path="/" element={<DashboardPage/>}/>
-          <Route path="/students" element={<RequireAuth allow={['super_admin','school_admin','teacher']}><StudentsPage/></RequireAuth>}/>
-          <Route path="/teachers" element={<RequireAuth allow={['super_admin','school_admin']}><TeachersPage/></RequireAuth>}/>
-          <Route path="/attendance" element={<AttendancePage/>}/>
-          <Route path="/marks" element={<MarksPage/>}/>
-          <Route path="/ai" element={<AIPage/>}/>
-          <Route path="/schedule" element={<SchedulePage/>}/>
-          <Route path="/notifications" element={<NotificationsPage/>}/>
-          <Route path="/whatsapp" element={<RequireAuth allow={['super_admin','school_admin','teacher']}><WhatsAppPage/></RequireAuth>}/>
-          <Route path="/reports" element={<ReportsPage/>}/>
-          <Route path="/calendar" element={<CalendarPage/>}/>
-          <Route path="/parent" element={<ParentPortalPage/>}/>
-          <Route path="/settings" element={<SettingsPage/>}/>
-          <Route path="/superadmin" element={<RequireAuth allow={['super_admin']}><SuperAdminPage/></RequireAuth>}/>
+          <Route path="/" element={<PageSuspense><DashboardPage/></PageSuspense>}/>
+          <Route path="/students" element={<RequireAuth allow={['super_admin','school_admin','teacher']}><PageSuspense><StudentsPage/></PageSuspense></RequireAuth>}/>
+          <Route path="/teachers" element={<RequireAuth allow={['super_admin','school_admin']}><PageSuspense><TeachersPage/></PageSuspense></RequireAuth>}/>
+          <Route path="/attendance" element={<PageSuspense><AttendancePage/></PageSuspense>}/>
+          <Route path="/marks" element={<PageSuspense><MarksPage/></PageSuspense>}/>
+          <Route path="/ai" element={<PageSuspense><AIPage/></PageSuspense>}/>
+          <Route path="/schedule" element={<PageSuspense><SchedulePage/></PageSuspense>}/>
+          <Route path="/notifications" element={<PageSuspense><NotificationsPage/></PageSuspense>}/>
+          <Route path="/whatsapp" element={<RequireAuth allow={['super_admin','school_admin','teacher']}><PageSuspense><WhatsAppPage/></PageSuspense></RequireAuth>}/>
+          <Route path="/reports" element={<PageSuspense><ReportsPage/></PageSuspense>}/>
+          <Route path="/calendar" element={<PageSuspense><CalendarPage/></PageSuspense>}/>
+          <Route path="/parent" element={<PageSuspense><ParentPortalPage/></PageSuspense>}/>
+          <Route path="/settings" element={<PageSuspense><SettingsPage/></PageSuspense>}/>
+          <Route path="/superadmin" element={<RequireAuth allow={['super_admin']}><PageSuspense><SuperAdminPage/></PageSuspense></RequireAuth>}/>
         </Route>
         <Route path="*" element={<Navigate to="/" replace/>} />
       </Routes>

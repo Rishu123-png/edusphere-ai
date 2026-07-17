@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type ErrorInfo } from 'react'
 
 interface Props {
   children: React.ReactNode
@@ -16,11 +16,11 @@ export class ErrorBoundary extends React.Component<Props, State> {
     this.state = { hasError: false }
   }
 
-  static getDerivedStateFromError(error: Error) {
+  static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error }
   }
 
-  componentDidCatch(error: Error, info: any) {
+  componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('EduSphere ErrorBoundary:', error, info)
   }
 
@@ -32,8 +32,14 @@ export class ErrorBoundary extends React.Component<Props, State> {
             <div className="text-4xl mb-4">⚠️</div>
             <h2 className="text-xl font-bold mb-2">Something went wrong</h2>
             <p className="text-muted-foreground mb-4">Please refresh the page or contact support.</p>
-            <button 
-              onClick={() => window.location.reload()} 
+            {this.state.error?.message && (
+              <p className="max-w-lg mb-4 rounded-2xl bg-red-50 px-4 py-2 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-200">
+                {this.state.error.message}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
               className="px-6 py-2 rounded-full bg-zinc-900 text-white"
             >
               Reload App

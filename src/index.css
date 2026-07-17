@@ -68,7 +68,6 @@
   }
   html { background-color: hsl(0 0% 100%); }
   html.dark { background-color: hsl(240 10% 3.9%); }
-  /* Safe areas */
   :root {
     --sat: env(safe-area-inset-top);
     --sar: env(safe-area-inset-right);
@@ -160,4 +159,60 @@
   width: 28px; height: 28px;
   border: 3px solid white;
   position: absolute;
+}
+
+/* AI camera visuals */
+.ai-camera-card {
+  position: relative;
+  isolation: isolate;
+}
+.ai-camera-card::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: 28px;
+  background: radial-gradient(circle at 20% 10%, rgba(34,211,238,.22), transparent 28%), radial-gradient(circle at 80% 0%, rgba(16,185,129,.2), transparent 30%);
+  pointer-events: none;
+}
+.scan-corner {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  border-color: rgba(45, 212, 191, .95);
+  filter: drop-shadow(0 0 10px rgba(34, 211, 238, .75));
+  pointer-events: none;
+}
+.scan-corner-tl { top: 0; left: 0; border-top-width: 3px; border-left-width: 3px; border-top-style: solid; border-left-style: solid; border-top-left-radius: 18px; }
+.scan-corner-tr { top: 0; right: 0; border-top-width: 3px; border-right-width: 3px; border-top-style: solid; border-right-style: solid; border-top-right-radius: 18px; }
+.scan-corner-bl { bottom: 0; left: 0; border-bottom-width: 3px; border-left-width: 3px; border-bottom-style: solid; border-left-style: solid; border-bottom-left-radius: 18px; }
+.scan-corner-br { bottom: 0; right: 0; border-bottom-width: 3px; border-right-width: 3px; border-bottom-style: solid; border-right-style: solid; border-bottom-right-radius: 18px; }
+.ai-check-line {
+  position: relative;
+  overflow: hidden;
+}
+.ai-check-line::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-120%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.22), transparent);
+  animation: ai-check-sweep 1.8s infinite;
+}
+.verified-pop {
+  animation: verified-pop .34s ease-out both;
+}
+.animate-bounce-short {
+  animation: bounce-short .9s ease-in-out 2;
+}
+@keyframes ai-check-sweep {
+  100% { transform: translateX(120%); }
+}
+@keyframes verified-pop {
+  0% { transform: scale(.88); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes bounce-short {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
 }

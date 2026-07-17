@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { auth, db, googleProvider } from '@/lib/firebase'
-import { onAuthStateChanged, signInWithEmailAndPassword, signInWithPopup, signOut, sendPasswordResetEmail, createUserWithEmailAndPassword, sendEmailVerification, updateProfile, User } from 'firebase/auth'
+import { onAuthStateChanged, signInWithEmailAndPassword, signInWithPopup, signOut, sendPasswordResetEmail, createUserWithEmailAndPassword, sendEmailVerification, updateProfile, type User } from 'firebase/auth'
 import { ref, get, set, update, onDisconnect } from 'firebase/database'
 import { AppUser, UserRole } from '@/types'
 
@@ -24,14 +24,16 @@ const AuthContext = createContext<AuthContextType | null>(null)
 /** Write isOnline on both users/ and schools/.../teachers/ so admin dashboard stays live */
 async function setPresence(uid: string, schoolId: string | undefined, online: boolean) {
   const stamp = Date.now()
-  const userPatch: any = online
+  const userPatch: Record<string, boolean | number> = online
     ? { isOnline: true, lastLogin: stamp, lastSeen: stamp }
     : { isOnline: false, lastSeen: stamp }
+
   try {
     await update(ref(db, `users/${uid}`), userPatch)
-  } catch {
-      // Best-effort browser/Firebase operation; safe to ignore.
-    }
+  } catch (error) {
+    console.warn('Failed to update user presence', error)
+  }
+
   if (schoolId) {
     try {
       await update(ref(db, `schools/${schoolId}/teachers/${uid}`), {
@@ -39,8 +41,8 @@ async function setPresence(uid: string, schoolId: string | undefined, online: bo
         lastSeen: stamp,
         ...(online ? { lastLogin: stamp } : {}),
       })
-    } catch {
-      // Best-effort browser/Firebase operation; safe to ignore.
+    } catch (error) {
+      console.warn('Failed to update teacher presence', error)
     }
   }
 }
@@ -66,25 +68,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             await onDisconnect(ref(db, `schools/${p.schoolId}/teachers/${u.uid}/isOnline`)).set(false)
             await onDisconnect(ref(db, `schools/${p.schoolId}/teachers/${u.uid}/lastSeen`)).set(Date.now())
           }
-        } catch {
-      // Best-effort browser/Firebase operation; safe to ignore.
-    }
-        return p
-      } else {
-        const newProfile: AppUser = {
-          uid: u.uid,
-          email: u.email || '',
-          displayName: u.displayName || u.email?.split('@')[0] || 'New User',
-          role: 'teacher',
-          createdAt: Date.now(),
-          isOnline: true,
-          lastLogin: Date.now()
+        } catch (error) {
+          console.warn('Failed to register offline presence hook', error)
         }
-        if (u.photoURL) newProfile.photoURL = u.photoURL
-        await set(ref(db, `users/${u.uid}`), newProfile)
-        setProfile(newProfile)
-        return newProfile
+        return p
       }
+
+      const newProfile: AppUser = {
+        uid: u.uid,
+        email: u.email || '',
+        displayName: u.displayName || u.email?.split('@')[0] || 'New User',
+        role: 'teacher',
+        createdAt: Date.now(),
+        isOnline: true,
+        lastLogin: Date.now()
+      }
+      if (u.photoURL) newProfile.photoURL = u.photoURL
+      await set(ref(db, `users/${u.uid}`), newProfile)
+      setProfile(newProfile)
+      return newProfile
     } catch(e){
       console.error('loadProfile error', e)
       return null
@@ -107,9 +109,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Heartbeat while app is open so admin sees Active
   useEffect(() => {
     if (!user || !profile) return
+    const schoolId = profile.schoolId
     const beat = () => {
-      setPresence(user.uid, profile.schoolId, true).catch(()=>{
-        // Best-effort cleanup; safe to ignore.
+      setPresence(user.uid, schoolId, true).catch(error => {
+        console.warn('Presence heartbeat failed', error)
       })
     }
     const id = window.setInterval(beat, 45000)
@@ -121,7 +124,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       window.clearInterval(id)
       document.removeEventListener('visibilitychange', onVis)
     }
-  }, [user, profile?.schoolId, profile?.uid])
+  }, [user, profile])
 
   const login = async (email:string, password:string) => {
     await signInWithEmailAndPassword(auth, email, password)
@@ -140,8 +143,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     try {
       if (user) await setPresence(user.uid, profile?.schoolId, false)
-    } catch {
-      // Best-effort browser/Firebase operation; safe to ignore.
+    } catch (error) {
+      console.warn('Logout presence update failed', error)
     }
     await signOut(auth)
   }
@@ -157,8 +160,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshProfile = async () => {
     if (auth.currentUser) {
       await auth.currentUser.reload()
-      setUser({ ...auth.currentUser } as any)
-      await loadProfile(auth.currentUser as any)
+      setUser(auth.currentUser)
+      await loadProfile(auth.currentUser)
     }
   }
 

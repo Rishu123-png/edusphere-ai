@@ -28,7 +28,7 @@ export default function StudentsPage(){
   const [generatingFaceId, setGeneratingFaceId] = useState(false)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const emptyForm = { name:'', className:'10', section:'A', rollNumber:'', admissionNumber:'', guardianName:'', guardianPhone:'', subjects:'', photoUrl:'' }
+  const emptyForm = { name:'', className:'10', section:'A', rollNumber:'', admissionNumber:'', guardianName:'', guardianPhone:'', guardianEmail:'', subjects:'', photoUrl:'' }
   const [form, setForm] = useState<any>(emptyForm)
 
   // Live Camera Enrollment State (Head pose, Smile, Eye blink, Liveness)
@@ -148,6 +148,7 @@ export default function StudentsPage(){
       section,
       guardianName: form.guardianName || '',
       guardianPhone: form.guardianPhone || '',
+      guardianEmail: form.guardianEmail || '',
       faceEmbedding: isValidDescriptor(form.faceDescriptor) ? form.faceDescriptor : (editing?.faceDescriptor || null),
       faceDescriptor: isValidDescriptor(form.faceDescriptor) ? form.faceDescriptor : (editing?.faceDescriptor || null),
       photoUrl: form.photoUrl || '',
@@ -415,8 +416,9 @@ export default function StudentsPage(){
                 <ScanFace className="text-indigo-600"/> {editing ? 'Edit Student Profile & Embedding' : 'AI Face Registration (Single Enrollment)'}
               </DialogTitle>
             </DialogHeader>
-            <div className="text-[12px] text-muted-foreground p-3 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/30">
-              ⚡ <b>AI Registration Guarantee:</b> Each student registers only once. The AI stores all 9 identity fields plus a numerical <b>128-D Face Embedding</b> vector (`[0.012, -0.045, ...]`) rather than just an image for ultra-reliable biometric recognition.
+            <div className="text-[12px] text-muted-foreground p-3 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/30 space-y-1.5">
+              <div>⚡ <b>AI Registration Guarantee:</b> Each student registers only once. The AI stores all 9 identity fields plus a numerical <b>128-D Face Embedding</b> vector (`[0.012, -0.045, ...]`) rather than just an image for ultra-reliable biometric recognition.</div>
+              <div>👨‍👩‍👧 <b>Parent Portal Fix:</b> Save the guardian login email here so the authenticated parent account can join the school and automatically link to the child profile.</div>
             </div>
 
             <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(e)=>{
@@ -488,11 +490,15 @@ export default function StudentsPage(){
                 <Input className="mt-1 h-11 rounded-xl font-semibold" placeholder="e.g. 9876543210" value={form.guardianPhone||''} onChange={e=>setForm({...form, guardianPhone: e.target.value})} />
               </div>
               <div>
+                <Label className="text-[12px] font-bold text-muted-foreground">Guardian Login Email</Label>
+                <Input className="mt-1 h-11 rounded-xl font-semibold" type="email" placeholder="parent@example.com" value={form.guardianEmail||''} onChange={e=>setForm({...form, guardianEmail: e.target.value})} />
+              </div>
+              <div>
                 <Label className="text-[12px] font-bold text-muted-foreground">Admission Number</Label>
                 <Input className="mt-1 h-11 rounded-xl font-semibold" placeholder="e.g. ADM-2026-101" value={form.admissionNumber||''} onChange={e=>setForm({...form, admissionNumber: e.target.value})} />
               </div>
               <div>
-                <Label className="text-[12px] font-bold text-muted-foreground">DOB & Address</Label>
+<Label className="text-[12px] font-bold text-muted-foreground">DOB & Address</Label>
                 <Input className="mt-1 h-11 rounded-xl font-semibold" placeholder="DOB or City" value={form.dob||''} onChange={e=>setForm({...form, dob: e.target.value})} />
               </div>
             </div>
@@ -619,7 +625,7 @@ export default function StudentsPage(){
                           <span>{s.name?.[0]||'S'}</span>
                         )}
                       </div>
-                      <div className="min-w-0">
+<div className="min-w-0">
                         <div className="font-bold text-foreground text-[14px] truncate max-w-[180px]">{s.name}</div>
                         <div className="text-[11px] text-muted-foreground truncate">Adm: {s.admissionNumber||'N/A'}</div>
                       </div>

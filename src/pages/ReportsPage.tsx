@@ -391,7 +391,6 @@ export default function ReportsPage() {
                   <span className="w-6 h-6 rounded-full bg-cyan-500/10 text-cyan-500 font-bold flex items-center justify-center shrink-0 mt-0.5">✓</span>
                   <span>{line}</span>
                 </div>
-</div>
               ))}
             </div>
             <div className="p-4 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/30 text-xs text-indigo-900 dark:text-indigo-200 leading-relaxed font-semibold">

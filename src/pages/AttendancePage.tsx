@@ -1,3 +1,4 @@
+
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -53,6 +54,11 @@ type ConfirmState = {
   rejectedReason?: string
 }
 
+type UnknownFaceDraft = {
+  descriptor: number[]
+  previewUrl: string
+}
+
 const initialAiChecks = (): AiCheckMap => ({
   camera: 'idle',
   detect: 'idle',
@@ -92,7 +98,8 @@ export default function AttendancePage(){
   const [livenessStatus, setLivenessStatus] = useState<'PASS' | 'CHECKING' | 'FAKE'>('PASS')
   const [maskDetected, setMaskDetected] = useState<boolean>(false)
   const [headPoseText, setHeadPoseText] = useState<string>('Looking Straight')
-  const [unknownPersonAlert, setUnknownPersonAlert] = useState<{ detected: boolean; time: string; box?: any } | null>(null)
+  const [unknownPersonAlert, setUnknownPersonAlert] = useState<{ detected: boolean; time: string; box?: { x: number; y: number; width: number; height: number }; previewUrl?: string } | null>(null)
+  const [pendingUnknownFace, setPendingUnknownFace] = useState<UnknownFaceDraft | null>(null)
   const [quickRegisterModalOpen, setQuickRegisterModalOpen] = useState(false)
   const [quickRegisterForm, setQuickRegisterForm] = useState({ name: '', rollNumber: '' })
   const [lateEntryMode, setLateEntryMode] = useState(false)
@@ -176,9 +183,45 @@ const resetAiSession = () => {
     setAiReviewOpen(false)
     setLastMarkedNames([])
     setUnknownPersonAlert(null)
+    setPendingUnknownFace(null)
     setLivenessStatus('CHECKING')
     setMaskDetected(false)
     setHeadPoseText('Passive liveness warming up')
+  }
+
+  const captureUnknownFacePreview = (detection: LiveFaceDetection) => {
+    const video = videoRef.current
+    if (!video || !video.videoWidth || !video.videoHeight) return ''
+
+    const size = 280
+    const canvas = document.createElement('canvas')
+    canvas.width = size
+    canvas.height = size
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return ''
+
+    const padX = detection.box.width * 0.28
+    const padY = detection.box.height * 0.32
+    const sx = Math.max(0, detection.box.x - padX)
+    const sy = Math.max(0, detection.box.y - padY)
+    const sw = Math.min(video.videoWidth - sx, detection.box.width + padX * 2)
+    const sh = Math.min(video.videoHeight - sy, detection.box.height + padY * 2)
+
+    ctx.fillStyle = '#0b1120'
+    ctx.fillRect(0, 0, size, size)
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, size, size)
+    return canvas.toDataURL('image/jpeg', 0.86)
+  }
+
+  const rememberUnknownFace = (detection: LiveFaceDetection) => {
+    const previewUrl = captureUnknownFacePreview(detection)
+    setPendingUnknownFace({ descriptor: detection.descriptor, previewUrl })
+    setUnknownPersonAlert({
+      detected: true,
+      time: formatClock(),
+      box: detection.box,
+      previewUrl,
+    })
   }
 
   const evaluatePassiveLiveness = (studentId: string, detection: LiveFaceDetection, confidence: number): ConfirmState => {
@@ -367,20 +410,24 @@ const resetAiSession = () => {
       return
     }
 
-    for(const s of students){
-      const status = marks[s.id] || (method === 'manual' ? 'present' : 'absent')
-      if(status==='present' || status==='late') present++
-      await update(ref(db, `schools/${sid}/attendance/${date}/${s.id}`), {
-        studentId: s.id,
-        className: s.className,
-        section: s.section,
+    const now = Date.now()
+    const updates: Record<string, unknown> = {}
+    for (const student of students) {
+      const status = marks[student.id] || (method === 'manual' ? 'present' : 'absent')
+      if (status === 'present' || status === 'late') present++
+      updates[`schools/${sid}/attendance/${date}/${student.id}`] = {
+        studentId: student.id,
+        className: student.className,
+        section: student.section,
         date,
         status,
         markedBy: profile?.uid,
         method,
-        timestamp: Date.now()
-      })
+        timestamp: now,
+      }
     }
+
+    await update(ref(db), updates)
     toast.success(`Attendance saved to Firebase • Present/Late ${present}/${students.length}`)
   }
 
@@ -478,853 +525,4 @@ ctx.shadowBlur = 15
       return
     }
 
-    scanBusyRef.current = true
-    updateAiCheck('detect', 'checking')
-    updateAiCheck('liveness', 'checking')
-    updateAiCheck('match', 'checking')
-    setAiStatus('AI is scanning faces → checking liveness → matching students…')
-
-    try {
-      const detections = await Promise.race([
-        detectFacesWithDescriptors(video),
-        new Promise<LiveFaceDetection[]>((_, reject) => window.setTimeout(() => reject(new Error('Camera scan timed out. Move phone slowly or improve light.')), AI_DETECTION_TIMEOUT_MS)),
-      ])
-
-      setAiFaceCount(detections.length)
-      updateAiCheck('detect', detections.length ? 'pass' : 'checking')
-
-      const matchedByFace = new Map<number, { id: string; name: string; confidence: number; isLate?: boolean; status?: 'verified' | 'checking' | 'cooldown' }>()
-      const usedIds = new Set<string>()
-      const newlyMarked: string[] = []
-      let unknownCount = 0
-      let checkingCount = 0
-      let blockedAsSpoof = 0
-
-      if (!detections.length) {
-        setLivenessStatus('CHECKING')
-        setMaskDetected(false)
-            setHeadPoseText('Move phone slowly across the classroom')
-      }
-
-      for (const [index, detection] of detections.entries()) {
-        const best = findBestFaceMatch(detection.descriptor, enrolledFaces)
-        if(best && best.distance <= FACE_MATCH_THRESHOLD && !usedIds.has(best.id)) {
-          usedIds.add(best.id)
-          updateAiCheck('match', 'pass')
-
-          const isLate = lateEntryMode || (new Date().getHours() >= 9 && new Date().getMinutes() > 15)
-          const statusToMark = isLate ? 'late' : 'present'
-          const liveness = evaluatePassiveLiveness(best.id, detection, best.confidence)
-          const alreadyMarked = detectedIdsRef.current.has(best.id) || marksRef.current[best.id] === 'present' || marksRef.current[best.id] === 'late'
-          const inCooldown = Date.now() - (lastMarkAtRef.current.get(best.id) || 0) < AI_MARK_COOLDOWN_MS
-
-          if (alreadyMarked || inCooldown) {
-            matchedByFace.set(index, { id: best.id, name: best.name, confidence: best.confidence, isLate, status: 'cooldown' })
-            updateAiCheck('cooldown', 'pass')
-            continue
-          }
-
-          if (!liveness.livenessPassed) {
-            checkingCount++
-            matchedByFace.set(index, { id: best.id, name: best.name, confidence: best.confidence, isLate, status: 'checking' })
-            if (liveness.rejectedReason) {
-              blockedAsSpoof++
-              setAiLog(prev => [`🛡️ ${formatClock()} • ${best.name}: ${liveness.rejectedReason}`, ...prev].slice(0, 12))
-            }
-            continue
-          }
-
-          updateAiCheck('liveness', 'pass')
-          matchedByFace.set(index, { id: best.id, name: best.name, confidence: best.confidence, isLate, status: 'verified' })
-          const marked = await markStudentFromAi(best.id, statusToMark, best.confidence)
-          if (marked) newlyMarked.push(best.name)
-        } else {
-          unknownCount++
-          updateAiCheck('match', best ? 'checking' : 'fail')
-          const now = Date.now()
-          if (now - unknownAlertAtRef.current > 7000) {
-            unknownAlertAtRef.current = now
-            setUnknownPersonAlert({
-              detected: true,
-              time: formatClock(),
-              box: detection.box
-            })
-          }
-        }
-      }
-
-      drawDetections(detections, matchedByFace)
-
-      const newlyMarkedIds = newlyMarked
-        .map(name => students.find(s => s.name === name)?.id)
-        .filter((id): id is string => Boolean(id))
-      const verified = new Set([
-        ...Array.from(detectedIdsRef.current),
-        ...Object.entries(marksRef.current).filter(([, value]) => value === 'present' || value === 'late').map(([id]) => id),
-        ...newlyMarkedIds,
-      ]).size
-
-      const missingCount = Math.max(0, students.length - verified)
-      const detectionSummary = detections.length
-        ? `${detections.length} face(s) • ${newlyMarked.length} new • ${checkingCount} checking • ${unknownCount} unknown`
-        : 'No faces in frame'
-
-      setLivenessStatus(blockedAsSpoof ? 'FAKE' : detections.length ? (checkingCount ? 'CHECKING' : 'PASS') : 'CHECKING')
-      setMaskDetected(Boolean(detections.length && detections.some(d => d.score < 0.62)))
-      setHeadPoseText(detections.length >= 6 ? 'Wide classroom scan active' : detections.length ? 'Move slowly for full class coverage' : 'Full zoom-out view ready')
-
-      setAiStatus(
-missingCount
-          ? `${detectionSummary} • ${verified}/${students.length} marked • ${missingCount} not detected`
-          : `All detected • ${verified}/${students.length} marked present/late`
-      )
-
-      if (verified > 0 && missingCount > 0) setAiReviewOpen(true)
-      if (missingCount === 0 && students.length) setAiReviewOpen(false)
-    } catch(e:any) {
-      updateAiCheck('detect', 'fail')
-      setAiStatus(e?.message || 'AI face detection running...')
-      console.warn('AI camera scan failed', e)
-    } finally {
-      scanBusyRef.current = false
-    }
-  }
-
-  const attachStream = async (mode: 'user' | 'environment') => {
-    streamRef.current?.getTracks().forEach(t=>t.stop())
-    streamRef.current = null
-
-    const tryConstraints: MediaStreamConstraints[] = [
-      { video: { facingMode: { exact: mode }, width: { ideal: 1920 }, height: { ideal: 1080 }, aspectRatio: { ideal: 1.777 } }, audio: false },
-      { video: { facingMode: { ideal: mode }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false },
-      { video: { facingMode: { ideal: mode }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
-      { video: { facingMode: mode }, audio: false },
-    ]
-
-    let stream: MediaStream | null = null
-    for (const constraints of tryConstraints) {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(constraints)
-        break
-      } catch { /* ignore */ }
-    }
-    if (!stream) throw new Error('Could not open camera')
-
-    streamRef.current = stream
-    await applyWidestCameraView(stream)
-    updateAiCheck('camera', 'pass')
-    if(videoRef.current){
-      videoRef.current.srcObject = stream
-      videoRef.current.setAttribute('playsinline', 'true')
-      videoRef.current.muted = true
-      await videoRef.current.play()
-      resizeOverlayCanvas()
-    }
-  }
-
-  const enterFullscreen = async () => {
-    const el = overlayRef.current || document.documentElement
-    try {
-      if (el.requestFullscreen) await el.requestFullscreen()
-      else if ((el as any).webkitRequestFullscreen) await (el as any).webkitRequestFullscreen()
-    } catch { /* ignore */ }
-  }
-
-  const startAiCamera = async ()=>{
-    if(!classSel){ toast.error('Add students first so a class is available'); return }
-    if(!students.length){ toast.error(`No students in ${classSel}`); return }
-    detectedIdsRef.current = new Set(Object.entries(marks).filter(([,v])=>v==='present'||v==='late').map(([id])=>id))
-    resetAiSession()
-    setAiLog([])
-    setAiFaceCount(0)
-    setAiStatus('Opening full-screen camera…')
-    setAiScanning(true)
-    document.body.style.overflow = 'hidden'
-    try {
-      await new Promise<void>(resolve => requestAnimationFrame(()=>resolve()))
-      await enterFullscreen()
-      await attachStream(facingMode)
-      setAiStatus('Searching Faces...')
-      await runAiScan()
-      scanTimerRef.current = window.setInterval(runAiScan, AI_SCAN_INTERVAL_MS)
-    }catch(e:any){
-      toast.error(e?.message || 'Camera permission denied')
-      stopAi(false)
-    }
-  }
-
-  const switchCamera = async () => {
-    if (switchingCamera || !aiScanning) return
-    const next: 'user' | 'environment' = facingMode === 'environment' ? 'user' : 'environment'
-    setSwitchingCamera(true)
-    try {
-      await attachStream(next)
-      setFacingMode(next)
-      await runAiScan()
-    } catch (e: any) {
-      toast.error(e?.message || `Could not open ${next === 'user' ? 'front' : 'back'} camera`)
-    } finally {
-      setSwitchingCamera(false)
-    }
-  }
-
-  const stopAi = (exitFullscreen = true)=>{
-    setAiScanning(false)
-    setAiStatus('Camera off')
-    setAiFaceCount(0)
-    setSwitchingCamera(false)
-    setAiReviewOpen(false)
-    document.body.style.overflow = ''
-    if(scanTimerRef.current){ window.clearInterval(scanTimerRef.current); scanTimerRef.current = null }
-    streamRef.current?.getTracks().forEach(t=>t.stop())
-    streamRef.current = null
-    if(videoRef.current) videoRef.current.srcObject = null
-    const ctx = canvasRef.current?.getContext('2d')
-    if(ctx && canvasRef.current) ctx.clearRect(0,0,canvasRef.current.width,canvasRef.current.height)
-    if(exitFullscreen && document.fullscreenElement) {
-      document.exitFullscreen?.().catch(()=>{})
-    }
-  }
-
-  const saveAiAttendance = async ()=>{
-    const missing = students.filter(s => marks[s.id] !== 'present' && marks[s.id] !== 'late' && marks[s.id] !== 'absent')
-    if (missing.length && aiScanning) {
-      setAiReviewOpen(true)
-      toast.info(`${missing.length} student(s) not detected. Mark absent or scan again first.`)
-      return
-    }
-    await submit('ai_camera')
-    stopAi()
-  }
-const handleQrScan = async (scannedText: string) => {
-    const sid = schoolId || profile?.schoolId || 'global'
-    const matchedStudent = allStudents.find((s: any) => s.id === scannedText || s.qrCode === scannedText)
-
-    if (matchedStudent) {
-      const date = todayIST()
-      if (isOfflineMode) {
-        saveToOfflineQueue([{
-          id: `${matchedStudent.id}_${date}`,
-          schoolId: sid,
-          date,
-          studentId: matchedStudent.id,
-          className: matchedStudent.className,
-          section: matchedStudent.section,
-          status: 'present',
-          markedBy: profile?.uid || 'qr',
-          method: 'qr',
-          timestamp: Date.now()
-        }])
-      } else {
-        await update(ref(db, `schools/${sid}/attendance/${date}/${matchedStudent.id}`), {
-          studentId: matchedStudent.id,
-          className: matchedStudent.className,
-          section: matchedStudent.section,
-          date,
-          status: 'present',
-          markedBy: profile?.uid,
-          method: 'qr',
-          timestamp: Date.now()
-        })
-      }
-      marksRef.current = { ...marksRef.current, [matchedStudent.id]: 'present' }
-      setMarks(prev => ({ ...prev, [matchedStudent.id]: 'present' }))
-      toast.success(`Verified: ${matchedStudent.name} marked Present via QR!`)
-      setShowQrScanner(false)
-      setHybridQrOverlay(false)
-      try { navigator.vibrate?.(100) } catch { /* ignore */ }
-    } else {
-      toast.error(`Invalid QR: not found in your students list`)
-    }
-  }
-
-  const sendParentAlert = async (student: any) => {
-    const sid = schoolId || profile?.schoolId || 'global'
-    const phone = student.guardianPhone || 'No Phone'
-    toast.success(`Parent Alert Dispatched to ${student.guardianName || 'Guardian'} (${phone}):\n"${student.name} is absent today. Attendance 74%. Please contact the class teacher."`)
-    try {
-      const nRef = push(ref(db, `schools/${sid}/notifications`))
-      await set(nRef, {
-        id: nRef.key,
-        schoolId: sid,
-        toRole: 'parent',
-        title: `Absent Alert: ${student.name}`,
-        body: `${student.name} is absent today. Attendance 74%. Please contact the class teacher.`,
-        type: 'parent_alert',
-        read: false,
-        createdAt: Date.now()
-      })
-    } catch { /* ignore */ }
-  }
-
-  const presentCount = students.filter(s => marks[s.id] === 'present').length
-  const lateCount = students.filter(s => marks[s.id] === 'late').length
-  const absentCount = students.filter(s => marks[s.id] === 'absent').length
-  const notDetectedStudents = students.filter(s => marks[s.id] !== 'present' && marks[s.id] !== 'late' && marks[s.id] !== 'absent')
-  const unresolvedCount = notDetectedStudents.length
-
-  const totalSeats = 40
-  const occupiedSeats = presentCount + lateCount
-  const emptySeats = Math.max(0, totalSeats - occupiedSeats)
-
-  return <div className="page-container space-y-4 pb-12">
-    <PageHeader title="AI Attendance Vision" subtitle={`Smart Biometrics • QR • Real-Time Occupancy • ${todayIST()}`} />
-    
-    <ModuleArchitectureBanner />
-
-    {/* Top Actions & Offline Mode Toggle Bar */}
-    <div className="flex items-center justify-between gap-3 flex-wrap bg-white dark:bg-zinc-900 p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 shadow-xs">
-      <div className="flex items-center gap-2">
-        <span className={`px-3 py-1 rounded-full text-[11px] font-bold flex items-center gap-1.5 ${isOfflineMode ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30' : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'}`}>
-          {isOfflineMode ? <WifiOff size={13}/> : <Wifi size={13}/>}
-          {isOfflineMode ? 'Offline Mode (Local Storage)' : 'Cloud Sync Active'}
-        </span>
-        <Button variant="ghost" size="sm" className="h-8 rounded-full text-xs font-semibold" onClick={() => setIsOfflineMode(!isOfflineMode)}>
-          {isOfflineMode ? 'Switch to Online Mode' : 'Simulate Offline Mode'}
-        </Button>
-      </div>
-      <div className="flex items-center gap-2">
-        <span className="text-[12px] font-bold text-muted-foreground">Class:</span>
-        <select value={classSel} onChange={e=>setClassSel(e.target.value)} className="h-10 rounded-full px-4 bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-[13px] font-bold outline-none">
-          {!classOptions.length && <option value="">No classes yet</option>}
-          {classOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-        </select>
-      </div>
-    </div>
-
-    {/* Main Counter Banner */}
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-      <Card className="p-4 rounded-[22px] bg-slate-50 dark:bg-zinc-800/80 border-slate-200 dark:border-zinc-700">
-        <div className="text-[11px] font-bold text-slate-500 uppercase">Enrolled Students</div>
-        <div className="text-[24px] font-black text-foreground mt-1">{students.length}</div>
-        <div className="text-[10px] text-muted-foreground mt-0.5">Class {classSel || 'All'}</div>
-      </Card>
-      <Card className="p-4 rounded-[22px] bg-emerald-50 dark:bg-emerald-950/25 border-emerald-200/60 dark:border-emerald-900/40">
-        <div className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 uppercase">Present Today</div>
-        <div className="text-[24px] font-black text-emerald-600 dark:text-emerald-400 mt-1">{presentCount}</div>
-        <div className="text-[10px] text-emerald-600/80 mt-0.5">Updates every second</div>
-      </Card>
-      <Card className="p-4 rounded-[22px] bg-amber-50 dark:bg-amber-950/25 border-amber-200/60 dark:border-amber-900/40">
-        <div className="text-[11px] font-bold text-amber-700 dark:text-amber-300 uppercase">Late Entry</div>
-        <div className="text-[24px] font-black text-amber-600 dark:text-amber-400 mt-1">{lateCount}</div>
-        <div className="text-[10px] text-amber-600/80 mt-0.5">Post-attendance arrivals</div>
-      </Card>
-      <Card className="p-4 rounded-[22px] bg-rose-50 dark:bg-rose-950/25 border-rose-200/60 dark:border-rose-900/40">
-        <div className="text-[11px] font-bold text-rose-700 dark:text-rose-300 uppercase">Absent Today</div>
-        <div className="text-[24px] font-black text-rose-600 dark:text-rose-400 mt-1">{absentCount}</div>
-        <div className="text-[10px] text-rose-600/80 mt-0.5">Auto-queued parent alerts</div>
-      </Card>
-    </div>
-<Tabs value={tab} onValueChange={setTab} className="w-full">
-      <TabsList className="h-12 max-w-full overflow-x-auto scrollbar-hide rounded-full bg-slate-100 dark:bg-zinc-800 p-1 flex gap-1">
-        <TabsTrigger value="manual" className="rounded-full px-4 font-bold data-[state=active]:bg-zinc-900 data-[state=active]:text-white dark:data-[state=active]:bg-white dark:data-[state=active]:text-zinc-900">
-          <Users size={15} className="mr-1.5 inline"/> Manual & Roster
-        </TabsTrigger>
-        <TabsTrigger value="ai" className="rounded-full px-4 font-bold data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-500 data-[state=active]:to-cyan-500 data-[state=active]:text-white shadow-sm">
-          <ScanFace size={15} className="mr-1.5 inline"/> AI Smart Camera
-        </TabsTrigger>
-        <TabsTrigger value="qr" className="rounded-full px-4 font-bold data-[state=active]:bg-zinc-900 data-[state=active]:text-white dark:data-[state=active]:bg-white dark:data-[state=active]:text-zinc-900">
-          <QrCode size={15} className="mr-1.5 inline"/> QR Scanner
-        </TabsTrigger>
-        <TabsTrigger value="heatmap" className="rounded-full px-4 font-bold data-[state=active]:bg-zinc-900 data-[state=active]:text-white dark:data-[state=active]:bg-white dark:data-[state=active]:text-zinc-900">
-          <Grid size={15} className="mr-1.5 inline"/> Classroom Occupancy & Heatmap
-        </TabsTrigger>
-      </TabsList>
-
-      {/* TAB 1: MANUAL & ROSTER */}
-      <TabsContent value="manual" className="mt-4 space-y-3.5">
-        <div className="space-y-2.5">
-          {students.map(s=>(
-            <Card key={s.id} className="rounded-[22px] p-0 overflow-hidden border border-slate-150 dark:border-zinc-800 shadow-xs">
-              <div className="flex items-center justify-between p-3.5 gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-11 h-11 min-w-[44px] min-h-[44px] max-w-[44px] max-h-[44px] rounded-2xl relative bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold shrink-0 overflow-hidden shadow-sm">
-                    {s.photoUrl ? (
-                      <img src={s.photoUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
-                    ) : (
-                      <span>{s.name?.[0]||'S'}</span>
-                    )}
-</div>
-                  <div className="min-w-0">
-                    <div className="font-extrabold text-[14px] leading-tight truncate text-foreground">{s.name}</div>
-                    <div className="text-[11px] text-muted-foreground mt-0.5 truncate">Roll #{s.rollNumber} • {s.className}-{s.section} • Face: {isValidDescriptor(s.faceDescriptor) ? 'Ready' : 'No'}</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <div className="flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 rounded-full p-1">
-                    <button onClick={()=>setMarks({...marks, [s.id]: 'present'})} className={`px-3 h-8 rounded-full text-[12px] font-bold transition ${ (marks[s.id]||'present')==='present' ? 'bg-emerald-500 text-white shadow' : 'text-muted-foreground'}`}>Present</button>
-                    <button onClick={()=>setMarks({...marks, [s.id]: 'late'})} className={`px-3 h-8 rounded-full text-[12px] font-bold transition ${ marks[s.id]==='late' ? 'bg-amber-500 text-white shadow' : 'text-muted-foreground'}`}>Late</button>
-                    <button onClick={()=>setMarks({...marks, [s.id]: 'absent'})} className={`px-3 h-8 rounded-full text-[12px] font-bold transition ${ marks[s.id]==='absent' ? 'bg-rose-500 text-white shadow' : 'text-muted-foreground'}`}>Absent</button>
-                  </div>
-                  {marks[s.id] === 'absent' && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => sendParentAlert(s)}
-                      className="rounded-full h-8 text-[11px] text-rose-600 border-rose-300 hover:bg-rose-50"
-                      title="Dispatch SMS / WhatsApp Alert to Parent"
-                    >
-                      Alert Parent
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </Card>
-          ))}
-          {!students.length && <Card className="p-10 text-center text-muted-foreground text-sm rounded-[24px]">No students in {classSel || 'selected class'}. Add students from the Students page.</Card>}
-        </div>
-        <div className="sticky bottom-[88px] md:bottom-6 z-20 pt-3">
-          <Button onClick={()=>submit('manual')} variant="success" size="lg" className="w-full rounded-full h-14 font-extrabold text-[16px] shadow-[0_10px_30px_rgba(16,185,129,0.3)]" disabled={!students.length}>
-            ✓ SAVE ATTENDANCE • {presentCount} Present • {lateCount} Late • {absentCount} Absent
-          </Button>
-        </div>
-      </TabsContent>
-{/* TAB 2: AI SMART CAMERA */}
-      <TabsContent value="ai" className="mt-4 space-y-4">
-        <Card className="ai-camera-card overflow-hidden rounded-[28px] border border-emerald-400/30 bg-[#0e1520] text-white shadow-xl">
-          <div className="flex items-center justify-between px-5 pt-5">
-            <CardTitle className="flex items-center gap-2 p-0 text-white text-[17px] font-black">
-              <ScanFace size={20} className="text-emerald-400"/> AI Classroom Vision System
-            </CardTitle>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setLateEntryMode(!lateEntryMode)}
-                className={`px-3 py-1 rounded-full text-[11px] font-bold flex items-center gap-1.5 transition ${lateEntryMode ? 'bg-amber-500 text-black shadow' : 'bg-white/10 text-slate-300 hover:bg-white/20'}`}
-              >
-                <Clock size={13}/> {lateEntryMode ? 'Late Entry Mode Active' : 'Standard Check-In'}
-              </button>
-              <span className="flex items-center gap-1.5 rounded-full bg-emerald-400/15 px-3 py-1 text-[11px] font-extrabold text-emerald-400">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400"/> READY FOR SCAN
-              </span>
-            </div>
-          </div>
-          <CardContent className="space-y-4 pt-4">
-            <div className="relative aspect-[4/3] overflow-hidden rounded-[24px] border border-emerald-400/20 bg-gradient-to-br from-[#15212a] via-[#111923] to-[#10131b] p-6 flex flex-col items-center justify-center text-center">
-              <div className="absolute inset-0 opacity-25" style={{backgroundImage:'radial-gradient(circle at 50% 35%, rgba(40,225,190,.25), transparent 45%), linear-gradient(rgba(70,230,210,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(70,230,210,.08) 1px, transparent 1px)', backgroundSize:'auto, 32px 32px, 32px 32px'}}/>
-              <span className="scan-corner scan-corner-tl"/><span className="scan-corner scan-corner-tr"/><span className="scan-corner scan-corner-bl"/><span className="scan-corner scan-corner-br"/>
-              <div className="relative grid h-20 w-20 place-items-center rounded-full border border-emerald-400/30 bg-emerald-400/10 text-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.3)]">
-                <span className="absolute inset-2 animate-ping rounded-full border border-emerald-400/20"/><ScanFace size={40}/>
-              </div>
-              <div className="mt-4 text-[16px] font-black text-white">AI Camera v2 • Cooldown + Anti-Spoof Classroom Scan</div>
-              <div className="mt-1.5 max-w-[340px] text-[12px] leading-relaxed text-slate-400">Opens a mobile full-screen camera, uses full zoom-out classroom view, confirms faces across multiple frames, blocks duplicate marking with cooldown, and asks teacher to review not-detected students.</div>
-              <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between rounded-xl border border-white/10 bg-black/40 px-3.5 py-2.5 backdrop-blur-md">
-                <span className="text-[11px] text-slate-300 font-semibold">Class: {classSel || 'No class selected'}</span>
-                <span className="text-[11px] font-black text-emerald-400">{enrolledFaces.length}/{students.length} EMBEDDINGS READY</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-center"><div className="text-[20px] font-black text-white">{students.length}</div><div className="text-[10px] text-slate-400 font-bold">Total Class</div></div>
-              <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-3 text-center"><div className="text-[20px] font-black text-emerald-400">{enrolledFaces.length}</div><div className="text-[10px] text-emerald-400/80 font-bold">Face Embeddings</div></div>
-              <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-3 text-center"><div className="text-[20px] font-black text-cyan-400">{Math.round(AI_MARK_COOLDOWN_MS/1000)}s</div><div className="text-[10px] text-cyan-400/80 font-bold">Cooldown Lock</div></div>
-              <div className="rounded-2xl border border-violet-400/20 bg-violet-400/10 p-3 text-center"><div className="text-[20px] font-black text-violet-300">{REQUIRED_CONFIRM_FRAMES}x</div><div className="text-[10px] text-violet-300/80 font-bold">Frame Confirm</div></div>
-            </div>
-
-            <Button variant="gradient" className="w-full rounded-full h-14 text-[16px] font-extrabold shadow-[0_10px_35px_rgba(16,185,129,0.4)]" onClick={startAiCamera} disabled={!students.length}>
-              <Camera size={19} className="mr-2"/> Start Beautiful AI Camera Scan
-            </Button>
-          </CardContent>
-        </Card>
-      </TabsContent>
-{/* TAB 3: QR SCANNER */}
-      <TabsContent value="qr" className="mt-4 space-y-4">
-        {!showQrScanner ? (
-          <Card className="p-8 text-center space-y-4 rounded-[26px] border border-indigo-100 dark:border-indigo-900/30">
-            <div className="w-20 h-20 mx-auto rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 flex items-center justify-center shadow"><QrCode size={40} className="text-indigo-600 dark:text-indigo-400"/></div>
-            <div>
-              <h3 className="font-extrabold text-[18px]">Instant QR Card Verification</h3>
-              <p className="text-[13px] text-muted-foreground mt-1 max-w-md mx-auto">Scan student ID cards or QR codes at the gate or classroom door for lightning-fast check-in verification.</p>
-            </div>
-            <Button variant="gradient" size="lg" className="rounded-full px-8 font-bold" onClick={()=>setShowQrScanner(true)} disabled={!allStudents.length}>Start QR Scanner</Button>
-          </Card>
-        ) : (
-          <div className="space-y-4">
-            <QRScanner onScan={handleQrScan} onClose={()=>setShowQrScanner(false)} />
-            <Button variant="outline" className="w-full rounded-full h-12 font-bold" onClick={()=>setShowQrScanner(false)}>Close QR Scanner</Button>
-          </div>
-        )}
-      </TabsContent>
-
-      {/* TAB 4: CLASSROOM OCCUPANCY & HEATMAP & AI ANALYTICS */}
-      <TabsContent value="heatmap" className="mt-4 space-y-4">
-        <div className="grid md:grid-cols-3 gap-3.5">
-          <Card className="p-4 rounded-[24px] border border-cyan-400/30 bg-gradient-to-br from-[#0e1624] to-[#131d2e] text-white">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-cyan-300 uppercase tracking-wider">Seats Total</span>
-              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"/>
-            </div>
-            <div className="text-[32px] font-black mt-2">{totalSeats}</div>
-            <div className="text-[11px] text-slate-400 mt-1">Configured Classroom Capacity</div>
-          </Card>
-          <Card className="p-4 rounded-[24px] border border-emerald-400/30 bg-gradient-to-br from-[#0e1f1c] to-[#112924] text-white">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-emerald-300 uppercase tracking-wider">Occupied Seats</span>
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"/>
-            </div>
-            <div className="text-[32px] font-black mt-2 text-emerald-400">{occupiedSeats}</div>
-            <div className="text-[11px] text-emerald-400/80 mt-1">Verified Present & Late Students</div>
-          </Card>
-          <Card className="p-4 rounded-[24px] border border-amber-400/30 bg-gradient-to-br from-[#241d0e] to-[#2e2413] text-white">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-amber-300 uppercase tracking-wider">Empty Seats</span>
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"/>
-            </div>
-            <div className="text-[32px] font-black mt-2 text-amber-400">{emptySeats}</div>
-            <div className="text-[11px] text-amber-400/80 mt-1">Available / Unoccupied Desks</div>
-          </Card>
-        </div>
-{/* AI Classroom Analytics Card */}
-        <Card className="p-5 rounded-[26px] bg-gradient-to-r from-indigo-50/70 to-violet-50/50 dark:from-indigo-950/20 dark:to-zinc-900 border border-indigo-100 dark:border-indigo-900/40">
-          <CardTitle className="text-[16px] font-black flex items-center gap-2 text-indigo-950 dark:text-indigo-200">
-            <Volume2 className="text-indigo-600"/> AI Classroom Live Behavioral Analytics
-          </CardTitle>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 text-sm">
-            <div className="p-3.5 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-150 dark:border-zinc-700">
-              <div className="text-[11px] font-bold text-muted-foreground uppercase">Students Present</div>
-              <div className="text-[20px] font-black text-emerald-600 dark:text-emerald-400 mt-1">{presentCount}</div>
-            </div>
-            <div className="p-3.5 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-150 dark:border-zinc-700">
-              <div className="text-[11px] font-bold text-muted-foreground uppercase">Talking / Active Zone</div>
-              <div className="text-[20px] font-black text-cyan-600 dark:text-cyan-400 mt-1">{Math.min(presentCount, Math.round(presentCount * 0.12))}</div>
-            </div>
-            <div className="p-3.5 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-150 dark:border-zinc-700">
-              <div className="text-[11px] font-bold text-muted-foreground uppercase">Empty Seats</div>
-              <div className="text-[20px] font-black text-amber-600 dark:text-amber-400 mt-1">{emptySeats}</div>
-            </div>
-            <div className="p-3.5 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-150 dark:border-zinc-700">
-              <div className="text-[11px] font-bold text-muted-foreground uppercase">Teacher Present</div>
-              <div className="text-[20px] font-black text-violet-600 dark:text-violet-400 mt-1">Yes ✓</div>
-            </div>
-          </div>
-          <p className="text-[11px] text-muted-foreground mt-3 italic">Use classroom behavioral metrics carefully and transparently to foster positive class engagement.</p>
-        </Card>
-
-        {/* Classroom Desk Heatmap Grid */}
-        <Card className="p-5 rounded-[26px] border border-slate-200 dark:border-zinc-800 space-y-4">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div>
-              <CardTitle className="text-[16px] font-black flex items-center gap-2">🪑 Classroom Seating Heatmap & Desk Grid</CardTitle>
-              <p className="text-[12px] text-muted-foreground mt-0.5">Live visual mapping of occupied seats, active zones, and empty desks.</p>
-            </div>
-            <div className="flex items-center gap-3 text-xs font-bold">
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-500"/> Occupied</span>
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-500"/> Late</span>
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-slate-200 dark:bg-zinc-700"/> Empty Desk</span>
-            </div>
-          </div>
-
-          <div className="p-4 rounded-2xl bg-slate-100/60 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
-            <div className="w-full text-center py-2 mb-4 rounded-xl bg-slate-800 text-white font-extrabold text-[12px] tracking-widest shadow">
-              TEACHER PODIUM & SMART BOARD
-            </div>
-            <div className="grid grid-cols-5 sm:grid-cols-8 gap-2.5">
-              {Array.from({ length: totalSeats }, (_, idx) => {
-                const student = students[idx]
-                const status = student ? (marks[student.id] || 'present') : 'empty'
-                const isTalking = student && idx % 7 === 2 // simulation of active talking desk
-
-                return (
-<div
-                    key={idx}
-                    className={`relative p-2.5 rounded-xl border flex flex-col items-center justify-center text-center transition hover:scale-105 shadow-xs ${!student ? 'bg-slate-200/50 dark:bg-zinc-800/40 border-dashed border-slate-300 dark:border-zinc-700 text-slate-400' : status === 'present' ? 'bg-emerald-500 text-white border-emerald-600 font-bold' : status === 'late' ? 'bg-amber-500 text-white border-amber-600 font-bold' : 'bg-rose-500/20 text-rose-600 border-rose-300'}`}
-                  >
-                    <span className="text-[9px] font-mono opacity-80">Desk #{idx + 1}</span>
-                    <span className="text-[11px] font-extrabold truncate w-full mt-0.5">
-                      {student ? student.name.split(' ')[0] : 'Empty'}
-                    </span>
-                    {isTalking && student && (
-                      <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-cyan-400 border border-white flex items-center justify-center text-[8px] font-black text-black" title="Talking/Active Zone">🗣️</span>
-                    )}
-                  </div>
-                )
-              })}
-</div>
-          </div>
-        </Card>
-      </TabsContent>
-    </Tabs>
-
-    {/* FULL-SCREEN AI CAMERA OVERLAY */}
-    {aiScanning && (
-      <div
-        ref={overlayRef}
-        id="ai-camera-overlay"
-        className="fixed inset-0 z-[99999] bg-black text-white flex flex-col"
-        style={{ width: '100vw', height: '100dvh', maxHeight: '100dvh', maxWidth: '100vw', overflow: 'hidden' }}
-      >
-        <div className="min-h-16 px-3 md:px-5 py-2 flex items-center justify-between gap-2 bg-black/85 border-b border-white/10 shrink-0 pt-[max(0.5rem,env(safe-area-inset-top))]">
-          <div className="min-w-0">
-            <div className="font-extrabold leading-tight truncate text-[15px] flex items-center gap-2">
-              <ScanFace className="text-emerald-400"/> AI Classroom Vision • {classSel}
-            </div>
-            <div className="text-[11px] md:text-[12px] text-white/80 truncate mt-0.5 font-medium">{aiStatus} • Faces Detected: {aiFaceCount}</div>
-          </div>
-          <div className="flex items-center justify-end gap-1.5 shrink-0 flex-wrap">
-            <Button
-              variant="ghost"
-              className="rounded-full text-white hover:bg-white/10 px-2.5 h-9 border border-white/15 text-[11px] font-bold"
-              onClick={() => setCameraFit(cameraFit === 'contain' ? 'cover' : 'contain')}
-              title="Toggle full zoom-out classroom view"
-            >
-              {cameraFit === 'contain' ? 'Full View' : 'Fill'}
-            </Button>
-            <Button
-              variant="ghost"
-              className="rounded-full text-white hover:bg-white/10 px-2.5 h-9 border border-white/15 text-[11px] font-bold"
-              onClick={() => setHybridQrOverlay(!hybridQrOverlay)}
-              title="Toggle QR Hybrid Fallback"
-            >
-              <QrCode size={15} className="mr-1 text-cyan-400"/> {hybridQrOverlay ? 'Hide QR' : 'QR'}
-            </Button>
-            <Button
-              variant="ghost"
-              className="rounded-full text-white hover:bg-white/10 px-2.5 h-9 border border-white/15 text-[11px] font-bold"
-              onClick={switchCamera}
-              disabled={switchingCamera}
-              title="Switch Front / Back camera"
-            >
-              <SwitchCamera size={15} className="mr-1"/> {switchingCamera ? '…' : (facingMode === 'environment' ? 'Front' : 'Back')}
-            </Button>
-            <Button variant="ghost" className="rounded-full bg-rose-600/30 text-rose-300 hover:bg-rose-600/50 px-2.5 h-9 border border-rose-500/40 text-[11px] font-bold" onClick={()=>stopAi()}>
-              <X size={15} className="mr-1"/> Close
-            </Button>
-          </div>
-        </div>
-
-        <div className="relative flex-1 min-h-0 bg-black overflow-hidden flex flex-col justify-between">
-          <video ref={videoRef} className="absolute inset-0 w-full h-full bg-black" style={{ objectFit: cameraFit }} muted playsInline autoPlay />
-          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
-          <div className="pointer-events-none absolute inset-x-[12%] top-[12%] h-[46%]">
-            <span className="scan-corner scan-corner-tl"/><span className="scan-corner scan-corner-tr"/><span className="scan-corner scan-corner-bl"/><span className="scan-corner scan-corner-br"/>
-          </div>
-
-          <div className="relative z-10 p-3 space-y-2 pointer-events-none">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap gap-2">
-                <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold backdrop-blur-md border flex items-center gap-1.5 ${livenessStatus === 'PASS' ? 'bg-emerald-500/85 text-black border-emerald-300' : livenessStatus === 'CHECKING' ? 'bg-cyan-500/85 text-black border-cyan-300' : 'bg-rose-600/90 text-white border-rose-400'}`}>
-                  <ShieldCheck size={14}/> Anti-spoof: {livenessStatus === 'PASS' ? 'PASS ✓' : livenessStatus === 'CHECKING' ? 'CHECKING…' : 'PHOTO/SCREEN RISK'}
-                </span>
-                <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold backdrop-blur-md border flex items-center gap-1.5 ${maskDetected ? 'bg-amber-500/90 text-black border-amber-300' : 'bg-black/60 text-white border-white/20'}`}>
-                  {maskDetected ? '⚠️ Low light / covered face' : '😊 Face quality OK'}
-                </span>
-                <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-cyan-300 text-[11px] font-bold">
-                  {cameraFit === 'contain' ? 'Full zoom-out classroom view' : 'Fill screen view'} {zoomReady ? '• Optical min zoom' : ''}
-                </span>
-              </div>
-              <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-cyan-300 text-[11px] font-bold">
-                {headPoseText}
-              </span>
-            </div>
-
-            <div className="pointer-events-auto rounded-2xl border border-cyan-300/20 bg-black/70 p-2.5 backdrop-blur-md shadow-xl">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <div className="text-[11px] font-black uppercase tracking-[0.18em] text-cyan-200">AI checking pipeline</div>
-                <div className="text-[10px] font-bold text-white/60">cooldown {Math.round(AI_MARK_COOLDOWN_MS/1000)}s • confirm {REQUIRED_CONFIRM_FRAMES} frames</div>
-              </div>
-              <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
-                {(Object.keys(aiChecks) as AiCheckKey[]).map(key => (
-                  <div key={key} className={`ai-check-line rounded-xl px-2 py-2 text-center text-[10px] font-black border ${aiChecks[key] === 'pass' ? 'border-emerald-300/60 bg-emerald-400/20 text-emerald-200' : aiChecks[key] === 'checking' ? 'border-cyan-300/60 bg-cyan-400/20 text-cyan-100' : aiChecks[key] === 'fail' ? 'border-rose-300/60 bg-rose-500/20 text-rose-100' : 'border-white/10 bg-white/5 text-white/45'}`}>
-                    <div className="mx-auto mb-1 h-1 rounded-full bg-current opacity-70" />
-                    {aiCheckLabels[key]}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-{hybridQrOverlay && (
-            <div className="relative z-20 m-auto w-[min(340px,90vw)] p-4 rounded-[26px] bg-[#0f172a]/95 border border-cyan-400/50 backdrop-blur-xl shadow-2xl text-center space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="font-extrabold text-[14px] text-cyan-300 flex items-center gap-1.5"><QrCode size={16}/> QR Hybrid Fallback Mode</span>
-                <button onClick={() => setHybridQrOverlay(false)} className="w-6 h-6 rounded-full bg-white/10 text-white flex items-center justify-center"><X size={14}/></button>
-              </div>
-              <p className="text-[11px] text-slate-300">If face verification is blocked by glare or masks, hold up your student QR ID card below for instant check-in:</p>
-              <div className="max-h-[220px] overflow-hidden rounded-xl border border-white/10">
-                <QRScanner onScan={handleQrScan} onClose={() => setHybridQrOverlay(false)} />
-              </div>
-            </div>
-          )}
-
-          {unknownPersonAlert && (
-            <div className="relative z-20 mx-4 my-2 p-3.5 rounded-2xl bg-rose-600/95 border border-white/30 text-white shadow-2xl flex items-center justify-between gap-3 animate-bounce-short">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <AlertTriangle size={22} className="shrink-0 text-yellow-300"/>
-                <div className="min-w-0">
-                  <div className="font-black text-[13px] uppercase tracking-wider">Warning: Unknown Person Detected</div>
-                  <div className="text-[11px] text-rose-100 truncate">Class {classSel || 'XII-A'} • {unknownPersonAlert.time} • Unrecognized face embedding</div>
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <Button size="sm" variant="outline" className="h-8 rounded-full bg-white text-black font-bold text-[11px]" onClick={() => { setQuickRegisterModalOpen(true); setUnknownPersonAlert(null); }}>
-                  Register Face
-                </Button>
-                <Button size="sm" variant="ghost" className="h-8 rounded-full text-white bg-black/40 hover:bg-black/60 font-semibold text-[11px]" onClick={() => {
-                  toast.info('Notified School Admin & Security desk about unknown visitor.')
-                  setUnknownPersonAlert(null)
-                }}>
-                  Notify Admin
-                </Button>
-                <button onClick={() => setUnknownPersonAlert(null)} className="w-7 h-7 rounded-full bg-black/30 flex items-center justify-center text-white"><X size={14}/></button>
-              </div>
-            </div>
-          )}
-
-          {aiReviewOpen && unresolvedCount > 0 && (
-            <div className="relative z-20 mx-3 mb-2 rounded-[24px] border border-amber-300/40 bg-slate-950/90 p-3.5 text-white shadow-2xl backdrop-blur-xl">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 text-[13px] font-black text-amber-200">
-                    <AlertTriangle size={17}/> Teacher review needed
-                  </div>
-                  <p className="mt-1 text-[11px] leading-relaxed text-slate-300">
-                    {unresolvedCount} student(s) not detected. Mark them absent, or scan again by moving the phone slowly from back bench to front bench.
-                  </p>
-                </div>
-                <button onClick={() => setAiReviewOpen(false)} className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white/10 text-white"><X size={14}/></button>
-              </div>
-              <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
-                {notDetectedStudents.slice(0, 10).map(student => (
-                  <span key={student.id} className="shrink-0 rounded-full bg-white/10 px-3 py-1 text-[11px] font-bold text-white/90">
-                    {student.name || 'Student'}
-                  </span>
-                ))}
-{notDetectedStudents.length > 10 && <span className="shrink-0 rounded-full bg-white/10 px-3 py-1 text-[11px] font-bold">+{notDetectedStudents.length - 10}</span>}
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <Button variant="outline" className="h-10 rounded-full border-cyan-300/40 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/20 font-bold" onClick={restartAiCheck}>
-                  Start Again Scan
-                </Button>
-                <Button variant="default" className="h-10 rounded-full bg-amber-500 text-black hover:bg-amber-400 font-black" onClick={markMissingAbsent}>
-                  Mark Not Detected Absent
-                </Button>
-              </div>
-            </div>
-          )}
-
-          <div className="relative z-10 p-3 flex flex-col gap-2 pointer-events-none">
-            <div className="rounded-2xl bg-black/75 backdrop-blur-md border border-white/15 p-3.5 pointer-events-auto shadow-lg">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-[12px] font-bold text-white flex items-center gap-2">
-                  <span>Verified Classroom Students ({students.filter(s=>marks[s.id]==='present'||marks[s.id]==='late').length}/{students.length})</span>
-                  {lateEntryMode && <span className="bg-amber-500/20 text-amber-300 text-[10px] px-2 py-0.5 rounded-full border border-amber-500/30 font-bold">LATE MODE</span>}
-                </div>
-                <div className="text-[11px] font-extrabold text-emerald-400">
-                  Present: {presentCount} • Late: {lateCount}
-                </div>
-              </div>
-              {!!lastMarkedNames.length && (
-                <div className="mb-2 rounded-xl border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-[11px] font-bold text-emerald-200">
-                  Just marked: {lastMarkedNames.join(', ')}
-                </div>
-              )}
-              <div className="flex flex-wrap gap-1.5 max-h-20 overflow-auto pr-1">
-                {students.filter(s=>marks[s.id]==='present'||marks[s.id]==='late').map(s=>(
-                  <span key={s.id} className={`verified-pop px-3 py-1 rounded-full text-[11.5px] font-extrabold shadow flex items-center gap-1 ${marks[s.id] === 'late' ? 'bg-amber-500 text-black' : 'bg-emerald-500 text-black'}`}>
-                    ✓ {s.name} {marks[s.id] === 'late' && '(Late)'}
-                  </span>
-                ))}
-                {!students.filter(s=>marks[s.id]==='present'||marks[s.id]==='late').length && (
-                  <span className="text-[12px] text-white/60 italic">Point camera at classroom students. All verified faces mark attendance simultaneously.</span>
-                )}
-              </div>
-            </div>
-{!!aiLog.length && (
-              <div className="rounded-2xl bg-black/75 backdrop-blur-md border border-white/15 p-2.5 max-h-16 overflow-auto pointer-events-auto">
-                <div className="space-y-0.5 text-[11px] font-medium text-emerald-300">
-                  {aiLog.slice(0, 3).map((l,i)=><div key={i}>{l}</div>)}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2 bg-black/95 p-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-white/10 shrink-0">
-          <Button variant="outline" className="rounded-full h-11 bg-transparent border-white/30 text-white font-bold hover:bg-white/10" onClick={restartAiCheck}>
-            Scan Again
-          </Button>
-          <Button variant="default" className="rounded-full h-11 bg-amber-500 text-black hover:bg-amber-400 font-black" onClick={markMissingAbsent} disabled={!unresolvedCount}>
-            Missing Absent ({unresolvedCount})
-          </Button>
-          <Button variant="outline" className="rounded-full h-11 bg-transparent border-rose-400/40 text-rose-200 font-bold hover:bg-rose-500/10" onClick={()=>stopAi()}>
-            Stop Camera
-          </Button>
-          <Button variant="success" className="rounded-full h-11 font-black text-[13px] shadow-[0_0_25px_rgba(16,185,129,0.4)]" onClick={saveAiAttendance}>
-            Save ({presentCount + lateCount}/{students.length})
-          </Button>
-        </div>
-      </div>
-    )}
-
-    {/* Quick Register Modal for Unknown Visitor */}
-    <Dialog open={quickRegisterModalOpen} onOpenChange={setQuickRegisterModalOpen}>
-      <DialogContent className="rounded-[28px] max-w-md bg-zinc-900 text-white border border-white/15 p-6">
-        <DialogHeader>
-          <DialogTitle className="text-[18px] font-extrabold flex items-center gap-2 text-white">
-            <UserPlus className="text-cyan-400"/> Quick Enroll Unknown Face
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
-          <p className="text-[12px] text-slate-300">Enter basic details for the unrecognized visitor to store their face embedding into Class {classSel || 'XII-A'}:</p>
-          <div>
-            <label className="text-xs font-bold text-slate-400">Student / Visitor Name *</label>
-            <input
-              type="text"
-              value={quickRegisterForm.name}
-              onChange={e => setQuickRegisterForm({...quickRegisterForm, name: e.target.value})}
-              placeholder="e.g. Amit Kumar"
-              className="mt-1 w-full h-11 rounded-xl px-3.5 bg-black/50 border border-white/20 text-white text-sm outline-none focus:border-cyan-400"
-            />
-          </div>
-<div>
-            <label className="text-xs font-bold text-slate-400">Roll Number / Visitor ID *</label>
-            <input
-              type="text"
-              value={quickRegisterForm.rollNumber}
-              onChange={e => setQuickRegisterForm({...quickRegisterForm, rollNumber: e.target.value})}
-              placeholder="e.g. 104"
-              className="mt-1 w-full h-11 rounded-xl px-3.5 bg-black/50 border border-white/20 text-white text-sm outline-none focus:border-cyan-400"
-            />
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" className="rounded-full bg-transparent border-white/20 text-white" onClick={() => setQuickRegisterModalOpen(false)}>Cancel</Button>
-            <Button variant="gradient" className="rounded-full font-bold px-6" onClick={() => {
-              if (!quickRegisterForm.name || !quickRegisterForm.rollNumber) {
-                toast.error('Name and Roll Number required')
-                return
-              }
-              const [c, sec] = (classSel || '10-A').split('-')
-              const id = `stu_${Date.now().toString(36)}`
-              const date = todayIST()
-              const sid = schoolId || profile?.schoolId || 'global'
-update(ref(db, `schools/${sid}/students/${id}`), {
-                studentId: id,
-                name: quickRegisterForm.name,
-                rollNumber: quickRegisterForm.rollNumber,
-                className: c || '10',
-                section: sec || 'A',
-                status: 'active',
-                createdAt: Date.now()
-              })
-
-              update(ref(db, `schools/${sid}/attendance/${date}/${id}`), {
-                studentId: id,
-                className: c || '10',
-                section: sec || 'A',
-                date,
-                status: 'present',
-                markedBy: profile?.uid || 'quick_enroll',
-                method: 'ai_camera',
-                timestamp: Date.now()
-              })
-
-              toast.success(`Quick Registered: ${quickRegisterForm.name} added to ${classSel || 'class'} and marked Present!`)
-              setQuickRegisterModalOpen(false)
-              setQuickRegisterForm({ name: '', rollNumber: '' })
-            }}>
-              Enroll & Mark Present
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  </div>
-}
+   

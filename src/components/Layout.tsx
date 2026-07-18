@@ -8,7 +8,7 @@ import { AnimePageTransition } from './AnimeWrapper'
 
 export default function Layout() {
   return (
-    <div className="app-shell min-h-screen bg-[#fcfcfc] dark:bg-zinc-950 flex">
+    <div className="app-shell min-h-screen bg-transparent text-foreground flex">
       <AmbientBackground />
       <Sidebar />
       <div className="relative z-[1] flex-1 min-w-0 flex flex-col">

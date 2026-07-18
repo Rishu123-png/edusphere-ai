@@ -39,7 +39,10 @@ export default function AmbientBackground() {
         handles.push(
           animate(particlesEls, {
             translateY: ['0rem', '-1.05rem'],
-            translateX: (_target, index) => (index % 2 === 0 ? ['0rem', '0.45rem'] : ['0rem', '-0.45rem']),
+            translateX: (_target, index) => {
+              const safeIndex = index ?? 0
+              return safeIndex % 2 === 0 ? ['0rem', '0.45rem'] : ['0rem', '-0.45rem']
+            },
             opacity: [0.18, 0.62],
             scale: [0.82, 1.15],
             delay: stagger(140, { from: 'center' }),
@@ -50,7 +53,10 @@ export default function AmbientBackground() {
           }) as AnimationHandle,
           animate(orbEls, {
             translateY: ['0rem', '1rem'],
-            translateX: (_target, index) => (index === 0 ? ['0rem', '0.65rem'] : ['0rem', '-0.65rem']),
+            translateX: (_target, index) => {
+              const safeIndex = index ?? 0
+              return safeIndex === 0 ? ['0rem', '0.65rem'] : ['0rem', '-0.65rem']
+            },
             scale: [1, 1.08],
             opacity: [0.42, 0.62],
             duration: 6400,

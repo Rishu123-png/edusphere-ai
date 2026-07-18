@@ -29,6 +29,15 @@ export default function OnboardingPage(){
   })
   const [joinCode, setJoinCode] = useState('')
 
+  const reserveSchoolCode = async () => {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const code = generateSchoolCode()
+      const snap = await get(ref(db, `schoolCodes/${code}`))
+      if (!snap.exists()) return code
+    }
+    throw new Error('Could not reserve a unique school code. Please try again.')
+  }
+
   useEffect(() => {
     const pending = localStorage.getItem('pending_school_code')
     if (pending) {
@@ -42,7 +51,8 @@ export default function OnboardingPage(){
     setLoading(true)
     try{
       const schoolId = generateId('sch_')
-      const code = generateSchoolCode()
+      const code = await reserveSchoolCode()
+      const createdAt = Date.now()
       const school = {
         id: schoolId,
         name: form.schoolName,
@@ -53,7 +63,7 @@ export default function OnboardingPage(){
         email: form.email,
         logoUrl: '',
         createdBy: user.uid,
-        createdAt: Date.now()
+        createdAt
       }
       await update(ref(db, `users/${user.uid}`), {
         role: 'school_admin',
@@ -65,6 +75,13 @@ export default function OnboardingPage(){
         createdAt: profile?.createdAt || Date.now()
       })
       await set(ref(db, `schools/${schoolId}`), school)
+      await set(ref(db, `schoolCodes/${code}`), {
+        schoolId,
+        schoolName: school.name,
+        code,
+        createdBy: user.uid,
+        createdAt,
+      })
       await refreshProfile?.()
       toast.success(`School created! Code: ${code}`)
       setStep(2)
@@ -79,22 +96,20 @@ export default function OnboardingPage(){
     if(!trimmedCode){ toast.error('Enter school code'); return }
     setLoading(true)
     try{
-      const snapshot = await get(ref(db, 'schools'))
-      if(!snapshot.exists()){
-        toast.error('No schools registered yet.')
-        return
-      }
-      const schools = snapshot.val()
-      const found = Object.values(schools).find((school:any)=> school.code === trimmedCode) as any
-      if(!found){
+      const schoolCodeSnap = await get(ref(db, `schoolCodes/${trimmedCode}`))
+      if (!schoolCodeSnap.exists()) {
         toast.error('School not found with this code. Please check and try again.')
         return
       }
+      const found = schoolCodeSnap.val() as { schoolId: string; schoolName?: string; code?: string }
+      const foundSchoolId = found.schoolId
+      const foundSchoolName = found.schoolName || 'EduSphere School'
+      const foundSchoolCode = found.code || trimmedCode
 
       // Parents can only join when the school has already linked their exact
       // verified login email to a student guardian record.
       if (joinRole === 'parent') {
-        const studentSnapshot = await get(ref(db, `schools/${found.id}/students`))
+        const studentSnapshot = await get(ref(db, `schools/${foundSchoolId}/students`))
         const studentEntries = studentSnapshot.exists() ? Object.entries(studentSnapshot.val() || {}) : []
         const loginEmail = String(user.email || '').toLowerCase()
         const linkedStudentIds = studentEntries
@@ -111,8 +126,8 @@ export default function OnboardingPage(){
         }
 
         await update(ref(db, `users/${user.uid}`), {
-          schoolId: found.id,
-          schoolCode: found.code,
+          schoolId: foundSchoolId,
+          schoolCode: foundSchoolCode,
           role: 'parent',
           uid: user.uid,
           email: user.email || '',
@@ -122,7 +137,7 @@ export default function OnboardingPage(){
         })
         localStorage.removeItem('pending_school_code')
         await refreshProfile?.()
-        toast.success(`Parent access connected to ${found.name}!`)
+        toast.success(`Parent access connected to ${foundSchoolName}!`)
         setStep(2)
         setTimeout(()=> navigate('/parent'), 1200)
         return
@@ -133,7 +148,7 @@ export default function OnboardingPage(){
       let classTeacherOf = ''
       let teacherRecordId = user.uid
       try {
-        const teacherSnapshot = await get(ref(db, `schools/${found.id}/teachers`))
+        const teacherSnapshot = await get(ref(db, `schools/${foundSchoolId}/teachers`))
         if (teacherSnapshot.exists()) {
           const teachers = teacherSnapshot.val() || {}
           const match = Object.entries(teachers).find(([, teacher]: any) =>
@@ -149,8 +164,8 @@ export default function OnboardingPage(){
       } catch (error) { console.warn(error) }
 
       await update(ref(db, `users/${user.uid}`), {
-        schoolId: found.id,
-        schoolCode: found.code,
+        schoolId: foundSchoolId,
+        schoolCode: foundSchoolCode,
         role: 'teacher',
         uid: user.uid,
         email: user.email || '',
@@ -160,12 +175,12 @@ export default function OnboardingPage(){
         classTeacherOf,
         updatedAt: Date.now(),
       })
-      await update(ref(db, `schools/${found.id}/teachers/${user.uid}`), {
+      await update(ref(db, `schools/${foundSchoolId}/teachers/${user.uid}`), {
         uid: user.uid,
         email: user.email || '',
         name: profile?.displayName || user.displayName || user.email?.split('@')[0] || 'Teacher',
         displayName: profile?.displayName || user.displayName || '',
-        schoolId: found.id,
+        schoolId: foundSchoolId,
         role: 'teacher',
         assignedClasses,
         subjects,
@@ -175,14 +190,14 @@ export default function OnboardingPage(){
         isOnline: true,
       })
       if (teacherRecordId && teacherRecordId !== user.uid) {
-        await update(ref(db, `schools/${found.id}/teachers/${teacherRecordId}`), {
+        await update(ref(db, `schools/${foundSchoolId}/teachers/${teacherRecordId}`), {
           linkedUid: user.uid,
           updatedAt: Date.now(),
         }).catch(error => console.warn(error))
       }
       localStorage.removeItem('pending_school_code')
       await refreshProfile?.()
-      toast.success(`Joined ${found.name}!`)
+      toast.success(`Joined ${foundSchoolName}!`)
       setStep(2)
       setTimeout(()=> navigate('/'), 1200)
     } catch(error:any) {

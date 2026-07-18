@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#4f46e5" />
     <meta name="theme-color" content="#0b0f1a" media="(prefers-color-scheme: dark)">
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -24,7 +24,7 @@
       // Prevent dark mode flash – apply theme before React
       (function(){
         try {
-          var t = localStorage.getItem('edusphere-theme') || 'system';
+          var t = localStorage.getItem('edusphere-theme') || 'dark';
           var m = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
           var r = t === 'system' ? m : t;
           document.documentElement.classList.add(r);

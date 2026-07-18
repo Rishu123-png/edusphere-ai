@@ -44,7 +44,7 @@ function PageSuspense({ children }: { children: ReactNode }) {
 }
 
 function RequireAuth({ children, allow }: { children: ReactNode, allow?: UserRole[] }) {
-  const { user, profile, loading } = useAuth()
+  const { user, profile, loading, refreshProfile } = useAuth()
   const location = useLocation()
 
   if (loading) return (
@@ -68,11 +68,22 @@ function RequireAuth({ children, allow }: { children: ReactNode, allow?: UserRol
             Check your inbox (and spam folder) for the verification link. Once clicked, refresh this page.
           </div>
           <div className="flex flex-col gap-2 pt-2">
-            <Button variant="gradient" className="rounded-full" onClick={() => window.location.reload()}>I Have Verified My Email</Button>
+            <Button variant="gradient" className="rounded-full" onClick={async () => {
+              try {
+                await refreshProfile()
+                if (!auth.currentUser?.emailVerified) toast.info('Your verification is not visible yet. Please wait a moment and try again.')
+              } catch {
+                toast.error('Could not refresh your account. Please try again.')
+              }
+            }}>I Have Verified My Email</Button>
             <Button variant="outline" className="rounded-full" onClick={async () => {
               if (auth.currentUser) {
-                await sendEmailVerification(auth.currentUser)
-                toast.success('Verification link re-sent!')
+                try {
+                  await sendEmailVerification(auth.currentUser)
+                  toast.success('Verification link re-sent!')
+                } catch {
+                  toast.error('Could not send the verification email. Please try again shortly.')
+                }
               }
             }}>Resend Verification Link</Button>
             <Button variant="ghost" className="rounded-full" onClick={async () => {
@@ -108,7 +119,7 @@ function RequireAuth({ children, allow }: { children: ReactNode, allow?: UserRol
 // Scroll to top on route change for mobile
 function ScrollToTop(){
   const { pathname } = useLocation()
-  useEffect(()=>{ window.scrollTo({ top:0, behavior:'smooth' }) }, [pathname])
+  useEffect(() => { window.scrollTo({ top: 0, behavior: 'auto' }) }, [pathname])
   return null
 }
 
@@ -125,15 +136,15 @@ export default function App(){
           <Route path="/" element={<PageSuspense><DashboardPage/></PageSuspense>}/>
           <Route path="/students" element={<RequireAuth allow={['super_admin','school_admin','teacher']}><PageSuspense><StudentsPage/></PageSuspense></RequireAuth>}/>
           <Route path="/teachers" element={<RequireAuth allow={['super_admin','school_admin']}><PageSuspense><TeachersPage/></PageSuspense></RequireAuth>}/>
-          <Route path="/attendance" element={<PageSuspense><AttendancePage/></PageSuspense>}/>
+          <Route path="/attendance" element={<RequireAuth allow={['super_admin','school_admin','teacher']}><PageSuspense><AttendancePage/></PageSuspense></RequireAuth>}/>
           <Route path="/marks" element={<PageSuspense><MarksPage/></PageSuspense>}/>
           <Route path="/ai" element={<PageSuspense><AIPage/></PageSuspense>}/>
-          <Route path="/schedule" element={<PageSuspense><SchedulePage/></PageSuspense>}/>
+          <Route path="/schedule" element={<RequireAuth allow={['super_admin','school_admin','teacher']}><PageSuspense><SchedulePage/></PageSuspense></RequireAuth>}/>
           <Route path="/notifications" element={<PageSuspense><NotificationsPage/></PageSuspense>}/>
           <Route path="/whatsapp" element={<RequireAuth allow={['super_admin','school_admin','teacher']}><PageSuspense><WhatsAppPage/></PageSuspense></RequireAuth>}/>
-          <Route path="/reports" element={<PageSuspense><ReportsPage/></PageSuspense>}/>
+          <Route path="/reports" element={<RequireAuth allow={['super_admin','school_admin','teacher']}><PageSuspense><ReportsPage/></PageSuspense></RequireAuth>}/>
           <Route path="/calendar" element={<PageSuspense><CalendarPage/></PageSuspense>}/>
-          <Route path="/parent" element={<PageSuspense><ParentPortalPage/></PageSuspense>}/>
+          <Route path="/parent" element={<RequireAuth allow={['super_admin','school_admin','student','parent']}><PageSuspense><ParentPortalPage/></PageSuspense></RequireAuth>}/>
           <Route path="/settings" element={<PageSuspense><SettingsPage/></PageSuspense>}/>
           <Route path="/superadmin" element={<RequireAuth allow={['super_admin']}><PageSuspense><SuperAdminPage/></PageSuspense></RequireAuth>}/>
         </Route>

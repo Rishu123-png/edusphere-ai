@@ -18,7 +18,6 @@ import {
   detectFacesWithDescriptors,
   findBestFaceMatch,
   isValidDescriptor,
-  loadFaceApiModels,
   warmUpFaceModels,
   mapBoxToCanvas,
   FACE_MATCH_THRESHOLD,
@@ -116,7 +115,8 @@ export default function AttendancePage(){
   const [aiReviewOpen, setAiReviewOpen] = useState(false)
   const [lastMarkedNames, setLastMarkedNames] = useState<string[]>([])
 
-  const laserOffsetRef = useRef(0)
+  const lastCanvasSizeRef = useRef<{ w: number; h: number } | null>(null)
+  const scanActiveRef = useRef(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -178,7 +178,8 @@ useEffect(()=>{
 
   useEffect(()=>{
     return ()=>{
-      if(scanTimerRef.current) window.clearInterval(scanTimerRef.current)
+      scanActiveRef.current = false
+      if(scanTimerRef.current) window.clearTimeout(scanTimerRef.current)
       streamRef.current?.getTracks().forEach(t=>t.stop())
       streamRef.current = null
       document.body.style.overflow = ''
@@ -449,13 +450,42 @@ const resetAiSession = () => {
     const canvas = canvasRef.current
     if(!video || !canvas) return
     const rect = video.getBoundingClientRect()
-    const dpr = Math.min(window.devicePixelRatio || 1, 2)
-    canvas.width = Math.max(1, Math.round(rect.width * dpr))
-    canvas.height = Math.max(1, Math.round(rect.height * dpr))
+    /* Perf: DPR 2+ on phones created a 2× canvas that struggled at 60fps.
+       1.5 is visually identical for thin box strokes and much lighter. */
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5)
+    const w = Math.max(1, Math.round(rect.width * dpr))
+    const h = Math.max(1, Math.round(rect.height * dpr))
+    const last = lastCanvasSizeRef.current
+    /* Perf: only touch canvas.width/height when the size actually changed —
+       assigning width resets the whole canvas state every scan tick. */
+    if (last && Math.abs(last.w - w) < 2 && Math.abs(last.h - h) < 2) return
+    lastCanvasSizeRef.current = { w, h }
+    canvas.width = w
+    canvas.height = h
     canvas.style.width = `${rect.width}px`
     canvas.style.height = `${rect.height}px`
   }
 
+  /** Rounded pill path (roundRect isn't available on older WebViews) */
+  const pillPath = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => {
+    const rr = Math.min(r, h / 2, w / 2)
+    ctx.beginPath()
+    ctx.moveTo(x + rr, y)
+    ctx.lineTo(x + w - rr, y)
+    ctx.arcTo(x + w, y, x + w, y + rr, rr)
+    ctx.lineTo(x + w, y + h - rr)
+    ctx.arcTo(x + w, y + h, x + w - rr, y + h, rr)
+    ctx.lineTo(x + rr, y + h)
+    ctx.arcTo(x, y + h, x, y + h - rr, rr)
+    ctx.lineTo(x, y + rr)
+    ctx.arcTo(x, y, x + rr, y, rr)
+    ctx.closePath()
+  }
+
+  /* Clean mockup-style overlay: ONE slim corner-bracket box + ONE label pill
+     per face. No laser line, no eye/nose dots, no shadowBlur — those were the
+     main reasons the student's face was hidden and the canvas repaints were
+     expensive on phones ("hanging"). */
   const drawDetections = (detections: LiveFaceDetection[], matchedByFace: Map<number, { id: string; name: string; confidence: number; isLate?: boolean; status?: 'verified' | 'checking' | 'cooldown' }>) => {
     const video = videoRef.current
     const canvas = canvasRef.current
@@ -465,67 +495,50 @@ const resetAiSession = () => {
     if(!ctx) return
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-    laserOffsetRef.current = (laserOffsetRef.current + 4) % (canvas.height || 480)
-    ctx.strokeStyle = 'rgba(0, 229, 255, 0.6)'
-    ctx.lineWidth = 2
-    ctx.beginPath()
-    ctx.moveTo(0, laserOffsetRef.current)
-    ctx.lineTo(canvas.width, laserOffsetRef.current)
-    ctx.stroke()
-
-    ctx.lineWidth = Math.max(3, canvas.width / 260)
-    ctx.font = `700 ${Math.max(14, canvas.width / 38)}px Inter, system-ui, sans-serif`
+    ctx.font = `700 ${Math.max(12, canvas.width / 46)}px Inter, system-ui, sans-serif`
 
     detections.forEach((d, index) => {
       const mapped = mapBoxToCanvas(d.box, video, canvas, cameraFit)
       const match = matchedByFace.get(index)
 
-      if (match?.status === 'checking') {
-        ctx.strokeStyle = '#22d3ee'
-        ctx.fillStyle = '#22d3ee'
-        ctx.shadowColor = 'rgba(34, 211, 238, 0.8)'
-      } else if (match?.status === 'cooldown') {
-        ctx.strokeStyle = '#a78bfa'
-        ctx.fillStyle = '#a78bfa'
-        ctx.shadowColor = 'rgba(167, 139, 250, 0.8)'
-      } else if (match) {
-        ctx.strokeStyle = match.isLate ? '#f59e0b' : '#10b981'
-        ctx.fillStyle = match.isLate ? '#f59e0b' : '#10b981'
-        ctx.shadowColor = match.isLate ? 'rgba(245, 158, 11, 0.8)' : 'rgba(16, 185, 129, 0.8)'
-      } else {
-        ctx.strokeStyle = '#f43f5e'
-        ctx.fillStyle = '#f43f5e'
-        ctx.shadowColor = 'rgba(244, 63, 94, 0.8)'
-      }
-ctx.shadowBlur = 15
+      let color: string
+      let darkText = true
+      if (match?.status === 'checking') color = '#22d3ee'
+      else if (match?.status === 'cooldown') color = '#a78bfa'
+      else if (match) color = match.isLate ? '#f59e0b' : '#10b981'
+      else { color = '#f43f5e'; darkText = false }
 
-      ctx.strokeRect(mapped.x, mapped.y, mapped.width, mapped.height)
-
-      ctx.shadowBlur = 0
-      ctx.fillStyle = '#00e5ff'
-      const centerX = mapped.x + mapped.width / 2
-      const centerY = mapped.y + mapped.height / 2
+      /* corner brackets instead of a full rectangle — face stays visible */
+      const lw = Math.max(2.5, canvas.width / 300)
+      const cl = Math.min(mapped.width, mapped.height) * 0.24
+      ctx.strokeStyle = color
+      ctx.lineWidth = lw
+      ctx.lineCap = 'round'
       ctx.beginPath()
-      ctx.arc(centerX - mapped.width * 0.2, centerY - mapped.height * 0.15, 4, 0, Math.PI * 2)
-      ctx.arc(centerX + mapped.width * 0.2, centerY - mapped.height * 0.15, 4, 0, Math.PI * 2)
-      ctx.arc(centerX, centerY + mapped.height * 0.2, 5, 0, Math.PI * 2)
-      ctx.fill()
+      /* top-left */ ctx.moveTo(mapped.x, mapped.y + cl); ctx.lineTo(mapped.x, mapped.y); ctx.lineTo(mapped.x + cl, mapped.y)
+      /* top-right */ ctx.moveTo(mapped.x + mapped.width - cl, mapped.y); ctx.lineTo(mapped.x + mapped.width, mapped.y); ctx.lineTo(mapped.x + mapped.width, mapped.y + cl)
+      /* bottom-right */ ctx.moveTo(mapped.x + mapped.width, mapped.y + mapped.height - cl); ctx.lineTo(mapped.x + mapped.width, mapped.y + mapped.height); ctx.lineTo(mapped.x + mapped.width - cl, mapped.y + mapped.height)
+      /* bottom-left */ ctx.moveTo(mapped.x + cl, mapped.y + mapped.height); ctx.lineTo(mapped.x, mapped.y + mapped.height); ctx.lineTo(mapped.x, mapped.y + mapped.height - cl)
+      ctx.stroke()
 
       const label = match
         ? match.status === 'checking'
-          ? `${match.name} • checking liveness ${Math.round(match.confidence * 100)}%`
+          ? `${match.name} • checking…`
           : match.status === 'cooldown'
-            ? `${match.name} • already marked`
-            : `${match.name} • Verified • ${Math.round(match.confidence * 100)}%`
-        : 'Unknown Person • Register?'
-      const padX = 12
-      const labelH = Math.max(26, canvas.height / 26)
-      const labelW = Math.min(canvas.width - mapped.x, ctx.measureText(label).width + padX * 2)
-      const labelY = Math.max(0, mapped.y - labelH)
+            ? `${match.name} • marked ✓`
+            : `${match.name} • ${Math.round(match.confidence * 100)}% Verified ✓`
+        : 'Unknown person'
+      const padX = 11
+      const labelH = Math.max(24, canvas.height / 30)
+      const textW = ctx.measureText(label).width
+      const labelW = Math.min(canvas.width - mapped.x - 2, textW + padX * 2)
+      const labelY = Math.max(4, mapped.y - labelH - 7)
 
-      ctx.fillRect(mapped.x, labelY, labelW, labelH)
-      ctx.fillStyle = '#ffffff'
-      ctx.fillText(label, mapped.x + padX, labelY + labelH * 0.72)
+      ctx.fillStyle = color
+      pillPath(ctx, mapped.x, labelY, labelW, labelH, labelH / 2)
+      ctx.fill()
+      ctx.fillStyle = darkText ? '#0b0f1a' : '#ffffff'
+      ctx.fillText(label, mapped.x + padX, labelY + labelH * 0.7)
     })
   }
 
@@ -649,6 +662,17 @@ missingCount
       scanBusyRef.current = false
     }
   }
+  /* Perf: self-scheduling scan chain. setInterval kept firing while a slow
+     frame was still being processed, so scans queued up and the UI froze.
+     Now the next scan is only scheduled AFTER the current one finishes. */
+  const scheduleNextScan = () => {
+    scanTimerRef.current = window.setTimeout(async () => {
+      if (!scanActiveRef.current) return
+      await runAiScan()
+      if (scanActiveRef.current) scheduleNextScan()
+    }, AI_SCAN_INTERVAL_MS)
+  }
+
 const attachStream = async (mode: 'user' | 'environment') => {
     streamRef.current?.getTracks().forEach(t=>t.stop())
     streamRef.current = null
@@ -704,8 +728,9 @@ await new Promise<void>(resolve => requestAnimationFrame(()=>resolve()))
       await enterFullscreen()
       await attachStream(facingMode)
       setAiStatus('Searching Faces...')
+      scanActiveRef.current = true
       await runAiScan()
-      scanTimerRef.current = window.setInterval(runAiScan, AI_SCAN_INTERVAL_MS)
+      scheduleNextScan()
     }catch(e:any){
       toast.error(e?.message || 'Camera permission denied')
       stopAi(false)
@@ -728,6 +753,7 @@ await new Promise<void>(resolve => requestAnimationFrame(()=>resolve()))
   }
 
   const stopAi = (exitFullscreen = true)=>{
+    scanActiveRef.current = false
     setAiScanning(false)
     setAiStatus('Camera off')
     setAiFaceCount(0)
@@ -735,8 +761,9 @@ await new Promise<void>(resolve => requestAnimationFrame(()=>resolve()))
     setAiReviewOpen(false)
     setUnknownPersonAlert(null)
     setPendingUnknownFace(null)
+    lastCanvasSizeRef.current = null
     document.body.style.overflow = ''
-    if(scanTimerRef.current){ window.clearInterval(scanTimerRef.current); scanTimerRef.current = null }
+    if(scanTimerRef.current){ window.clearTimeout(scanTimerRef.current); scanTimerRef.current = null }
     streamRef.current?.getTracks().forEach(t=>t.stop())
     streamRef.current = null
     if(videoRef.current) videoRef.current.srcObject = null
@@ -1133,30 +1160,16 @@ const handleQrScan = async (scannedText: string) => {
         className="fixed inset-0 z-[99999] bg-black text-white flex flex-col"
         style={{ width: '100vw', height: '100dvh', maxHeight: '100dvh', maxWidth: '100vw', overflow: 'hidden' }}
       >
-        <div className="min-h-16 px-3 md:px-5 py-2 flex items-center justify-between gap-2 bg-black/85 border-b border-white/10 shrink-0 pt-[max(0.5rem,env(safe-area-inset-top))]">
+        {/* Slim header — mockup style: title + class chip + camera controls */}
+        <div className="min-h-14 px-3 py-2 flex items-center justify-between gap-2 bg-black/85 border-b border-white/10 shrink-0 pt-[max(0.5rem,env(safe-area-inset-top))]">
           <div className="min-w-0">
             <div className="font-extrabold leading-tight truncate text-[15px] flex items-center gap-2">
-              <ScanFace className="text-emerald-400"/> AI Classroom Vision • {classSel}
+              <ScanFace size={17} className="text-emerald-400 shrink-0"/> AI Smart Camera
+              <span className="rounded-full border border-white/15 bg-white/10 px-2 py-0.5 text-[10px] font-bold text-white/85">{classSel}</span>
             </div>
-            <div className="text-[11px] md:text-[12px] text-white/80 truncate mt-0.5 font-medium">{aiStatus} • Faces Detected: {aiFaceCount}</div>
+            <div className="text-[11px] text-white/70 truncate mt-0.5 font-medium">{aiStatus}</div>
           </div>
-          <div className="flex items-center justify-end gap-1.5 shrink-0 flex-wrap">
-            <Button
-              variant="ghost"
-              className="rounded-full text-white hover:bg-white/10 px-2.5 h-9 border border-white/15 text-[11px] font-bold"
-              onClick={() => setCameraFit(cameraFit === 'contain' ? 'cover' : 'contain')}
-              title="Toggle full zoom-out classroom view"
-            >
-              {cameraFit === 'contain' ? 'Full View' : 'Fill'}
-            </Button>
-            <Button
-              variant="ghost"
-              className="rounded-full text-white hover:bg-white/10 px-2.5 h-9 border border-white/15 text-[11px] font-bold"
-              onClick={() => setHybridQrOverlay(!hybridQrOverlay)}
-              title="Toggle QR Hybrid Fallback"
-            >
-              <QrCode size={15} className="mr-1 text-cyan-400"/> {hybridQrOverlay ? 'Hide QR' : 'QR'}
-            </Button>
+          <div className="flex items-center gap-1.5 shrink-0">
             <Button
               variant="ghost"
               className="rounded-full text-white hover:bg-white/10 px-2.5 h-9 border border-white/15 text-[11px] font-bold"
@@ -1172,44 +1185,63 @@ const handleQrScan = async (scannedText: string) => {
           </div>
         </div>
 
-        <div className="relative flex-1 min-h-0 bg-black overflow-hidden flex flex-col justify-between">
-          <video ref={videoRef} className="absolute inset-0 w-full h-full bg-black" style={{ objectFit: cameraFit }} muted playsInline autoPlay />
-          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
-          <div className="pointer-events-none absolute inset-x-[12%] top-[12%] h-[46%]">
-            <span className="scan-corner scan-corner-tl"/><span className="scan-corner scan-corner-tr"/><span className="scan-corner scan-corner-bl"/><span className="scan-corner scan-corner-br"/>
+        {/* Clean camera card — ONLY face boxes + name pills float on the video
+            so the teacher can always see the student being captured. All the
+            status panels live BELOW the camera now (mockup design). */}
+        <div className="shrink-0 px-3 pt-2.5">
+          <div className="relative overflow-hidden rounded-[26px] border border-emerald-400/40 bg-black shadow-[0_0_44px_rgba(16,185,129,0.16)]" style={{ height: 'min(42dvh, 480px)' }}>
+            <video ref={videoRef} className="absolute inset-0 w-full h-full bg-black" style={{ objectFit: cameraFit }} muted playsInline autoPlay />
+            <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
+            <span className="absolute left-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1 text-[11px] font-extrabold text-emerald-300 backdrop-blur-md border border-emerald-300/30">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"/> Scanning{aiFaceCount ? ` • ${aiFaceCount} face${aiFaceCount > 1 ? 's' : ''}` : '…'}
+            </span>
+            <span className="absolute right-3 top-3 z-10 rounded-full bg-black/60 px-3 py-1 text-[10px] font-bold text-white/80 backdrop-blur-md border border-white/15">
+              {presentCount + lateCount}/{students.length} marked
+            </span>
+          </div>
+        </div>
+
+        {/* Everything else scrolls BELOW the camera instead of covering it */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2.5 space-y-2.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold border flex items-center gap-1.5 ${livenessStatus === 'PASS' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40' : livenessStatus === 'CHECKING' ? 'bg-cyan-500/15 text-cyan-300 border-cyan-400/40' : 'bg-rose-500/15 text-rose-300 border-rose-400/40'}`}>
+              <ShieldCheck size={13}/> Anti-spoof: {livenessStatus === 'PASS' ? 'PASS ✓' : livenessStatus === 'CHECKING' ? 'Checking…' : 'Photo/screen risk'}
+            </span>
+            <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold border ${maskDetected ? 'bg-amber-500/15 text-amber-300 border-amber-400/40' : 'bg-white/5 text-white/70 border-white/15'}`}>
+              {maskDetected ? '⚠️ Low light / covered face' : '😊 Face quality OK'}
+            </span>
+            <span className="px-3 py-1 rounded-full bg-white/5 border border-white/15 text-white/60 text-[10px] font-bold truncate max-w-full">
+              {headPoseText}
+            </span>
           </div>
 
-          <div className="relative z-10 p-3 space-y-2 pointer-events-none">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap gap-2">
-                <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold backdrop-blur-md border flex items-center gap-1.5 ${livenessStatus === 'PASS' ? 'bg-emerald-500/85 text-black border-emerald-300' : livenessStatus === 'CHECKING' ? 'bg-cyan-500/85 text-black border-cyan-300' : 'bg-rose-600/90 text-white border-rose-400'}`}>
-                  <ShieldCheck size={14}/> Anti-spoof: {livenessStatus === 'PASS' ? 'PASS ✓' : livenessStatus === 'CHECKING' ? 'CHECKING…' : 'PHOTO/SCREEN RISK'}
-                </span>
-                <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold backdrop-blur-md border flex items-center gap-1.5 ${maskDetected ? 'bg-amber-500/90 text-black border-amber-300' : 'bg-black/60 text-white border-white/20'}`}>
-                  {maskDetected ? '⚠️ Low light / covered face' : '😊 Face quality OK'}
-                </span>
-                <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-cyan-300 text-[11px] font-bold">
-                  {cameraFit === 'contain' ? 'Full zoom-out classroom view' : 'Fill screen view'} {zoomReady ? '• Optical min zoom' : ''}
-                </span>
+          <div className="rounded-2xl border border-cyan-300/20 bg-slate-950/80 p-2.5">
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <div className="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-200">AI pipeline <span className="text-white/40 font-bold normal-case tracking-normal">cooldown {Math.round(AI_MARK_COOLDOWN_MS/1000)}s • {REQUIRED_CONFIRM_FRAMES} frames</span></div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={() => setCameraFit(cameraFit === 'contain' ? 'cover' : 'contain')}
+                  className="rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-[10px] font-bold text-white/75"
+                  title="Toggle full zoom-out classroom view"
+                >
+                  {cameraFit === 'contain' ? 'Full view' : 'Fill view'}{zoomReady ? ' • min zoom' : ''}
+                </button>
+                <button
+                  onClick={() => setHybridQrOverlay(!hybridQrOverlay)}
+                  className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-2.5 py-1 text-[10px] font-bold text-cyan-200 flex items-center gap-1"
+                  title="Toggle QR Hybrid Fallback"
+                >
+                  <QrCode size={11}/> {hybridQrOverlay ? 'Hide QR' : 'QR'}
+                </button>
               </div>
-              <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-cyan-300 text-[11px] font-bold">
-                {headPoseText}
-              </span>
             </div>
-
-            <div className="pointer-events-auto rounded-2xl border border-cyan-300/20 bg-black/70 p-2.5 backdrop-blur-md shadow-xl">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <div className="text-[11px] font-black uppercase tracking-[0.18em] text-cyan-200">AI checking pipeline</div>
-                <div className="text-[10px] font-bold text-white/60">cooldown {Math.round(AI_MARK_COOLDOWN_MS/1000)}s • confirm {REQUIRED_CONFIRM_FRAMES} frames</div>
-              </div>
-              <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
-                {(Object.keys(aiChecks) as AiCheckKey[]).map(key => (
-                  <div key={key} className={`ai-check-line rounded-xl px-2 py-2 text-center text-[10px] font-black border ${aiChecks[key] === 'pass' ? 'border-emerald-300/60 bg-emerald-400/20 text-emerald-200' : aiChecks[key] === 'checking' ? 'border-cyan-300/60 bg-cyan-400/20 text-cyan-100' : aiChecks[key] === 'fail' ? 'border-rose-300/60 bg-rose-500/20 text-rose-100' : 'border-white/10 bg-white/5 text-white/45'}`}>
-                    <div className="mx-auto mb-1 h-1 rounded-full bg-current opacity-70" />
-                    {aiCheckLabels[key]}
-                  </div>
-                ))}
-              </div>
+            <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+              {(Object.keys(aiChecks) as AiCheckKey[]).map(key => (
+                <div key={key} className={`ai-check-line rounded-lg px-1.5 py-1.5 text-center text-[9.5px] font-black border ${aiChecks[key] === 'pass' ? 'border-emerald-300/60 bg-emerald-400/20 text-emerald-200' : aiChecks[key] === 'checking' ? 'border-cyan-300/60 bg-cyan-400/20 text-cyan-100' : aiChecks[key] === 'fail' ? 'border-rose-300/60 bg-rose-500/20 text-rose-100' : 'border-white/10 bg-white/5 text-white/45'}`}>
+                  <div className="mx-auto mb-1 h-1 rounded-full bg-current opacity-70" />
+                  {aiCheckLabels[key]}
+                </div>
+              ))}
             </div>
           </div>
 {hybridQrOverlay && (
@@ -1281,8 +1313,8 @@ const handleQrScan = async (scannedText: string) => {
             </div>
           )}
 
-          <div className="relative z-10 p-3 flex flex-col gap-2 pointer-events-none">
-            <div className="rounded-2xl bg-black/75 backdrop-blur-md border border-white/15 p-3.5 pointer-events-auto shadow-lg">
+          <div className="space-y-2.5">
+            <div className="rounded-2xl bg-slate-950/80 border border-white/15 p-3.5 shadow-lg">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-[12px] font-bold text-white flex items-center gap-2">
                   <span>Verified Classroom Students ({students.filter(s=>marks[s.id]==='present'||marks[s.id]==='late').length}/{students.length})</span>
@@ -1309,7 +1341,7 @@ const handleQrScan = async (scannedText: string) => {
               </div>
             </div>
 {!!aiLog.length && (
-              <div className="rounded-2xl bg-black/75 backdrop-blur-md border border-white/15 p-2.5 max-h-16 overflow-auto pointer-events-auto">
+              <div className="rounded-2xl bg-slate-950/80 border border-white/15 p-2.5 max-h-20 overflow-auto">
                 <div className="space-y-0.5 text-[11px] font-medium text-emerald-300">
                   {aiLog.slice(0, 3).map((l,i)=><div key={i}>{l}</div>)}
                 </div>

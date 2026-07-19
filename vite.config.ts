@@ -24,6 +24,27 @@ export default defineConfig({
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
             handler: 'CacheFirst',
             options: { cacheName: 'google-fonts', expiration: { maxEntries: 10, maxAgeSeconds: 60*60*24*365 } }
+          },
+          {
+            /* Face-AI model files (12 MB) — download once, then every
+               attendance scan opens instantly from cache even on 3G */
+            urlPattern: /\/models\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'face-models-local',
+              expiration: { maxEntries: 24, maxAgeSeconds: 60*60*24*365 },
+              cacheableResponse: { statuses: [0, 200] }
+            }
+          },
+          {
+            /* Same for the CDN fallback used when public/models isn't deployed */
+            urlPattern: /^https:\/\/cdn\.jsdelivr\.net\/gh\/justadudewhohacks\/face-api\.js.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'face-models-cdn',
+              expiration: { maxEntries: 24, maxAgeSeconds: 60*60*24*365 },
+              cacheableResponse: { statuses: [0, 200] }
+            }
           }
         ]
       }

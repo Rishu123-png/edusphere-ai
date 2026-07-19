@@ -132,7 +132,39 @@ export default function FloatingAIAssistant() {
         aiReply = `✅ **Bunk Risk Summary:** No critical bunk anomalies projected across the active classes right now. Average bunk probability remains low (<25%).`
       }
     } else if (lower.includes('chemistry') || lower.includes('performance') || lower.includes('marks')) {
-      aiReply = `🧪 **Chemistry Performance Summary:**\n• **Average Score:** 78.4% across published test series.\n• **Top Action:** AI recommends revising Chapters 4 & 5 (Chemical Bonding & Thermodynamics).\n• **Prediction:** Students with >85% attendance are projected to score 91%+ on the final exam.`
+      // Compute from the LIVE marks tree — never answer with baked-in numbers.
+      const allMarks: any[] = []
+      Object.values(marks || {}).forEach((byStudent: any) => {
+        Object.values(byStudent || {}).forEach((m: any) => allMarks.push(m))
+      })
+      const requestedSubject = lower.includes('chemistry') ? 'chemistry' : null
+      const relevant = requestedSubject
+        ? allMarks.filter(m => String(m.subject || '').toLowerCase().includes(requestedSubject))
+        : allMarks
+
+      if (!allMarks.length) {
+        aiReply = `📊 **Marks Analytics:** No marks have been published yet. Enter marks on the Marks page and I will compute real subject averages, toppers and risk flags here.`
+      } else {
+        const pool = relevant.length ? relevant : allMarks
+        const avgPct = pool.reduce((sum, m) => sum + ((Number(m.marksObtained) || 0) / (Number(m.maxMarks) || 100)) * 100, 0) / pool.length
+        const bestEntry = [...pool].sort((a, b) => ((Number(b.marksObtained) || 0) / (Number(b.maxMarks) || 100)) - ((Number(a.marksObtained) || 0) / (Number(a.maxMarks) || 100)))[0]
+        const worstEntry = [...pool].sort((a, b) => ((Number(a.marksObtained) || 0) / (Number(a.maxMarks) || 100)) - ((Number(b.marksObtained) || 0) / (Number(b.maxMarks) || 100)))[0]
+
+        // Subject-level average map for an honest "strongest / weakest" answer
+        const subjectMap = new Map<string, { total: number; count: number }>()
+        allMarks.forEach(m => {
+          const sub = String(m.subject || 'General')
+          const pct = ((Number(m.marksObtained) || 0) / (Number(m.maxMarks) || 100)) * 100
+          const cur = subjectMap.get(sub) || { total: 0, count: 0 }
+          subjectMap.set(sub, { total: cur.total + pct, count: cur.count + 1 })
+        })
+        const subjectAvgs = Array.from(subjectMap.entries()).map(([sub, v]) => ({ sub, avg: v.total / v.count }))
+        const strongest = subjectAvgs.sort((a, b) => b.avg - a.avg)[0]
+        const weakest = subjectAvgs.sort((a, b) => a.avg - b.avg)[0]
+
+        const scope = requestedSubject ? (relevant.length ? 'Chemistry' : `Chemistry data not found — showing all subjects`) : 'All Subjects'
+        aiReply = `🧪 **Performance Intelligence (${scope}) — live from ${allMarks.length} published entries:**\n• **Average Score:** ${avgPct.toFixed(1)}%\n• **Best Entry:** ${bestEntry?.studentName || 'Student'} • ${((Number(bestEntry?.marksObtained) || 0) / (Number(bestEntry?.maxMarks) || 100) * 100).toFixed(0)}% in ${bestEntry?.subject || 'Subject'}\n• **Needs Support:** ${worstEntry?.studentName || 'Student'} • ${((Number(worstEntry?.marksObtained) || 0) / (Number(worstEntry?.maxMarks) || 100) * 100).toFixed(0)}% in ${worstEntry?.subject || 'Subject'}\n• **Strongest Subject:** ${strongest?.sub} (${strongest?.avg.toFixed(0)}%) • **Weakest Subject:** ${weakest?.sub} (${weakest?.avg.toFixed(0)}%)`
+      }
     } else if (lower.includes('risk') || lower.includes('at risk')) {
       const riskList = students.filter(s => {
         const allRecs = Object.values(attendance).flatMap((day: any) => Object.values(day || {}).filter((r: any) => r.studentId === s.id))

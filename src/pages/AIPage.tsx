@@ -237,7 +237,8 @@ export default function AIPage(){
     {/* PERSOANLIZED STUDENT AI DISPLAY */}
     {selectedStudentId && selectedStudent && studentAIResult ? (
       <div ref={studentDetailRef} className="space-y-4">
-        <div className="p-4.5 rounded-[24px] bg-gradient-to-r from-indigo-600 via-violet-600 to-cyan-600 text-white flex items-center justify-between flex-wrap gap-4 shadow-md animate-ai-item">
+        {/* FIX: `p-4.5` is not a valid Tailwind class — it silently did nothing */}
+        <div className="p-4 md:p-5 rounded-[24px] bg-gradient-to-r from-indigo-600 via-violet-600 to-cyan-600 text-white flex items-center justify-between flex-wrap gap-4 shadow-md animate-ai-item">
           <div className="flex items-center gap-3.5">
             <div className="w-14 h-14 rounded-2xl bg-white/20 border border-white/30 flex items-center justify-center font-bold text-xl text-white overflow-hidden shadow-sm">
               {selectedStudent.photoUrl ? <img src={selectedStudent.photoUrl} alt="" className="w-full h-full object-cover"/> : (selectedStudent.name?.[0] || 'S')}
@@ -446,8 +447,8 @@ export default function AIPage(){
           {summary.map((line,i)=><p key={i} className="flex gap-2"><span>•</span><span>{line}</span></p>)}
         </div>
         <div className="space-y-2 text-muted-foreground">
-          <p>• <b>Biometrics:</b> All verified facial embeddings link to encrypted Firebase student accounts.</p>
-          <p>• <b>Liveness:</b> Stops 99.8% of photo & phone screen presentation attacks using depth & blink tracking.</p>
+          <p>• <b>Biometrics:</b> Every verified 128-D facial embedding is tied to an authenticated Firebase student profile.</p>
+          <p>• <b>Liveness:</b> Passive anti-spoofing tracks multi-frame motion & score drift to block photo and phone-screen attacks (hardware-grade depth sensors are planned for a future release).</p>
           <p>• <b>Bunk Engine:</b> Scored using historical absenteeism, timetable period weighting, and holiday proximity.</p>
         </div>
       </CardContent>

@@ -20,8 +20,20 @@ export interface FaceMatch {
 export const FACE_MATCH_THRESHOLD = 0.48
 /** Minimum detector confidence for a face box to count */
 export const FACE_SCORE_THRESHOLD = 0.55
-/** Reject tiny boxes (phone-in-hand photos / distant noise) */
+/**
+ * Reject tiny boxes on ENROLLMENT photos — the enrollment flow needs one
+ * large, close, front-facing face, so a strict 6% of frame is correct here.
+ */
 export const MIN_FACE_BOX_RATIO = 0.06
+/**
+ * Reject tiny boxes during LIVE classroom scans. A real student seated 1–3 m
+ * from the teacher's phone covers roughly 1.5–3% of the frame, while a face
+ * on a hand-held spoofing photo is usually far smaller AND fails the passive
+ * liveness motion check. The old shared 6% value silently filtered out every
+ * legit student in a classroom frame — that made "Move closer" fire for
+ * everyone. 2% + liveness is the right balance for class coverage.
+ */
+export const LIVE_FACE_MIN_AREA_RATIO = 0.02
 
 /**
  * Prefer local models. If host rewrites missing files to index.html (SPA),
@@ -98,6 +110,23 @@ export async function loadFaceApiModels() {
   return faceApiPromise
 }
 
+/**
+ * Optional background warm-up: downloads + compiles the neural nets while the
+ * teacher is still on the page, so pressing "Start AI Camera" feels instant.
+ * Safe to call anywhere — failures are swallowed (the normal loader still
+ * retries on demand and surfaces a real error message then).
+ */
+export function warmUpFaceModels(delayMs = 1200) {
+  if (typeof window === 'undefined') return
+  const start = () => { loadFaceApiModels().catch(() => {}) }
+  const idle = (window as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void }).requestIdleCallback
+  if (typeof idle === 'function') {
+    idle.call(window, start, { timeout: delayMs + 4000 })
+  } else {
+    window.setTimeout(start, delayMs)
+  }
+}
+
 export function isValidDescriptor(value: unknown): value is FaceDescriptor {
   return Array.isArray(value) && value.length === 128 && value.every(n => typeof n === 'number' && Number.isFinite(n))
 }
@@ -147,12 +176,17 @@ function detectorOptions(faceapi: any, mode: 'enroll' | 'live') {
   })
 }
 
-function isAcceptableFaceBox(box: { width: number; height: number }, frameW: number, frameH: number) {
+function isAcceptableFaceBox(
+  box: { width: number; height: number },
+  frameW: number,
+  frameH: number,
+  minAreaRatio: number = MIN_FACE_BOX_RATIO,
+) {
   if (!box || !frameW || !frameH) return false
   const areaRatio = (box.width * box.height) / (frameW * frameH)
   const aspect = box.width / Math.max(1, box.height)
   // Real faces in attendance camera are reasonably large and roughly portrait
-  if (areaRatio < MIN_FACE_BOX_RATIO) return false
+  if (areaRatio < minAreaRatio) return false
   if (aspect < 0.45 || aspect > 1.8) return false
   return true
 }
@@ -236,7 +270,7 @@ export async function detectFacesWithDescriptors(video: HTMLVideoElement): Promi
   return (detections || [])
     .filter((d: any) => d?.descriptor && d?.detection?.box)
     .filter((d: any) => (d.detection.score || 0) >= FACE_SCORE_THRESHOLD)
-    .filter((d: any) => isAcceptableFaceBox(d.detection.box, frameW, frameH))
+    .filter((d: any) => isAcceptableFaceBox(d.detection.box, frameW, frameH, LIVE_FACE_MIN_AREA_RATIO))
     .map((d: any) => ({
       descriptor: Array.from(d.descriptor) as FaceDescriptor,
       box: {

@@ -13,12 +13,16 @@ import QRScanner from '@/components/QRScanner'
 import PageHeader from '@/components/mobile/PageHeader'
 import ModuleArchitectureBanner from '@/components/ModuleArchitectureBanner'
 import { Camera, QrCode, Users, X, ShieldCheck, SwitchCamera, ScanFace, AlertTriangle, Clock, Wifi, WifiOff, UserPlus, Grid, Volume2 } from 'lucide-react'
+import { get } from 'firebase/database'
 import {
   detectFacesWithDescriptors,
   findBestFaceMatch,
   isValidDescriptor,
+  loadFaceApiModels,
+  warmUpFaceModels,
   mapBoxToCanvas,
   FACE_MATCH_THRESHOLD,
+  LIVE_FACE_MIN_AREA_RATIO,
   type EnrolledFace,
   type LiveFaceDetection,
 } from '@/lib/faceRecognition'
@@ -29,6 +33,9 @@ const AI_DETECTION_TIMEOUT_MS = 4500
 const REQUIRED_CONFIRM_FRAMES = 3
 const AI_MARK_COOLDOWN_MS = 60_000
 const LIVENESS_HISTORY_LIMIT = 6
+/* Minutes after midnight (IST local device time) after which a check-in is
+   marked Late instead of Present. 09:16 → late. */
+const LATE_CUTOFF_MINUTES = 9 * 60 + 15
 
 type AiCheckKey = 'camera' | 'detect' | 'liveness' | 'match' | 'cooldown' | 'mark'
 type AiCheckState = 'idle' | 'checking' | 'pass' | 'fail'
@@ -146,6 +153,11 @@ useEffect(()=>{
     return ()=>unsub()
   }, [schoolId])
 
+  // Pre-download the neural nets in idle time so the camera starts instantly.
+  useEffect(()=>{
+    warmUpFaceModels()
+  }, [])
+
   const classOptions = useMemo(()=>{
     return Array.from(new Set(allStudents.map((s:any)=> `${s.className}-${s.section}`).filter(Boolean))).sort()
   }, [allStudents])
@@ -253,7 +265,9 @@ const resetAiSession = () => {
     const areaRange = areaValues.length ? Math.max(...areaValues) - Math.min(...areaValues) : 0
     const avgScore = samples.reduce((sum, item) => sum + item.score, 0) / Math.max(1, samples.length)
 
-    const faceLargeEnough = area >= 0.018
+    /* Keep liveness size gate in sync with the live-scan filter so the
+       "Move closer" message is genuinely reachable and not dead code. */
+    const faceLargeEnough = area >= LIVE_FACE_MIN_AREA_RATIO
     const highQuality = avgScore >= 0.58 && confidence >= 0.52
     const hasNaturalMotion = motion >= 0.003 || areaRange >= 0.002 || samples.length >= 5
     const livenessPassed = samples.length >= REQUIRED_CONFIRM_FRAMES && faceLargeEnough && highQuality && hasNaturalMotion
@@ -558,7 +572,12 @@ ctx.shadowBlur = 15
           usedIds.add(best.id)
           updateAiCheck('match', 'pass')
 
-          const isLate = lateEntryMode || (new Date().getHours() >= 9 && new Date().getMinutes() > 15)
+          /* BUG FIX: the old check `getHours() >= 9 && getMinutes() > 15`
+             jumped back to "present" at 10:05 because minutes wraps each
+             hour. Compare total minutes after midnight instead. */
+          const nowDate = new Date()
+          const minutesNow = nowDate.getHours() * 60 + nowDate.getMinutes()
+          const isLate = lateEntryMode || minutesNow > LATE_CUTOFF_MINUTES
           const statusToMark = isLate ? 'late' : 'present'
           const liveness = evaluatePassiveLiveness(best.id, detection, best.confidence)
           const alreadyMarked = detectedIdsRef.current.has(best.id) || marksRef.current[best.id] === 'present' || marksRef.current[best.id] === 'late'
@@ -783,7 +802,27 @@ const handleQrScan = async (scannedText: string) => {
   const sendParentAlert = async (student: any) => {
     const sid = schoolId || profile?.schoolId || 'global'
     const phone = student.guardianPhone || 'No Phone'
-    toast.success(`Parent Alert Dispatched to ${student.guardianName || 'Guardian'} (${phone}):\n"${student.name} is absent today. Attendance 74%. Please contact the class teacher."`)
+
+    /* BUG FIX: the previous copy baked in a hardcoded "Attendance 74%" for
+       every student. Compute the real rate from saved attendance records. */
+    let attendancePct = 0
+    try {
+      const snapshot = await get(ref(db, `schools/${sid}/attendance`))
+      const allDays = snapshot.val() || {}
+      let total = 0
+      let presentLike = 0
+      Object.values(allDays).forEach((day: any) => {
+        const record = day?.[student.id]
+        if (record?.status) {
+          total += 1
+          if (['present', 'late'].includes(record.status)) presentLike += 1
+        }
+      })
+      attendancePct = total ? Math.round((presentLike / total) * 100) : 0
+    } catch { /* fall through with 0 — alert still sends */ }
+
+    const body = `${student.name} is absent today. Attendance rate: ${attendancePct}%. Please contact the class teacher.`
+    toast.success(`Parent Alert Dispatched to ${student.guardianName || 'Guardian'} (${phone}):\n"${body}"`)
     try {
       const nRef = push(ref(db, `schools/${sid}/notifications`))
       await set(nRef, {
@@ -791,7 +830,7 @@ const handleQrScan = async (scannedText: string) => {
         schoolId: sid,
         toRole: 'parent',
         title: `Absent Alert: ${student.name}`,
-        body: `${student.name} is absent today. Attendance 74%. Please contact the class teacher.`,
+        body,
         type: 'parent_alert',
         read: false,
         createdAt: Date.now()

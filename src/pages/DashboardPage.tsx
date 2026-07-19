@@ -7,14 +7,14 @@ import { XAxis, YAxis, ResponsiveContainer, Tooltip, LineChart, Line, AreaChart,
 import { useEffect, useMemo, useState } from 'react'
 import { db } from '@/lib/firebase'
 import { ref, onValue } from 'firebase/database'
-import { aiDailySummary, generateSchoolForecast } from '@/lib/ai'
+import { aiDailySummary } from '@/lib/ai'
 import { todayIST } from '@/lib/rtdb'
-import { Users, GraduationCap, CheckCircle2, Clock3, AlertTriangle, Sparkles, TrendingUp, Award, Activity, Camera, UserPlus, FilePenLine, MessageCircle, CalendarDays, BrainCircuit, ArrowUpRight } from 'lucide-react'
+import { Users, GraduationCap, CheckCircle2, Clock3, AlertTriangle, Sparkles, TrendingUp, Award, Activity, Camera, UserPlus, FilePenLine, MessageCircle, CalendarDays, BrainCircuit, ArrowUpRight, RotateCcw } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Link } from 'react-router-dom'
 import NeonGauge from '@/components/mobile/NeonGauge'
-import { MotionKPI } from '@/components/MotionWrapper'
-import { PremiumAnimatedHero } from '@/components/PremiumAnimatedHero'
+import { AnimeEntrance } from '@/components/AnimeWrapper'
 
 const dateKey = (daysAgo = 0) => new Date(Date.now() - daysAgo * 86400000).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
 const dayLabel = (daysAgo = 0) => new Date(Date.now() - daysAgo * 86400000).toLocaleDateString('en-IN', { weekday: 'short', timeZone: 'Asia/Kolkata' })
@@ -24,9 +24,9 @@ export default function DashboardPage(){
   const { school, schoolId } = useSchool()
   const [students, setStudents] = useState<any[]>([])
   const [teachers, setTeachers] = useState<any[]>([])
-  const [userPresence, setUserPresence] = useState<Record<string, any>>({})
   const [attendance, setAttendance] = useState<Record<string, Record<string, any>>>({})
   const [todayHoliday, setTodayHoliday] = useState<any | null>(null)
+  const [summaryTick, setSummaryTick] = useState(0)
 
   const isAdmin = profile?.role === 'school_admin' || profile?.role === 'super_admin'
 
@@ -52,22 +52,14 @@ export default function DashboardPage(){
     return ()=>unsub()
   }, [schoolId, isAdmin])
 
-  // Merge presence from users/ (authoritative when teacher is logged in)
-  useEffect(()=>{
-    if(!isAdmin || !schoolId){ setUserPresence({}); return }
-    const unsub = onValue(ref(db, 'users'), snap=>{
-      const v = snap.val() || {}
-      const map: Record<string, any> = {}
-      Object.entries(v).forEach(([uid, u]: any) => {
-        if (u?.schoolId === schoolId && u?.role === 'teacher') {
-          map[uid] = u
-          if (u.email) map[String(u.email).toLowerCase()] = u
-        }
-      })
-      setUserPresence(map)
-    })
-    return ()=>unsub()
-  }, [schoolId, isAdmin])
+  /*
+    REMOVED BUG: this page listened on the GLOBAL `users/` node to merge
+    presence. Realtime DB rules only allow a super_admin to read that node,
+    so every school_admin dashboard fired PERMISSION_DENIED and the
+    "Teachers Online" KPI silently stayed 0. Presence is already mirrored by
+    AuthContext onto `schools/$id/teachers/$uid` (heartbeat + onDisconnect),
+    which school admins CAN read — that node is now the single source.
+  */
 
   useEffect(()=>{
     if(!schoolId){ setAttendance({}); return }
@@ -90,25 +82,19 @@ export default function DashboardPage(){
 
   const teachersWithPresence = useMemo(() => {
     return teachers.map((t: any) => {
-      const byUid = userPresence[t.uid] || userPresence[t.id]
-      const byEmail = t.email ? userPresence[String(t.email).toLowerCase()] : null
-      const live = byUid || byEmail
-      // Online if either school teacher record OR live user session says so
-      // and lastSeen within 3 minutes when using heartbeat
-      const lastSeen = live?.lastSeen || t.lastSeen || 0
+      // The school teacher record carries the live heartbeat (every 45 s)
+      // and the onDisconnect offline flag — fresh within 3 minutes = online.
+      const lastSeen = t.lastSeen || 0
       const fresh = lastSeen ? (Date.now() - lastSeen) < 3 * 60 * 1000 : false
-      const isOnline = !!(live?.isOnline || t.isOnline) && (fresh || live?.isOnline || t.isOnline)
-      // Prefer fresh user flag
-      const online = !!(live?.isOnline === true || (t.isOnline === true && (!live || live.isOnline !== false)))
       return {
         ...t,
-        displayName: live?.displayName || t.displayName || t.name,
-        subjects: live?.subjects || t.subjects || [],
-        isOnline: online || (live?.isOnline === true),
+        displayName: t.displayName || t.name,
+        subjects: t.subjects || [],
+        isOnline: t.isOnline === true && fresh,
         lastSeen: lastSeen || null,
       }
     })
-  }, [teachers, userPresence])
+  }, [teachers])
 
   const studentMap = useMemo(()=> new Map(students.map((s:any)=>[s.id, s])), [students])
   const todayRecords = useMemo(()=> Object.values(attendance[todayIST()] || {}), [attendance])
@@ -155,9 +141,11 @@ export default function DashboardPage(){
   }), [attendance])
 
   const bestDay = trend.reduce((best, d)=> d.present > best.present ? d : best, trend[0] || {name:'—', present:0})
-  const summary = students.length || todayRecords.length
+  const summary = useMemo(() => students.length || todayRecords.length
     ? aiDailySummary({attendancePct: counts.present, present: counts.presentCount, absent: counts.absent, late: counts.late })
-    : ['No student or attendance data yet.', 'Add students from the Students page to start seeing live dashboard analytics.', 'Only real school records appear here.']
+    : ['No student or attendance data yet.', 'Add students from the Students page to start seeing live dashboard analytics.', 'Only real school records appear here.'],
+    // summaryTick lets the "Regenerate" button re-run the engine on demand.
+    [students.length, todayRecords.length, counts.present, counts.presentCount, counts.absent, counts.late, summaryTick])
 
   // Teachers never see "Teachers Online" KPI
   const kpis = isAdmin
@@ -189,6 +177,8 @@ export default function DashboardPage(){
     })
 
   return <div className="page-container space-y-5">
+    {/* anime.js spring entrance for the whole dashboard fold (plays on mount) */}
+    <AnimeEntrance delay={70}>
     <section className="dashboard-hero relative overflow-hidden rounded-[28px] p-[1px] shadow-[0_18px_55px_rgba(0,0,0,.25)]">
       <div className="relative overflow-hidden rounded-[27px] bg-gradient-to-br from-[#15202d] via-[#101621] to-[#10101a] p-5 text-white md:bg-gradient-to-br md:from-indigo-600 md:via-violet-600 md:to-fuchsia-500 md:p-6">
         <div className="absolute -right-12 -top-16 h-52 w-52 rounded-full bg-cyan-400/10 blur-3xl md:bg-white/15" />
@@ -206,7 +196,8 @@ export default function DashboardPage(){
           </div>
 
           <div className="mt-1 grid grid-cols-[1.25fr_.75fr] items-center gap-1 md:hidden">
-            <NeonGauge value={counts.present} size={190} label="Today's Attendance" caption="Live from saved records" />
+            {/* Hero is an always-dark surface in both themes → force dark gauge */}
+            <NeonGauge value={counts.present} size={190} label="Today's Attendance" caption="Live from saved records" surface="dark" />
             <div className="space-y-2">
               <div className="rounded-2xl border border-white/[.07] bg-white/[.035] p-3">
                 <div className="text-[9px] uppercase tracking-[.13em] text-slate-500">Present</div>
@@ -277,6 +268,7 @@ export default function DashboardPage(){
         ))}
       </div>
     </div>
+    </AnimeEntrance>
 
     <div className="grid lg:grid-cols-3 gap-4">
       <Card className="lg:col-span-2 overflow-hidden">
@@ -310,8 +302,8 @@ export default function DashboardPage(){
           <CardTitle className="p-0">AI Daily Summary</CardTitle>
         </div>
         <CardContent className="text-[13px] leading-[1.5] space-y-1.5 mt-3">
-          {summary.map((s,i)=><p key={i} className="flex gap-2"><span className="mt-1 w-1 h-1 rounded-full bg-zinc-900 dark:bg-white shrink-0" />{s}</p>)}
-          <Button variant="gradient" size="sm" className="w-full mt-4 rounded-full h-11">Regenerate Summary</Button>
+          {summary.map((s,i)=><p key={`${summaryTick}-${i}`} className="flex gap-2"><span className="mt-1 w-1 h-1 rounded-full bg-zinc-900 dark:bg-white shrink-0" />{s}</p>)}
+          <Button variant="gradient" size="sm" className="w-full mt-4 rounded-full h-11" onClick={()=>{ setSummaryTick(t=>t+1); toast.success('Summary refreshed from live records') }}><RotateCcw size={14} className="mr-1.5"/>Regenerate Summary</Button>
         </CardContent>
       </Card>
     </div>

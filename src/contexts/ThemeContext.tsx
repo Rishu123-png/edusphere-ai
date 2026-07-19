@@ -39,6 +39,17 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       root.classList.add(resolvedTheme)
       root.style.colorScheme = resolvedTheme
       localStorage.setItem('edusphere-theme', theme)
+
+      /* PWA POLISH: keep the Android/browser chrome bar in sync with the
+         resolved theme instead of the stale purple/dark from index.html. */
+      const themeColor = resolvedTheme === 'dark' ? '#0b0f1a' : '#ffffff'
+      document.querySelectorAll('meta[name="theme-color"]').forEach(meta => {
+        meta.setAttribute('content', themeColor)
+      })
+
+      /* Mark the document once, enabling the `.42s` easing between themes
+         (defined in index.css) without touching first paint. */
+      root.classList.add('theme-ready')
     } catch {
       // Storage can be unavailable in private/embedded browsers; theme still works in memory.
     }

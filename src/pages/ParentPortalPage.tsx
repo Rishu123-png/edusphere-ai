@@ -162,7 +162,7 @@ export default function ParentPortalPage(){
           <Card className="rounded-[24px] md:col-span-1">
             <CardTitle className="flex items-center gap-2"><CalendarCheck size={17} className="text-emerald-400"/> Attendance</CardTitle>
             <CardContent className="pt-0">
-              <NeonGauge value={attendancePct} size={214} label="Attendance Rate" caption={`${presentLike} present • ${absents} absent`} />
+              <NeonGauge value={attendancePct} size={214} label="Attendance Rate" caption={`${presentLike} present • ${absents} absent`} surface="auto" />
               <div className="mt-1 flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
                 {recentAttendance.length ? recentAttendance.map((record:any)=><div key={`${record.date}-${record.studentId}`} className={`min-w-[46px] rounded-xl border p-2 text-center ${statusTone(record.status)}`}><div className="text-[8px] opacity-70">{new Date(`${record.date}T00:00:00`).toLocaleDateString('en-IN',{weekday:'short'})}</div><div className="mt-1 text-[10px] font-black uppercase">{String(record.status).slice(0,1)}</div></div>) : <div className="text-[11px] text-muted-foreground">No attendance history yet.</div>}
               </div>
@@ -174,7 +174,8 @@ export default function ParentPortalPage(){
             <CardContent className="space-y-3">
               {subjectScores.length ? subjectScores.map(item=><div key={item.subject}>
                 <div className="mb-1.5 flex items-center justify-between text-[11px]"><span className="text-muted-foreground">{item.subject}</span><span className="font-bold">{item.score}% • {item.grade}</span></div>
-                <div className="h-2 overflow-hidden rounded-full bg-white/[.055]"><div className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-blue-400 to-violet-500 transition-all duration-1000" style={{width:`${item.score}%`}}/></div>
+                {/* Track works in BOTH themes now (was white-on-white in light mode) */}
+                <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-white/[.055]"><div className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-blue-400 to-violet-500 transition-all duration-1000" style={{width:`${item.score}%`}}/></div>
               </div>) : <div className="py-8 text-center text-[12px] text-muted-foreground">No marks have been published yet.</div>}
             </CardContent>
           </Card>

@@ -1,10 +1,12 @@
 {
   "name": "edusphere-ai",
   "private": true,
-  "version": "2.0.1",
+  "version": "2.1.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/check-face-models.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/check-face-models.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",

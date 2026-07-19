@@ -94,6 +94,14 @@ export default function OnboardingPage(){
   const joinSchool = async () => {
     const trimmedCode = joinCode.trim().toUpperCase()
     if(!trimmedCode){ toast.error('Enter school code'); return }
+
+    // Hardened rule: once a profile already belongs to a school it cannot hop
+    // to another school by itself (see database.rules.json self-write guard).
+    if (profile?.schoolId) {
+      toast.error('This account already belongs to a school. Ask your school admin to unlink it first.')
+      return
+    }
+
     setLoading(true)
     try{
       const schoolCodeSnap = await get(ref(db, `schoolCodes/${trimmedCode}`))
@@ -106,9 +114,46 @@ export default function OnboardingPage(){
       const foundSchoolName = found.schoolName || 'EduSphere School'
       const foundSchoolCode = found.code || trimmedCode
 
+      /*
+        CRITICAL ORDERING FIX:
+        Firestore-style rules require users/$uid/schoolId == $schoolId BEFORE
+        that member may read anything inside the school. The old flow read
+        `schools/$id/students` and `schools/$id/teachers` while the account
+        still had NO schoolId — every read was PERMISSION_DENIED, so:
+          • parents could never complete guardian linking, and
+          • a joining teacher overwrote the admin's assignedClasses with [].
+        Now we (1) claim membership on our own profile first (allowed by the
+        self-write rule because the profile has no school yet), then (2) read
+        school data, and (3) roll membership back if the join is rejected.
+      */
+      const claimMembership = (role: 'teacher' | 'parent', extra: Record<string, unknown> = {}) =>
+        update(ref(db, `users/${user.uid}`), {
+          schoolId: foundSchoolId,
+          schoolCode: foundSchoolCode,
+          role,
+          uid: user.uid,
+          email: user.email || '',
+          displayName: profile?.displayName || user.displayName || user.email?.split('@')[0] || '',
+          createdAt: profile?.createdAt || Date.now(),
+          updatedAt: Date.now(),
+          ...extra,
+        })
+
+      const rollbackMembership = () =>
+        update(ref(db, `users/${user.uid}`), {
+          schoolId: null,
+          schoolCode: null,
+          linkedStudentIds: null,
+          updatedAt: Date.now(),
+        })
+
       // Parents can only join when the school has already linked their exact
       // verified login email to a student guardian record.
       if (joinRole === 'parent') {
+        // Step 1: become a member (no schoolId existed, so self-write passes)
+        await claimMembership('parent')
+
+        // Step 2: now readable — verify a child is linked to this account
         const studentSnapshot = await get(ref(db, `schools/${foundSchoolId}/students`))
         const studentEntries = studentSnapshot.exists() ? Object.entries(studentSnapshot.val() || {}) : []
         const loginEmail = String(user.email || '').toLowerCase()
@@ -121,20 +166,13 @@ export default function OnboardingPage(){
           .map(([studentId]) => studentId)
 
         if (!linkedStudentIds.length) {
-          toast.error('No child is linked to this login email. Ask the school admin to add it as Guardian Login Email on the student profile.')
+          // Step 3: no child found → leave the school again (allowed by rules)
+          await rollbackMembership().catch(() => {})
+          toast.error('No child is linked to this login email. Ask the school admin to add it as Guardian Login Email on the student profile, then try again.')
           return
         }
 
-        await update(ref(db, `users/${user.uid}`), {
-          schoolId: foundSchoolId,
-          schoolCode: foundSchoolCode,
-          role: 'parent',
-          uid: user.uid,
-          email: user.email || '',
-          displayName: profile?.displayName || user.displayName || user.email?.split('@')[0] || 'Parent',
-          linkedStudentIds,
-          updatedAt: Date.now(),
-        })
+        await update(ref(db, `users/${user.uid}`), { linkedStudentIds })
         localStorage.removeItem('pending_school_code')
         await refreshProfile?.()
         toast.success(`Parent access connected to ${foundSchoolName}!`)
@@ -142,6 +180,10 @@ export default function OnboardingPage(){
         setTimeout(()=> navigate('/parent'), 1200)
         return
       }
+
+      // Teacher join: claim membership first, THEN read the directory (the
+      // reads below would previously be denied and silently wipe assignments).
+      await claimMembership('teacher')
 
       let assignedClasses: string[] = []
       let subjects: string[] = []
@@ -161,15 +203,9 @@ export default function OnboardingPage(){
             classTeacherOf = match[1]?.classTeacherOf || ''
           }
         }
-      } catch (error) { console.warn(error) }
+      } catch (error) { console.warn('Teacher directory lookup failed (will register fresh)', error) }
 
       await update(ref(db, `users/${user.uid}`), {
-        schoolId: foundSchoolId,
-        schoolCode: foundSchoolCode,
-        role: 'teacher',
-        uid: user.uid,
-        email: user.email || '',
-        displayName: profile?.displayName || user.displayName || user.email?.split('@')[0] || '',
         assignedClasses,
         subjects,
         classTeacherOf,

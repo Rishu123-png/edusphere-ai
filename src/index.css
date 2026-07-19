@@ -33,9 +33,11 @@
   .dark {
     --background: 240 10% 3.9%;
     --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
+    /* Cards lifted slightly above the void-black background so layered
+       surfaces read properly (were identical → cards vanished into bg) */
+    --card: 240 9% 6.8%;
     --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
+    --popover: 240 9% 6.8%;
     --popover-foreground: 0 0% 98%;
     --primary: 252 100% 70%;
     --primary-foreground: 240 5.9% 10%;
@@ -380,4 +382,50 @@
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
+}
+
+/* ------------------------------------------------------------------ */
+/* SMOOTH THEME SWITCHING (black ↔ white)                              */
+/* ------------------------------------------------------------------ */
+/* Glide background + border colors when the theme flips — applied to
+   stable surfaces only, so tap/hover feedback stays instant. */
+@media (prefers-reduced-motion: no-preference) {
+  body,
+  .card-premium,
+  .card-glass,
+  .mobile-topbar,
+  .bottom-nav-glass,
+  .mobile-drawer,
+  aside {
+    transition: background-color .42s ease, border-color .42s ease, box-shadow .42s ease;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* FIXED MISSING ANIMATIONS                                            */
+/* ------------------------------------------------------------------ */
+/* `animate-spin-slow` was used by the AI Copilot header but never existed */
+.animate-spin-slow { animation: spin-slow 7s linear infinite; }
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* `.notification-card` entrance was referenced by NotificationsPage with a
+   staggered animation-delay, but the keyframes were never defined. */
+.notification-card {
+  opacity: 0;
+  animation: notification-rise .55s cubic-bezier(.22, 1, .3, 1) forwards;
+}
+@keyframes notification-rise {
+  from { opacity: 0; transform: translateY(14px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Bottom nav gets a hair more electronic-glass presence in both themes */
+.bottom-nav-glass {
+  box-shadow: 0 -10px 34px rgba(15, 23, 42, .10), 0 -1px 0 rgba(255, 255, 255, .4) inset;
+}
+.dark .bottom-nav-glass {
+  box-shadow: 0 -14px 38px rgba(0, 0, 0, .45), 0 -1px 0 rgba(255, 255, 255, .06) inset;
 }

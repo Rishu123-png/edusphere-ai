@@ -9,7 +9,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { motion } from 'framer-motion'
 import { ArrowRight, CheckCircle2, Eye, EyeOff, Fingerprint, Lock, Mail, ScanFace, School, ShieldCheck, Sparkles } from 'lucide-react'
 import AmbientBackground from '@/components/mobile/AmbientBackground'
-import { PremiumAnimatedHero } from '@/components/PremiumAnimatedHero'
 
 function GoogleMark() {
   return <span className="google-mark grid h-5 w-5 place-items-center rounded-full bg-white text-[12px] font-black">G</span>

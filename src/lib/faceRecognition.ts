@@ -36,6 +36,15 @@ export const MIN_FACE_BOX_RATIO = 0.06
 export const LIVE_FACE_MIN_AREA_RATIO = 0.02
 
 /**
+ * Live camera detection runs every ~0.9 s on a phone, so a smaller detector
+ * input keeps scanning fluid (inputSize 416 was the main cause of the
+ * "camera hangs" complaint — detection took longer than the scan loop).
+ * Classroom faces at 1–3 m still land far above the detector's ~40px floor.
+ * Enrollment photos keep using the slower-but-stronger SSD detector.
+ */
+export const LIVE_DETECTOR_INPUT_SIZE = 320
+
+/**
  * Prefer local models. If host rewrites missing files to index.html (SPA),
  * face-api tries to JSON.parse HTML → "Unexpected token '<'".
  * We probe the manifest first and fall back to a public CDN.
@@ -171,7 +180,7 @@ function detectorOptions(faceapi: any, mode: 'enroll' | 'live') {
     return new faceapi.SsdMobilenetv1Options({ minConfidence: FACE_SCORE_THRESHOLD })
   }
   return new faceapi.TinyFaceDetectorOptions({
-    inputSize: 416,
+    inputSize: LIVE_DETECTOR_INPUT_SIZE,
     scoreThreshold: FACE_SCORE_THRESHOLD,
   })
 }

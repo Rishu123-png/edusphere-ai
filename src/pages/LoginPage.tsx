@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useNavigate, Navigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
+import { getFriendlyError } from '@/lib/errors'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { motion } from 'framer-motion'
 import { ArrowRight, CheckCircle2, Eye, EyeOff, Fingerprint, Lock, Mail, ScanFace, School, ShieldCheck, Sparkles } from 'lucide-react'
@@ -38,10 +39,10 @@ export default function LoginPage() {
     setLoading(true)
     try {
       await login(email, password)
-      toast.success('Welcome to EduSphere AI')
+      toast.success('Login successful — welcome back!')
       nav('/')
     } catch (error:any) {
-      toast.error(error.message || 'Login failed')
+      toast.error(error?.message || 'Login failed. Please check your details and try again.')
     } finally { setLoading(false) }
   }
 
@@ -57,7 +58,7 @@ export default function LoginPage() {
       }
       nav('/onboarding')
     } catch(error:any) {
-      toast.error(error.message || 'Could not create account')
+      toast.error(getFriendlyError(error) || 'Could not create account')
     } finally { setLoading(false) }
   }
 
@@ -116,7 +117,7 @@ export default function LoginPage() {
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between"><Label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-500">Password</Label><button type="button" className="text-[10px] font-semibold text-cyan-300/80" onClick={()=>{
                     if(!email) return toast.error('Enter your email first')
-                    resetPassword(email).then(()=>toast.success('Reset email sent')).catch((error:any)=>toast.error(error.message))
+                    resetPassword(email).then(()=>toast.success('Reset email sent')).catch((error:any)=>toast.error(getFriendlyError(error) || 'Could not send reset email'))
                   }}>Forgot password?</button></div>
                   <div className="relative"><Lock size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"/><Input className="login-input h-13 min-h-[52px] rounded-2xl pl-11 pr-11" type={showPass ? 'text' : 'password'} value={password} onChange={event=>setPassword(event.target.value)} required autoComplete="current-password" placeholder="••••••••"/><button aria-label={showPass?'Hide password':'Show password'} type="button" onClick={()=>setShowPass(value=>!value)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500">{showPass?<EyeOff size={17}/>:<Eye size={17}/>}</button></div>
                 </div>
@@ -128,7 +129,7 @@ export default function LoginPage() {
                 <Button disabled={loading} variant="gradient" size="lg" className="login-primary-button mt-1 h-14 w-full rounded-full text-[14px]" type="submit">{loading?'Authenticating…':<>Secure Sign In <ArrowRight size={17} className="ml-2"/></>}</Button>
 
                 <div className="flex items-center gap-3 py-1"><span className="h-px flex-1 bg-white/[.07]"/><span className="text-[9px] font-bold uppercase tracking-[.14em] text-slate-600">or continue with</span><span className="h-px flex-1 bg-white/[.07]"/></div>
-                <Button type="button" variant="outline" className="login-secondary-button h-12 w-full rounded-full border-white/[.08] bg-white/[.025] text-[12px] text-slate-200" onClick={()=>loginGoogle().catch((error:any)=>toast.error(error.message))}><GoogleMark/> <span className="ml-2">Google Workspace</span></Button>
+                <Button type="button" variant="outline" className="login-secondary-button h-12 w-full rounded-full border-white/[.08] bg-white/[.025] text-[12px] text-slate-200" onClick={()=>loginGoogle().catch((error:any)=>toast.error(getFriendlyError(error) || 'Google sign-in failed'))}><GoogleMark/> <span className="ml-2">Google Workspace</span></Button>
 
                 <div className="grid grid-cols-2 gap-2.5 pt-1">
                   <button type="button" onClick={handleBiometric} className="biometric-button flex h-[58px] items-center justify-center gap-2 rounded-2xl border border-white/[.06] bg-white/[.025] text-[10px] font-semibold text-slate-400"><ScanFace size={20} className="text-cyan-300"/> Face ID</button>
@@ -149,7 +150,7 @@ export default function LoginPage() {
             </TabsContent>
           </Tabs>
 
-          {user && !user.emailVerified && <div className="mt-5 flex items-center justify-between gap-2 rounded-2xl border border-amber-300/15 bg-amber-300/[.06] p-3 text-[10px] text-amber-200"><span>Email verification pending.</span><Button size="sm" variant="outline" className="h-8 rounded-full border-amber-300/15 bg-transparent" onClick={()=>resendVerification().then(()=>toast.success('Verification sent')).catch((error:any)=>toast.error(error.message))}>Resend</Button></div>}
+          {user && !user.emailVerified && <div className="mt-5 flex items-center justify-between gap-2 rounded-2xl border border-amber-300/15 bg-amber-300/[.06] p-3 text-[10px] text-amber-200"><span>Email verification pending.</span><Button size="sm" variant="outline" className="h-8 rounded-full border-amber-300/15 bg-transparent" onClick={()=>resendVerification().then(()=>toast.success('Verification sent')).catch((error:any)=>toast.error(getFriendlyError(error) || 'Could not resend verification'))}>Resend</Button></div>}
 
           <div className="mt-5 flex items-center justify-center gap-2 border-t border-white/[.06] pt-4 text-[9px] text-slate-600"><ShieldCheck size={12} className="text-emerald-400/70"/> Encrypted • Role-based • Firebase secured</div>
         </motion.div>

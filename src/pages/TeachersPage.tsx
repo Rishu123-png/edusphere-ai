@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { db } from '@/lib/firebase'
 import { ref, onValue, update, remove } from 'firebase/database'
 import { toast } from 'sonner'
+import { getFriendlyError } from '@/lib/errors'
 import { generateId, generateSchoolCode } from '@/lib/utils'
 import { useSchool } from '@/contexts/SchoolContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -153,7 +154,7 @@ export default function TeachersPage(){
 
       toast.success('Teacher removed from this school')
     } catch(error) {
-      toast.error(error instanceof Error ? error.message : 'Could not remove teacher')
+      toast.error(getFriendlyError(error) || 'Could not remove teacher')
     }
   }
 

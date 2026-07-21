@@ -7,6 +7,7 @@ import { useSchool } from '@/contexts/SchoolContext'
 import PageHeader from '@/components/mobile/PageHeader'
 import { Moon, Sun, Monitor, School, Bell, User, Palette, ShieldCheck, Mail, Phone, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
+import { getFriendlyError } from '@/lib/errors'
 import { db } from '@/lib/firebase'
 import { ref, get } from 'firebase/database'
 
@@ -232,7 +233,7 @@ export default function SettingsPage(){
               await resetPassword(profile.email)
               toast.success('Password reset email sent')
             } catch(error) {
-              toast.error(error instanceof Error ? error.message : 'Could not send password reset email')
+              toast.error(getFriendlyError(error) || 'Could not send password reset email')
             }
           }}>Send password reset email</Button>
         </CardContent>

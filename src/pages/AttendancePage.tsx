@@ -1028,6 +1028,12 @@ const handleQrScan = async (scannedText: string) => {
               <div className="rounded-2xl border border-violet-400/20 bg-violet-400/10 p-3 text-center"><div className="text-[20px] font-black text-violet-300">{REQUIRED_CONFIRM_FRAMES}x</div><div className="text-[10px] text-violet-300/80 font-bold">Frame Confirm</div></div>
             </div>
 
+            {enrolledFaces.length < students.length && (
+              <div className="rounded-2xl border border-amber-300/30 bg-amber-400/10 p-3 text-[12px] text-amber-200">
+                <span className="font-bold">{students.length - enrolledFaces.length}</span> student(s) in {classSel || 'this class'} don’t have a Face ID yet, so they can’t be auto-detected. Open the Students page, tap each, and generate their Face ID to include them.
+              </div>
+            )}
+
             <Button variant="gradient" className="w-full rounded-full h-14 text-[16px] font-extrabold shadow-[0_10px_35px_rgba(16,185,129,0.4)]" onClick={startAiCamera} disabled={!students.length}>
               <Camera size={19} className="mr-2"/> Start Beautiful AI Camera Scan
             </Button>

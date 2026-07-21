@@ -16,7 +16,7 @@ function GoogleMark() {
 }
 
 export default function LoginPage() {
-  const { login, loginGoogle, user, profile, resetPassword, signup, resendVerification } = useAuth() as any
+  const { login, loginGoogle, user, profile, loading: authLoading, resetPassword, signup, resendVerification, refreshProfile } = useAuth() as any
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
@@ -31,14 +31,23 @@ export default function LoginPage() {
     if(code) setSchoolCode(code)
   }, [searchParams])
 
-  if (user && profile?.schoolId) return <Navigate to="/" replace />
-  if (user && !profile?.schoolId) return <Navigate to="/onboarding" replace />
+  // Only redirect once the auth session AND the user profile are fully loaded.
+  // Redirecting while `profile` is still null (right after sign-in) used to
+  // wrongly send existing school users to /onboarding. Requiring `!loading`
+  // ensures we read the real profile (which carries schoolId when the user
+  // already belongs to a school), so the dashboard opens without a refresh.
+  if (user && !authLoading) {
+    return <Navigate to={profile?.schoolId ? '/' : '/onboarding'} replace />
+  }
 
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault()
     setLoading(true)
     try {
       await login(email, password)
+      // Make sure the profile (with schoolId) is loaded before we leave the
+      // login screen, so the app routes straight to the dashboard.
+      await refreshProfile?.().catch(() => {})
       toast.success('Login successful — welcome back!')
       nav('/')
     } catch (error:any) {

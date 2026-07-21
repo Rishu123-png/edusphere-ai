@@ -12,6 +12,7 @@ import { generateId } from '@/lib/utils'
 import { createFaceDescriptorFromImageUrl, isValidDescriptor, loadFaceApiModels } from '@/lib/faceRecognition'
 import { fileToDataUrl, resizeImageDataUrl, uploadStudentPhoto } from '@/lib/studentPhoto'
 import { toast } from 'sonner'
+import { getFriendlyError } from '@/lib/errors'
 import { QRCodeSVG } from 'qrcode.react'
 import PageHeader from '@/components/mobile/PageHeader'
 import { Search, Plus, Edit2, Trash2, Download, Camera, ImageUp, ScanFace, Smile, Eye, CheckCircle2, ShieldCheck, AlertCircle } from 'lucide-react'
@@ -372,7 +373,7 @@ export default function StudentsPage(){
       await remove(ref(db, `schools/${s.schoolId || schoolId}/students/${s.id}`))
       await remove(ref(db, `students/${s.id}`)).catch(()=>{})
       toast.success('Deleted')
-    } catch(e:any){ toast.error(e.message) }
+    } catch(e:any){ toast.error(getFriendlyError(e) || 'Could not save student') }
   }
 
   const openAdd = () => {

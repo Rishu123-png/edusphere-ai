@@ -1,23 +1,36 @@
 // ============================================================================
 // EduSphere AI — Intelligence Brain
 // ----------------------------------------------------------------------------
-// Powered by Google's Gemini models. The API key is supplied through the
-// VITE_GEMINI_API_KEY environment variable (see .env.example). A documented
-// default is bundled so the app works out-of-the-box in development.
+// Provider-flexible AI client. Supports two modes (chosen by VITE_AI_PROVIDER):
+//   • 'gemini'  (default) → Google Gemini generative language API
+//   • 'openai'            → any OpenAI-compatible endpoint (OpenRouter, Groq…)
 //
+// This lets you run the assistant 100% FREE using OpenRouter's free models
+// (e.g. meta-llama/llama-3.1-8b-instruct:free) — no credit card required.
+//
+// The API key is supplied through environment variables (see .env.example).
 // IMPORTANT (white-label / "proper website" rule):
-//   This module is internal. The user interface NEVER mentions the provider by
-//   name — the assistant is branded as the "EduSphere AI Assistant". Raw model
-//   errors are swallowed and a calm local fallback is returned instead, so the
-//   backend is never exposed to teachers.
+//   This module is internal. The UI NEVER mentions the provider by name — the
+//   assistant is branded as the "EduSphere AI Assistant". Raw model errors are
+//   swallowed and a calm local fallback is returned instead.
 // ============================================================================
 
-const DEFAULT_KEY = 'AQ.Ab8RN6JcapHDRsbXSGOyIf38KuBKEbR1p39gd5XDfwNm19qcKw'
-const API_KEY =
-  (import.meta.env.VITE_GEMINI_API_KEY as string | undefined)?.trim() || DEFAULT_KEY
-const MODEL =
+// --- Gemini (Google) ---------------------------------------------------------
+const GEMINI_FALLBACK_KEY = 'AQ.Ab8RN6Ihgmq9Qy8CCGK-H8uTMZBXb7AkPiVMDB3lj6h3ENfdcg'
+const GEMINI_KEY =
+  (import.meta.env.VITE_GEMINI_API_KEY as string | undefined)?.trim() || GEMINI_FALLBACK_KEY
+const GEMINI_MODEL =
   (import.meta.env.VITE_GEMINI_MODEL as string | undefined)?.trim() || 'gemini-2.0-flash'
-const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`
+const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`
+
+// --- OpenAI-compatible (OpenRouter / Groq / …) -------------------------------
+const PROVIDER = (import.meta.env.VITE_AI_PROVIDER as string | undefined)?.toLowerCase() || 'gemini'
+const AI_BASE_URL =
+  (import.meta.env.VITE_AI_BASE_URL as string | undefined)?.trim() || 'https://openrouter.ai/api/v1'
+const AI_API_KEY = (import.meta.env.VITE_AI_API_KEY as string | undefined)?.trim() || ''
+const AI_MODEL =
+  (import.meta.env.VITE_AI_MODEL as string | undefined)?.trim() ||
+  'google/gemma-4-31b-it:free'
 
 export interface GeminiTurn {
   role: 'user' | 'model'
@@ -31,26 +44,22 @@ export interface GeminiOptions {
   maxTokens?: number
 }
 
-/**
- * Low-level call to the generative model. Throws on failure so callers can
- * decide how to degrade gracefully. Never returns raw provider errors to UI.
- */
-export async function callGemini(
-  prompt: string,
-  opts: GeminiOptions = {},
-): Promise<string> {
+/** Unified entry point — routes to the active provider. */
+async function callModel(prompt: string, opts: GeminiOptions = {}): Promise<string> {
+  if (PROVIDER === 'openai') return callOpenAI(prompt, opts)
+  return callGemini(prompt, opts)
+}
+
+// ----------------------------------------------------------------------------
+// Gemini implementation
+// ----------------------------------------------------------------------------
+async function callGemini(prompt: string, opts: GeminiOptions = {}): Promise<string> {
   const contents = [
-    ...(opts.history ?? []).map((h) => ({
-      role: h.role,
-      parts: [{ text: h.text }],
-    })),
+    ...(opts.history ?? []).map((h) => ({ role: h.role, parts: [{ text: h.text }] })),
     { role: 'user', parts: [{ text: prompt }] },
   ]
-
   const body: Record<string, unknown> = { contents }
-  if (opts.systemInstruction) {
-    body.systemInstruction = { parts: [{ text: opts.systemInstruction }] }
-  }
+  if (opts.systemInstruction) body.systemInstruction = { parts: [{ text: opts.systemInstruction }] }
   body.generationConfig = {
     temperature: opts.temperature ?? 0.7,
     topP: 0.9,
@@ -59,26 +68,97 @@ export async function callGemini(
 
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), 25000)
-
   try {
-    const res = await fetch(ENDPOINT, {
+    const res = await fetch(GEMINI_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal: controller.signal,
     })
-
     if (!res.ok) {
+      let detail = ''
+      try {
+        const errBody = await res.json()
+        detail = errBody?.error?.message || ''
+      } catch {
+        /* ignore parse errors */
+      }
+      const quotaNote =
+        res.status === 429
+          ? 'Quota exceeded — enable billing or check the free-tier quota for this API key. '
+          : ''
+      // Dev-only diagnostic. Never surfaced in the UI (white-label rule).
+      console.warn(
+        `[EduSphere AI] Gemini request failed (HTTP ${res.status}). ` +
+          quotaNote +
+          (detail ? `Details: ${String(detail).slice(0, 220)} ` : '') +
+          'Assistant is using offline mode for now.',
+      )
       throw new Error(`request_failed_${res.status}`)
     }
-
     const data = await res.json()
     const parts = data?.candidates?.[0]?.content?.parts ?? []
-    const text = parts
-      .map((p: { text?: string }) => p.text ?? '')
-      .join('')
-      .trim()
+    const text = parts.map((p: { text?: string }) => p.text ?? '').join('').trim()
+    if (!text) throw new Error('empty_response')
+    return text
+  } finally {
+    window.clearTimeout(timeout)
+  }
+}
 
+// ----------------------------------------------------------------------------
+// OpenAI-compatible implementation (OpenRouter / Groq / …)
+// ----------------------------------------------------------------------------
+async function callOpenAI(prompt: string, opts: GeminiOptions = {}): Promise<string> {
+  if (!AI_API_KEY) throw new Error('missing_ai_key')
+
+  const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
+  if (opts.systemInstruction) messages.push({ role: 'system', content: opts.systemInstruction })
+  for (const h of opts.history ?? []) {
+    messages.push({ role: h.role === 'model' ? 'assistant' : 'user', content: h.text })
+  }
+  messages.push({ role: 'user', content: prompt })
+
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 25000)
+  try {
+    const res = await fetch(`${AI_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${AI_API_KEY}`,
+        'HTTP-Referer': 'https://edusphere.app',
+        'X-Title': 'EduSphere AI',
+      },
+      body: JSON.stringify({
+        model: AI_MODEL,
+        messages,
+        temperature: opts.temperature ?? 0.7,
+        max_tokens: opts.maxTokens ?? 900,
+      }),
+      signal: controller.signal,
+    })
+    if (!res.ok) {
+      let detail = ''
+      try {
+        const b = await res.json()
+        detail = b?.error?.message || ''
+      } catch {
+        /* ignore */
+      }
+      if (res.status === 429) {
+        console.warn(
+          `[EduSphere AI] ${PROVIDER} quota exceeded — check your free-tier limits. Assistant is in offline mode.`,
+        )
+      } else {
+        console.warn(
+          `[EduSphere AI] ${PROVIDER} request failed (HTTP ${res.status}). ${String(detail).slice(0, 200)}`,
+        )
+      }
+      throw new Error(`request_failed_${res.status}`)
+    }
+    const data = await res.json()
+    const text = (data?.choices?.[0]?.message?.content || '').trim()
     if (!text) throw new Error('empty_response')
     return text
   } finally {
@@ -89,7 +169,6 @@ export async function callGemini(
 // ----------------------------------------------------------------------------
 // Assistant-level helpers
 // ----------------------------------------------------------------------------
-
 export interface SchoolContext {
   totalStudents?: number
   present?: number
@@ -116,22 +195,16 @@ function formatContext(ctx: SchoolContext): string {
   const lines: string[] = []
   if (ctx.role) lines.push(`Teacher role: ${ctx.role}`)
   if (ctx.page) lines.push(`Current screen: ${ctx.page}`)
-  if (typeof ctx.totalStudents === 'number')
-    lines.push(`Total enrolled students: ${ctx.totalStudents}`)
+  if (typeof ctx.totalStudents === 'number') lines.push(`Total enrolled students: ${ctx.totalStudents}`)
   if (typeof ctx.present === 'number') lines.push(`Present today: ${ctx.present}`)
   if (typeof ctx.absent === 'number') lines.push(`Absent today: ${ctx.absent}`)
   if (typeof ctx.late === 'number') lines.push(`Late today: ${ctx.late}`)
-  if (typeof ctx.attendancePct === 'number')
-    lines.push(`Today's attendance rate: ${ctx.attendancePct}%`)
-  if (ctx.lowAttendanceStudent)
-    lines.push(`Lowest-attendance student right now: ${ctx.lowAttendanceStudent}`)
+  if (typeof ctx.attendancePct === 'number') lines.push(`Today's attendance rate: ${ctx.attendancePct}%`)
+  if (ctx.lowAttendanceStudent) lines.push(`Lowest-attendance student right now: ${ctx.lowAttendanceStudent}`)
   return lines.length ? lines.join('\n') : 'No live school data available yet.'
 }
 
-/**
- * Natural-language chat with the assistant. Falls back to a local reply if the
- * model is unreachable so the experience never breaks.
- */
+/** Natural-language chat with the assistant. Falls back to a local reply if the model is unreachable. */
 export async function askAssistant(
   userMessage: string,
   history: GeminiTurn[],
@@ -139,24 +212,17 @@ export async function askAssistant(
 ): Promise<string> {
   const system = `${ASSISTANT_SYSTEM}\n\n---\nLIVE SCHOOL CONTEXT (use it, never invent numbers):\n${formatContext(ctx)}`
   try {
-    return await callGemini(userMessage, {
-      history,
-      systemInstruction: system,
-      temperature: 0.6,
-      maxTokens: 900,
-    })
+    return await callModel(userMessage, { history, systemInstruction: system, temperature: 0.6, maxTokens: 900 })
   } catch {
     return localFallbackReply(userMessage, ctx)
   }
 }
 
-/**
- * Proactive one-liner the assistant "whispers" while the teacher works.
- */
+/** Proactive one-liner the assistant "whispers" while the teacher works. */
 export async function getProactiveWhisper(ctx: SchoolContext): Promise<string | null> {
   const system = `${ASSISTANT_SYSTEM}\n\nWrite ONE short, friendly, proactive sentence (max 22 words) a helpful co-teacher would whisper to a teacher based on the live context. If nothing needs attention, return the word NONE.`
   try {
-    const out = await callGemini(formatContext(ctx), {
+    const out = await callModel(formatContext(ctx), {
       systemInstruction: system,
       temperature: 0.8,
       maxTokens: 160,
@@ -171,7 +237,6 @@ export async function getProactiveWhisper(ctx: SchoolContext): Promise<string | 
 // ----------------------------------------------------------------------------
 // Local fallbacks (keep the product feeling alive even offline / key issues)
 // ----------------------------------------------------------------------------
-
 const JOKES = [
   'Why did the teacher wear sunglasses? Because her students were so bright! 😎',
   'Why was the math book sad? It had too many problems. 📚',
@@ -212,9 +277,7 @@ function localFallbackReply(message: string, ctx: SchoolContext): string {
   }
   if (lower.includes('present') || lower.includes('attendance today')) {
     if (typeof ctx.present === 'number' && typeof ctx.totalStudents === 'number') {
-      const pct = ctx.totalStudents
-        ? Math.round((ctx.present / ctx.totalStudents) * 100)
-        : 0
+      const pct = ctx.totalStudents ? Math.round((ctx.present / ctx.totalStudents) * 100) : 0
       return `Today ${ctx.present} of ${ctx.totalStudents} students are present (${pct}%).${
         ctx.absent ? ` ${ctx.absent} are absent.` : ''
       }`
@@ -226,6 +289,14 @@ function localFallbackReply(message: string, ctx: SchoolContext): string {
       ? `${ctx.lowAttendanceStudent} currently has the lowest attendance. A parent check-in might help.`
       : 'Everyone’s looking steady right now — no clear low-attendance outlier yet.'
   }
-  return 'I’m running in offline mode at the moment, so I’ll keep this simple. Try again in a moment and I’ll give you the full smart answer. 😊'
-        }
-      
+  const bits: string[] = []
+  if (typeof ctx.present === 'number' && typeof ctx.totalStudents === 'number') {
+    bits.push(`Today ${ctx.present}/${ctx.totalStudents} students are present`)
+  }
+  if (typeof ctx.attendancePct === 'number') bits.push(`${ctx.attendancePct}% attendance`)
+  if (ctx.lowAttendanceStudent) bits.push(`${ctx.lowAttendanceStudent} may need a check-in`)
+  if (bits.length) {
+    return `Quick snapshot (lightweight mode): ${bits.join(' • ')}. I’ll give the full analysis once I’m back to full strength. 😊`
+  }
+  return 'I’m in lightweight mode right now, so I’ll keep this simple — open the Attendance or Marks screen and I’ll watch things for you. 😊'
+}

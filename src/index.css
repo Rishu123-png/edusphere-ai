@@ -429,3 +429,99 @@
 .dark .bottom-nav-glass {
   box-shadow: 0 -14px 38px rgba(0, 0, 0, .45), 0 -1px 0 rgba(255, 255, 255, .06) inset;
 }
+
+/* ------------------------------------------------------------------ */
+/* EDUSPHERE AI ASSISTANT — moving orb, whisper, panel, voice          */
+/* ------------------------------------------------------------------ */
+@keyframes ai-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+@keyframes ai-aura {
+  0%, 100% { transform: scale(1); opacity: 0.55; }
+  50% { transform: scale(1.18); opacity: 0.85; }
+}
+@keyframes ai-ring {
+  to { transform: rotate(360deg); }
+}
+@keyframes ai-pop {
+  0% { transform: scale(0.86) translateY(8px); opacity: 0; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+@keyframes ai-slideup {
+  0% { transform: translateY(100%); opacity: 0.4; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+@keyframes ai-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-5px); opacity: 1; }
+}
+
+.ai-orb {
+  animation: ai-float 5s ease-in-out infinite;
+  transition: transform 0.2s ease;
+}
+.ai-orb:active { transform: scale(0.92); }
+
+.ai-orb-aura {
+  position: absolute;
+  inset: -14px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(34,211,238,.45), rgba(168,85,247,.30) 45%, transparent 72%);
+  filter: blur(8px);
+  animation: ai-aura 3.4s ease-in-out infinite;
+  pointer-events: none;
+}
+.ai-orb-ring {
+  position: absolute;
+  inset: -6px;
+  border-radius: 999px;
+  border: 2px dashed rgba(255,255,255,.35);
+  animation: ai-ring 9s linear infinite;
+  pointer-events: none;
+}
+.ai-orb-core { position: relative; overflow: hidden; }
+.ai-orb-core > span {
+  left: 50%;
+  top: 30px;
+  transform: translateX(-50%);
+}
+.ai-eye {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #fff;
+  pointer-events: none;
+  transition: transform 0.12s ease-out;
+}
+.ai-eye::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 999px;
+  background: #0b0f1a;
+}
+.ai-orb-sound {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  font-size: 13px;
+  animation: ai-bounce 1.1s ease-in-out infinite;
+}
+
+.ai-whisper { animation: ai-pop 0.3s ease-out both; }
+.ai-panel { background:
+  radial-gradient(circle at 12% 0%, rgba(34,211,238,.12), transparent 30%),
+  radial-gradient(circle at 90% 100%, rgba(168,85,247,.14), transparent 32%),
+  rgba(9,11,18,.97); }
+.ai-typing { display: inline-flex; gap: 4px; align-items: center; }
+.ai-typing i {
+  width: 6px; height: 6px; border-radius: 999px; background: #cbd5e1; display: inline-block;
+  animation: ai-bounce 1.2s infinite;
+}
+.ai-typing i:nth-child(2) { animation-delay: 0.18s; }
+.ai-typing i:nth-child(3) { animation-delay: 0.36s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-orb, .ai-orb-aura, .ai-orb-ring, .ai-orb-sound, .ai-typing i { animation: none !important; }
+}

@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { db } from '@/lib/firebase'
 import { get, ref, set, update } from 'firebase/database'
 import { generateId, generateSchoolCode } from '@/lib/utils'
+import { getFriendlyError } from '@/lib/errors'
 import { toast } from 'sonner'
 import { useNavigate } from 'react-router-dom'
 import AmbientBackground from '@/components/mobile/AmbientBackground'
@@ -87,7 +88,7 @@ export default function OnboardingPage(){
       setStep(2)
       setTimeout(()=> navigate('/'), 1200)
     } catch(error:any) {
-      toast.error(error.message || 'Could not create school')
+      toast.error(getFriendlyError(error) || 'Could not create school')
     } finally { setLoading(false) }
   }
 
@@ -237,7 +238,7 @@ export default function OnboardingPage(){
       setStep(2)
       setTimeout(()=> navigate('/'), 1200)
     } catch(error:any) {
-      toast.error(error.message || 'Could not join school')
+      toast.error(getFriendlyError(error) || 'Could not join school')
     } finally { setLoading(false) }
   }
 

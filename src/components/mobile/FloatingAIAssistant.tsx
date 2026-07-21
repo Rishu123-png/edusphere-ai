@@ -1,85 +1,146 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { BrainCircuit, Camera, ChevronRight, Sparkles, TrendingUp, X, Mic, Send, MessageSquare, Search, UserCheck, AlertTriangle, ShieldCheck, Volume2, Upload, ScanFace, CheckCircle2, QrCode, FileDown, RefreshCw } from 'lucide-react'
+import {
+  Brain,
+  ChevronRight,
+  Lightbulb,
+  Mic,
+  Send,
+  Smile,
+  Sparkles,
+  Volume2,
+  X,
+  MessageSquare,
+  Search,
+} from 'lucide-react'
 import { db } from '@/lib/firebase'
 import { ref, onValue } from 'firebase/database'
 import { useSchool } from '@/contexts/SchoolContext'
 import { todayIST } from '@/lib/rtdb'
 import { toast } from 'sonner'
-import { createFaceDescriptorFromImageUrl, findBestFaceMatch, isValidDescriptor } from '@/lib/faceRecognition'
-import { predictBunkRisk } from '@/lib/ai'
+import {
+  askAssistant,
+  getJoke,
+  getProactiveWhisper,
+  localNudge,
+  type GeminiTurn,
+  type SchoolContext,
+} from '@/lib/gemini'
+
+type Tab = 'chat' | 'voice' | 'discover'
 
 const quickPrompts = [
-  "Who has lowest attendance?",
-  "How many students are present today?",
-  "Which class has the highest bunk prediction?",
-  "Summarize Chemistry performance",
-  "Show students at risk"
+  'Summarize today’s attendance',
+  'Who needs attention today?',
+  'Tell me a joke',
+  'Draft a message to absentees’ parents',
+  'How is the class performing?',
 ]
+
+const PAGE_LABELS: Record<string, string> = {
+  '/': 'Dashboard',
+  '/students': 'Students',
+  '/teachers': 'Teachers',
+  '/attendance': 'Attendance',
+  '/marks': 'Marks',
+  '/ai': 'AI Insights',
+  '/schedule': 'Schedule',
+  '/reports': 'Reports',
+  '/calendar': 'Calendar',
+  '/parent': 'Parent Portal',
+  '/notifications': 'Notifications',
+  '/whatsapp': 'WhatsApp',
+  '/settings': 'Settings',
+  '/superadmin': 'Super Admin',
+}
+
+// --- Web Speech API typings (not in default lib) -----------------------------
+type SpeechRecognitionLike = any
+const SpeechRecognitionCtor: SpeechRecognitionLike =
+  typeof window !== 'undefined'
+    ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    : undefined
 
 export default function FloatingAIAssistant() {
   const [open, setOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<'bot' | 'voice' | 'search'>('bot')
+  const [tab, setTab] = useState<Tab>('chat')
   const location = useLocation()
   const navigate = useNavigate()
   const { schoolId } = useSchool()
 
-  // Live data access for chatbot and smart search
+  // Live data
   const [students, setStudents] = useState<any[]>([])
   const [attendance, setAttendance] = useState<Record<string, any>>({})
   const [marks, setMarks] = useState<Record<string, any>>({})
 
-  // Chatbot state
+  // Chat
   const [chatInput, setChatInput] = useState('')
-  const [chatMessages, setChatMessages] = useState<Array<{ sender: 'user' | 'ai'; text: string; time: string }>>([
+  const [chatMessages, setChatMessages] = useState<
+    Array<{ sender: 'user' | 'ai'; text: string; time: string }>
+  >([
     {
       sender: 'ai',
-      text: "👋 I'm EduBot, your AI Classroom Assistant! Ask me anything like \"Who has lowest attendance?\" or switch to Voice Assistant to command \"Take Attendance\".",
-      time: 'Just now'
-    }
+      text:
+        "Hi! I'm your AI co-teacher. I watch what's happening on screen and I'm here to help — ask me anything, talk to me, or let me surprise you with a tip or a joke. 💡",
+      time: 'Just now',
+    },
   ])
+  const [chatBusy, setChatBusy] = useState(false)
 
-  // Voice assistant state
+  // Voice
   const [isListening, setIsListening] = useState(false)
-  const [voiceLog, setVoiceLog] = useState<string>('Say "Take Attendance", "Search Rahul", "Generate Report"...')
+  const [isSpeaking, setIsSpeaking] = useState(false)
+  const [voiceTranscript, setVoiceTranscript] = useState('')
+  const [voiceReply, setVoiceReply] = useState('Tap the mic and talk to me…')
+  const recognitionRef = useRef<any>(null)
+  const transcriptRef = useRef('')
+  const voiceCanvasRef = useRef<HTMLCanvasElement>(null)
+  const speakingRef = useRef(false)
 
-  // Smart Search State
-  const [searchQuery, setSearchQuery] = useState('')
-  const [searchFilter, setSearchFilter] = useState<'all' | 'name' | 'roll' | 'class'>('all')
-  const [faceSearchLoading, setFaceSearchLoading] = useState(false)
-  const [faceMatchResult, setFaceMatchResult] = useState<any | null>(null)
-  const faceInputRef = useRef<HTMLInputElement>(null)
+  // Discover / proactive
+  const [whisper, setWhisper] = useState<string | null>(null)
+  const [showWhisper, setShowWhisper] = useState(false)
+  const [pupil, setPupil] = useState({ x: 0, y: 0 })
 
+  // ---- Live data subscriptions ---------------------------------------------
   useEffect(() => {
     if (!schoolId) return
     const unsubs: any[] = []
-    unsubs.push(onValue(ref(db, `schools/${schoolId}/students`), snap => {
-      const v = snap.val() || {}
-      setStudents(Object.entries(v).map(([id, s]: any) => ({ id, ...s })))
-    }))
-    unsubs.push(onValue(ref(db, `schools/${schoolId}/attendance`), snap => {
-      setAttendance(snap.val() || {})
-    }))
-    unsubs.push(onValue(ref(db, `schools/${schoolId}/marks`), snap => {
-      setMarks(snap.val() || {})
-    }))
-    return () => unsubs.forEach(u => u())
+    unsubs.push(
+      onValue(ref(db, `schools/${schoolId}/students`), (snap) => {
+        const v = snap.val() || {}
+        setStudents(Object.entries(v).map(([id, s]: any) => ({ id, ...s })))
+      }),
+    )
+    unsubs.push(
+      onValue(ref(db, `schools/${schoolId}/attendance`), (snap) => {
+        setAttendance(snap.val() || {})
+      }),
+    )
+    unsubs.push(
+      onValue(ref(db, `schools/${schoolId}/marks`), (snap) => {
+        setMarks(snap.val() || {})
+      }),
+    )
+    return () => unsubs.forEach((u) => u())
   }, [schoolId])
 
-  const todayRecords = useMemo(() => Object.values(attendance[todayIST()] || {}) as any[], [attendance])
+  const todayRecords = useMemo(
+    () => (Object.values(attendance[todayIST()] || {}) as any[]) || [],
+    [attendance],
+  )
 
-  // Calculate live stats for AI Chatbot answers
-  const studentStats = useMemo(() => {
+  const stats = useMemo(() => {
     const total = students.length
     const present = todayRecords.filter((r: any) => ['present', 'late'].includes(r.status)).length
     const absent = todayRecords.filter((r: any) => r.status === 'absent').length
     const late = todayRecords.filter((r: any) => r.status === 'late').length
 
-    // Find lowest attendance student
-    let lowestStudent = null
-    let lowestPct = 100
+    let lowestStudent: any = null
+    let lowestPct = 101
     for (const s of students) {
-      const allRecs = Object.values(attendance).flatMap((day: any) => Object.values(day || {}).filter((r: any) => r.studentId === s.id))
+      const allRecs = Object.values(attendance)
+        .flatMap((day: any) => Object.values(day || {}).filter((r: any) => r.studentId === s.id))
       if (allRecs.length >= 2) {
         const p = allRecs.filter((r: any) => ['present', 'late'].includes(r.status)).length
         const pct = Math.round((p / allRecs.length) * 100)
@@ -90,492 +151,554 @@ export default function FloatingAIAssistant() {
       }
     }
 
-    return { total, present, absent, late, lowestStudent, lowestPct }
+    const pct = total ? Math.round((present / total) * 1000) / 10 : 0
+    return {
+      total,
+      present,
+      absent,
+      late,
+      attendancePct: pct,
+      lowAttendanceStudent: lowestStudent ? lowestStudent.name : null,
+    }
   }, [students, todayRecords, attendance])
 
-  // Chatbot Question Processor
-  const handleBotQuery = (q: string) => {
-    if (!q.trim()) return
-    const userMsg = { sender: 'user' as const, text: q, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
-    setChatMessages(prev => [...prev, userMsg])
-    setChatInput('')
+  const ctx: SchoolContext = useMemo(
+    () => ({
+      ...stats,
+      page: PAGE_LABELS[location.pathname] || location.pathname,
+      role: 'teacher',
+    }),
+    [stats, location.pathname],
+  )
 
-    const lower = q.toLowerCase()
-    let aiReply = "I searched the live school database, but didn't find an exact match for that specific query. Try asking \"Who has lowest attendance?\", \"How many students are present today?\", or \"Show students at risk\"."
+  // ---- "Moving AI" observer: proactive whispers -----------------------------
+  const lastWhisperAt = useRef(0)
+  const pushWhisper = useCallback(
+    (text: string | null) => {
+      if (!text) return
+      setWhisper(text)
+      setShowWhisper(true)
+      lastWhisperAt.current = Date.now()
+      window.setTimeout(() => setShowWhisper(false), 9000)
+    },
+    [],
+  )
 
-    if (lower.includes('lowest attendance')) {
-      if (studentStats.lowestStudent) {
-        aiReply = `📉 **Lowest Attendance Alert:**\n• **Student:** ${studentStats.lowestStudent.name}\n• **Roll Number:** ${studentStats.lowestStudent.rollNumber || 'N/A'}\n• **Class:** ${studentStats.lowestStudent.className}-${studentStats.lowestStudent.section}\n• **Attendance Rate:** ${studentStats.lowestPct}%\n\n⚡ *Recommendation:* Schedule immediate parent consultation and trigger automated attendance recovery SMS.`
-      } else if (students.length > 0) {
-        aiReply = `Currently, all ${students.length} students have good attendance records or insufficient history to flag a lowest outlier.`
-      } else {
-        aiReply = `No students enrolled yet. Add students from the Students tab to start computing attendance trends.`
-      }
-    } else if (lower.includes('present today') || lower.includes('attendance today') || lower.includes('how many present')) {
-      const pct = studentStats.total ? Math.round((studentStats.present / studentStats.total) * 100) : 0
-      aiReply = `📊 **Today's Live Attendance:**\n• **Present:** ${studentStats.present} / ${studentStats.total} (${pct}%)\n• **Absent:** ${studentStats.absent}\n• **Late Arrivals:** ${studentStats.late}\n\nAll counts reflect real-time verified AI camera & QR check-ins.`
-    } else if (lower.includes('bunk') || lower.includes('bunk prediction')) {
-      let highestBunk = null
-      let maxProb = 0
-      for (const s of students) {
-        const allRecs = Object.values(attendance).flatMap((day: any) => Object.values(day || {}).filter((r: any) => r.studentId === s.id))
-        const b = predictBunkRisk(s.id, allRecs, 'Physics Period')
-        const probNum = parseInt(b.probability) || 0
-        if (probNum > maxProb) {
-          maxProb = probNum
-          highestBunk = { student: s, risk: b }
-        }
-      }
-      if (highestBunk && maxProb > 30) {
-        aiReply = `🚨 **Highest Bunk Risk Detected:**\n• **Class/Section:** ${highestBunk.student.className}-${highestBunk.student.section}\n• **Student:** ${highestBunk.student.name} (Roll ${highestBunk.student.rollNumber || 'N/A'})\n• **Prediction:** ${highestBunk.risk.message}\n• **Reasons:** ${highestBunk.risk.reasons.join('; ')}`
-      } else {
-        aiReply = `✅ **Bunk Risk Summary:** No critical bunk anomalies projected across the active classes right now. Average bunk probability remains low (<25%).`
-      }
-    } else if (lower.includes('chemistry') || lower.includes('performance') || lower.includes('marks')) {
-      // Compute from the LIVE marks tree — never answer with baked-in numbers.
-      const allMarks: any[] = []
-      Object.values(marks || {}).forEach((byStudent: any) => {
-        Object.values(byStudent || {}).forEach((m: any) => allMarks.push(m))
-      })
-      const requestedSubject = lower.includes('chemistry') ? 'chemistry' : null
-      const relevant = requestedSubject
-        ? allMarks.filter(m => String(m.subject || '').toLowerCase().includes(requestedSubject))
-        : allMarks
+  // Contextual greeting when the teacher moves to a new screen
+  useEffect(() => {
+    if (open) return
+    const label = PAGE_LABELS[location.pathname]
+    if (!label) return
+    const greetings: Record<string, string> = {
+      Attendance: 'On the Attendance screen — I’ll keep an eye on who’s in and who’s missing.',
+      Marks: 'Marks time! Ask me to summarize class performance anytime.',
+      Students: 'Student list loaded. Need to find someone fast? Just ask.',
+      Dashboard: 'Dashboard’s ready. Want today’s quick summary?',
+      AI: 'The AI hub! I can go deeper here if you like.',
+    }
+    if (greetings[label]) {
+      window.setTimeout(() => pushWhisper(greetings[label]), 1400)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname])
 
-      if (!allMarks.length) {
-        aiReply = `📊 **Marks Analytics:** No marks have been published yet. Enter marks on the Marks page and I will compute real subject averages, toppers and risk flags here.`
-      } else {
-        const pool = relevant.length ? relevant : allMarks
-        const avgPct = pool.reduce((sum, m) => sum + ((Number(m.marksObtained) || 0) / (Number(m.maxMarks) || 100)) * 100, 0) / pool.length
-        const bestEntry = [...pool].sort((a, b) => ((Number(b.marksObtained) || 0) / (Number(b.maxMarks) || 100)) - ((Number(a.marksObtained) || 0) / (Number(a.maxMarks) || 100)))[0]
-        const worstEntry = [...pool].sort((a, b) => ((Number(a.marksObtained) || 0) / (Number(a.maxMarks) || 100)) - ((Number(b.marksObtained) || 0) / (Number(b.maxMarks) || 100)))[0]
-
-        // Subject-level average map for an honest "strongest / weakest" answer
-        const subjectMap = new Map<string, { total: number; count: number }>()
-        allMarks.forEach(m => {
-          const sub = String(m.subject || 'General')
-          const pct = ((Number(m.marksObtained) || 0) / (Number(m.maxMarks) || 100)) * 100
-          const cur = subjectMap.get(sub) || { total: 0, count: 0 }
-          subjectMap.set(sub, { total: cur.total + pct, count: cur.count + 1 })
+  // Periodic smart nudge based on live data
+  useEffect(() => {
+    if (open) return
+    let active = true
+    const id = window.setInterval(() => {
+      if (!active || open || Date.now() - lastWhisperAt.current < 45000) return
+      getProactiveWhisper(ctx)
+        .then((w) => {
+          if (active && w) pushWhisper(w)
         })
-        const subjectAvgs = Array.from(subjectMap.entries()).map(([sub, v]) => ({ sub, avg: v.total / v.count }))
-        const strongest = subjectAvgs.sort((a, b) => b.avg - a.avg)[0]
-        const weakest = subjectAvgs.sort((a, b) => a.avg - b.avg)[0]
-
-        const scope = requestedSubject ? (relevant.length ? 'Chemistry' : `Chemistry data not found — showing all subjects`) : 'All Subjects'
-        aiReply = `🧪 **Performance Intelligence (${scope}) — live from ${allMarks.length} published entries:**\n• **Average Score:** ${avgPct.toFixed(1)}%\n• **Best Entry:** ${bestEntry?.studentName || 'Student'} • ${((Number(bestEntry?.marksObtained) || 0) / (Number(bestEntry?.maxMarks) || 100) * 100).toFixed(0)}% in ${bestEntry?.subject || 'Subject'}\n• **Needs Support:** ${worstEntry?.studentName || 'Student'} • ${((Number(worstEntry?.marksObtained) || 0) / (Number(worstEntry?.maxMarks) || 100) * 100).toFixed(0)}% in ${worstEntry?.subject || 'Subject'}\n• **Strongest Subject:** ${strongest?.sub} (${strongest?.avg.toFixed(0)}%) • **Weakest Subject:** ${weakest?.sub} (${weakest?.avg.toFixed(0)}%)`
-      }
-    } else if (lower.includes('risk') || lower.includes('at risk')) {
-      const riskList = students.filter(s => {
-        const allRecs = Object.values(attendance).flatMap((day: any) => Object.values(day || {}).filter((r: any) => r.studentId === s.id))
-        if (allRecs.length < 3) return false
-        const p = allRecs.filter((r: any) => ['present', 'late'].includes(r.status)).length
-        return (p / allRecs.length) < 0.75
-      })
-      if (riskList.length) {
-        aiReply = `⚠️ **Students at Attendance Risk (<75%):**\n` + riskList.slice(0, 5).map(s => `• **${s.name}** (${s.className}-${s.section}) • Roll ${s.rollNumber || 'N/A'}`).join('\n') + (riskList.length > 5 ? `\n• ...and ${riskList.length - 5} more.` : '')
-      } else {
-        aiReply = `🎉 **Zero High-Risk Students!** All enrolled students are maintaining attendance above the 75% threshold.`
-      }
-    } else {
-      aiReply = `🤖 I processed your query against ${students.length} students and ${todayRecords.length} check-ins today.\n\n• **Tip:** You can ask me for exact student names, bunk predictions, subject averages, or say voice commands!`
+        .catch(() => {
+          const local = localNudge(ctx)
+          if (active && local) pushWhisper(local)
+        })
+    }, 30000)
+    return () => {
+      active = false
+      window.clearInterval(id)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx, open])
 
-    setTimeout(() => {
-      setChatMessages(prev => [...prev, { sender: 'ai', text: aiReply, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }])
-    }, 400)
+  // ---- Chat ----------------------------------------------------------------
+  const runAssistant = useCallback(
+    async (text: string) => {
+      const userMsg = {
+        sender: 'user' as const,
+        text,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      }
+      setChatMessages((prev) => [...prev, userMsg])
+      setChatBusy(true)
+
+      const history: GeminiTurn[] = chatMessages
+        .filter((m) => m.sender === 'user' || m.sender === 'ai')
+        .slice(-8)
+        .map((m) => ({ role: m.sender === 'user' ? 'user' : 'model', text: m.text }))
+
+      try {
+        const reply = await askAssistant(text, history, ctx)
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            sender: 'ai',
+            text: reply,
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          },
+        ])
+      } catch {
+        setChatMessages((prev) => [
+          ...prev,
+          { sender: 'ai', text: getJoke(), time: 'just now' },
+        ])
+      } finally {
+        setChatBusy(false)
+      }
+    },
+    [chatMessages, ctx],
+  )
+
+  const handleSend = () => {
+    const q = chatInput.trim()
+    if (!q || chatBusy) return
+    setChatInput('')
+    void runAssistant(q)
   }
 
-  // Voice Command Execution
-  const executeVoiceCommand = (command: string) => {
-    const cmd = command.toLowerCase().trim()
-    setVoiceLog(`Hearing: "${command}"...`)
-
-    if (cmd.includes('take attendance') || cmd.includes('scan attendance') || cmd.includes('start camera')) {
-      toast.success('🎙️ Voice Command: Launching AI Attendance Camera...')
-      setOpen(false)
-      navigate('/attendance')
-    } else if (cmd.includes('open student') || cmd.includes('student list')) {
-      toast.success('🎙️ Voice Command: Opening Student Database...')
-      setOpen(false)
-      navigate('/students')
-    } else if (cmd.includes('generate report') || cmd.includes('open report')) {
-      toast.success('🎙️ Voice Command: Opening AI Report Generator...')
-      setOpen(false)
-      navigate('/reports')
-    } else if (cmd.includes("today's attendance") || cmd.includes('attendance today')) {
-      const pct = studentStats.total ? Math.round((studentStats.present / studentStats.total) * 100) : 0
-      const msg = `Today's attendance is ${pct} percent. ${studentStats.present} students are present out of ${studentStats.total}.`
-      toast.success(`🎙️ ${msg}`)
-      if ('speechSynthesis' in window) {
-        const utterance = new SpeechSynthesisUtterance(msg)
-        window.speechSynthesis.speak(utterance)
+  // ---- Voice ---------------------------------------------------------------
+  const speak = useCallback((text: string) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
+    try {
+      window.speechSynthesis.cancel()
+      const u = new SpeechSynthesisUtterance(text)
+      u.rate = 1.02
+      u.pitch = 1.05
+      const voices = window.speechSynthesis.getVoices?.() || []
+      const preferred =
+        voices.find((v) => /en[-_]IN/i.test(v.lang) && /female|woman|samantha|zira|google/i.test(v.name)) ||
+        voices.find((v) => /en[-_]IN/i.test(v.lang)) ||
+        voices.find((v) => /^en/i.test(v.lang)) ||
+        undefined
+      if (preferred) u.voice = preferred
+      u.onstart = () => {
+        setIsSpeaking(true)
+        speakingRef.current = true
       }
-      setVoiceLog(`Spoken: "${msg}"`)
-    } else if (cmd.includes('search rahul') || cmd.includes('find rahul')) {
-      setActiveTab('search')
-      setSearchQuery('Rahul')
-      toast.success('🎙️ Voice Command: Searching student "Rahul"...')
-      setVoiceLog('Found matches for "Rahul" in Smart Search.')
-    } else if (cmd.includes('open analytics') || cmd.includes('ai predictions')) {
-      toast.success('🎙️ Voice Command: Opening AI Intelligence Dashboard...')
-      setOpen(false)
-      navigate('/ai')
-    } else {
-      setVoiceLog(`Unknown command "${command}". Try: "Take Attendance", "Open Student List", or "Today's Attendance".`)
+      u.onend = () => {
+        setIsSpeaking(false)
+        speakingRef.current = false
+      }
+      u.onerror = () => {
+        setIsSpeaking(false)
+        speakingRef.current = false
+      }
+      window.speechSynthesis.speak(u)
+    } catch {
+      setIsSpeaking(false)
+      speakingRef.current = false
     }
+  }, [])
+
+  const stopSpeaking = () => {
+    try {
+      window.speechSynthesis?.cancel()
+    } catch {}
+    setIsSpeaking(false)
+    speakingRef.current = false
   }
 
-  // Start Mic Listening
-  const startListening = () => {
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      toast.error('Web Speech API not supported in this browser preview. Use the quick voice buttons below!')
+  const startListening = useCallback(() => {
+    if (!SpeechRecognitionCtor) {
+      toast.info('Voice isn’t supported on this device — type your message instead.')
       return
     }
     try {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-      const recognition = new SpeechRecognition()
-      recognition.continuous = false
-      recognition.interimResults = false
-      recognition.lang = 'en-IN'
+      const rec = new SpeechRecognitionCtor()
+      rec.lang = 'en-IN'
+      rec.interimResults = true
+      rec.continuous = false
+      rec.maxAlternatives = 1
+      recognitionRef.current = rec
 
-      recognition.onstart = () => {
-        setIsListening(true)
-        setVoiceLog('Listening... Speak your command clearly.')
+      rec.onresult = (event: any) => {
+        let transcript = ''
+        for (let i = 0; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript
+        }
+        transcriptRef.current = transcript
+        setVoiceTranscript(transcript)
       }
-
-      recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript
+      rec.onerror = () => {
         setIsListening(false)
-        executeVoiceCommand(transcript)
+        toast.error('Couldn’t hear you clearly. Please try again.')
       }
-
-      recognition.onerror = () => {
+      rec.onend = () => {
         setIsListening(false)
-        setVoiceLog('Could not hear clearly. Try clicking a quick command below.')
-      }
-
-      recognition.onend = () => {
-        setIsListening(false)
-      }
-
-      recognition.start()
-    } catch {
-      setIsListening(false)
-      toast.error('Voice input error. Use quick buttons below.')
-    }
-  }
-
-  // Face search handling
-  const handleFaceSearchPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setFaceSearchLoading(true)
-    setFaceMatchResult(null)
-    try {
-      const reader = new FileReader()
-      reader.onload = async (ev) => {
-        try {
-          const photoUrl = ev.target?.result as string
-          const descriptor = await createFaceDescriptorFromImageUrl(photoUrl)
-          const enrolledFaces = students
-            .filter((s: any) => isValidDescriptor(s.faceDescriptor))
-            .map((s: any) => ({ id: s.id, name: s.name || 'Student', descriptor: s.faceDescriptor }))
-
-          const match = findBestFaceMatch(descriptor, enrolledFaces)
-          if (match && match.confidence >= 0.48) {
-            const matchedStudent = students.find(s => s.id === match.id)
-            setFaceMatchResult({
-              success: true,
-              student: matchedStudent,
-              confidence: Math.round(match.confidence * 100)
+        const finalText = (transcriptRef.current || '').trim()
+        transcriptRef.current = ''
+        if (finalText) {
+          setVoiceReply('Thinking…')
+          const history: GeminiTurn[] = []
+          askAssistant(finalText, history, ctx)
+            .then((reply) => {
+              setVoiceReply(reply)
+              speak(reply)
             })
-            toast.success(`Face Recognized: ${match.name} (${Math.round(match.confidence * 100)}% Match)`)
-          } else {
-            setFaceMatchResult({
-              success: false,
-              message: 'Face detected, but no matching student embedding found in database.'
+            .catch(() => {
+              const j = getJoke()
+              setVoiceReply(j)
+              speak(j)
             })
-          }
-        } catch (err: any) {
-          toast.error(err?.message || 'Could not detect face in this image.')
-        } finally {
-          setFaceSearchLoading(false)
         }
       }
-      reader.readAsDataURL(file)
+      rec.start()
+      setIsListening(true)
     } catch {
-      setFaceSearchLoading(false)
+      setIsListening(false)
+      toast.error('Voice could not start. Please try again.')
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceTranscript, ctx, speak])
+
+  const stopListening = () => {
+    try {
+      recognitionRef.current?.stop()
+    } catch {}
+    setIsListening(false)
   }
 
-  const filteredStudents = useMemo(() => {
-    if (!searchQuery.trim()) return []
-    const q = searchQuery.toLowerCase()
-    return students.filter((s: any) => {
-      if (searchFilter === 'name' || searchFilter === 'all') {
-        if ((s.name || '').toLowerCase().includes(q)) return true
+  // Voice waveform canvas animation
+  useEffect(() => {
+    const canvas = voiceCanvasRef.current
+    if (!canvas) return
+    const ctx2d = canvas.getContext('2d')
+    if (!ctx2d) return
+    let raf = 0
+    const draw = () => {
+      const w = (canvas.width = canvas.clientWidth * (window.devicePixelRatio || 1))
+      const h = (canvas.height = canvas.clientHeight * (window.devicePixelRatio || 1))
+      ctx2d.clearRect(0, 0, w, h)
+      const bars = 28
+      const mid = h / 2
+      const now = Date.now() / 1000
+      for (let i = 0; i < bars; i++) {
+        const phase = now * (isSpeaking ? 9 : 2.4) + i * 0.5
+        const amp = (isSpeaking ? 0.85 : 0.18) * Math.abs(Math.sin(phase)) * (0.4 + (i % 5) / 7)
+        const bh = amp * h * 0.92
+        const x = (i / (bars - 1)) * w
+        const grad = ctx2d.createLinearGradient(0, mid - bh / 2, 0, mid + bh / 2)
+        grad.addColorStop(0, 'rgba(34,211,238,0.95)')
+        grad.addColorStop(1, 'rgba(168,85,247,0.95)')
+        ctx2d.fillStyle = grad
+        const bw = w / bars * 0.5
+        ctx2d.fillRect(x - bw / 2, mid - bh / 2, bw, bh)
       }
-      if (searchFilter === 'roll' || searchFilter === 'all') {
-        if ((s.rollNumber || '').toLowerCase().includes(q) || (s.admissionNumber || '').toLowerCase().includes(q)) return true
-      }
-      if (searchFilter === 'class' || searchFilter === 'all') {
-        const cls = `${s.className}-${s.section}`.toLowerCase()
-        if (cls.includes(q)) return true
-      }
-      return false
-    })
-  }, [students, searchQuery, searchFilter])
+      raf = requestAnimationFrame(draw)
+    }
+    draw()
+    return () => cancelAnimationFrame(raf)
+  }, [isSpeaking, tab])
 
-  if (location.pathname === '/login' || location.pathname === '/onboarding') return null
+  // ---- Eye tracking ("sees everything") ------------------------------------
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const orb = document.getElementById('ai-orb')
+      if (!orb) return
+      const r = orb.getBoundingClientRect()
+      const cx = r.left + r.width / 2
+      const cy = r.top + r.height / 2
+      const dx = e.clientX - cx
+      const dy = e.clientY - cy
+      const dist = Math.hypot(dx, dy) || 1
+      const max = 5
+      setPupil({ x: (dx / dist) * max, y: (dy / dist) * max })
+    }
+    window.addEventListener('pointermove', onMove)
+    return () => window.removeEventListener('pointermove', onMove)
+  }, [])
+
+  // ---- Whisper action (jump to relevant screen) -----------------------------
+  const whisperTap = () => {
+    const t = (whisper || '').toLowerCase()
+    if (t.includes('attendance') || t.includes('absent') || t.includes('late')) navigate('/attendance')
+    else if (t.includes('mark') || t.includes('perform')) navigate('/marks')
+    else if (t.includes('parent') || t.includes('guardian')) navigate('/whatsapp')
+    setShowWhisper(false)
+  }
+
+  const tellJoke = () => {
+    const j = getJoke()
+    setChatMessages((prev) => [
+      ...prev,
+      { sender: 'ai', text: j, time: 'just now' },
+    ])
+    if (tab === 'voice') speak(j)
+  }
 
   return (
-    <div className="fixed right-4 md:right-7 bottom-20 md:bottom-7 z-50">
+    <>
+      {/* Whisper bubble */}
+      {showWhisper && whisper && !open && (
+        <button
+          onClick={whisperTap}
+          className="ai-whisper fixed bottom-[150px] right-4 z-40 max-w-[260px] rounded-2xl rounded-br-md border border-cyan-300/30 bg-zinc-900/95 px-4 py-3 text-left text-[12.5px] font-medium text-white shadow-2xl backdrop-blur-xl animate-[ai-pop_.3s_ease-out] md:bottom-[160px]"
+        >
+          <span className="mb-1 flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-cyan-300">
+            <Sparkles size={11} /> EduSphere AI
+          </span>
+          {whisper}
+          <span className="mt-1 flex items-center gap-1 text-[10px] text-cyan-200/80">
+            Tap to open <ChevronRight size={12} />
+          </span>
+        </button>
+      )}
+
+      {/* Floating moving orb */}
+      <button
+        id="ai-orb"
+        onClick={() => {
+          setOpen((o) => !o)
+          setShowWhisper(false)
+        }}
+        aria-label="Open AI assistant"
+        className="ai-orb group fixed bottom-[96px] right-4 z-40 grid h-[60px] w-[60px] place-items-center rounded-full md:bottom-[28px]"
+      >
+        <span className="ai-orb-aura" />
+        <span className="ai-orb-ring" />
+        <span className="ai-orb-core grid h-[52px] w-[52px] place-items-center rounded-full bg-gradient-to-br from-cyan-400 via-indigo-500 to-fuchsia-500 text-white shadow-[0_10px_30px_rgba(99,102,241,.5)]">
+          <Brain size={24} className="drop-shadow" />
+          {/* Eyes that follow the teacher's pointer */}
+          <span className="pointer-events-none absolute flex gap-[6px]">
+            <span className="ai-eye" style={{ transform: `translate(${pupil.x}px, ${pupil.y}px)` }} />
+            <span className="ai-eye" style={{ transform: `translate(${pupil.x}px, ${pupil.y}px)` }} />
+          </span>
+        </span>
+        {isSpeaking && <span className="ai-orb-sound">🔊</span>}
+      </button>
+
+      {/* Panel */}
       {open && (
-        <div className="ai-copilot-window absolute bottom-[68px] right-0 w-[min(410px,calc(100vw-32px))] rounded-[30px] border border-white/10 bg-[#0c121e]/95 text-white backdrop-blur-2xl shadow-[0_24px_70px_rgba(0,0,0,0.7)] flex flex-col overflow-hidden max-h-[82vh] md:max-h-[620px]">
+        <div className="ai-panel fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[82vh] w-full max-w-[520px] flex-col overflow-hidden rounded-t-[28px] border border-white/10 bg-zinc-950/95 shadow-2xl backdrop-blur-2xl animate-[ai-slideup_.28s_cubic-bezier(.22,1,.3,1)]">
           {/* Header */}
-          <div className="p-4 bg-gradient-to-r from-indigo-600 via-violet-600 to-cyan-500 flex items-center justify-between shrink-0">
+          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-white/20 border border-white/30 flex items-center justify-center text-white"><Sparkles size={18} className="animate-spin-slow"/></div>
+              <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-cyan-400 to-fuchsia-500 text-white">
+                <Brain size={18} />
+              </span>
               <div>
-                <h3 className="font-black text-[15px] leading-tight">EduSphere AI Copilot</h3>
-                <p className="text-[10px] text-white/85 font-medium">Chatbot • Voice Assistant • Face Search</p>
+                <div className="text-[13px] font-bold text-white">EduSphere AI Assistant</div>
+                <div className="text-[10px] text-cyan-300/80">
+                  {isSpeaking ? 'Speaking…' : isListening ? 'Listening…' : 'Watching & ready to help'}
+                </div>
               </div>
             </div>
-            <button aria-label="Close" onClick={() => setOpen(false)} className="w-8 h-8 rounded-full bg-black/20 hover:bg-black/40 flex items-center justify-center transition"><X size={16}/></button>
-          </div>
-
-          {/* Navigation Tabs */}
-          <div className="flex bg-[#111927] p-1.5 border-b border-white/10 shrink-0">
             <button
-              onClick={() => setActiveTab('bot')}
-              className={`flex-1 py-2 rounded-xl text-[12px] font-bold flex items-center justify-center gap-1.5 transition ${activeTab === 'bot' ? 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+              onClick={() => setOpen(false)}
+              className="grid h-9 w-9 place-items-center rounded-full bg-white/5 text-slate-300 active:scale-95"
             >
-              <MessageSquare size={14}/> AI Chatbot
-            </button>
-            <button
-              onClick={() => setActiveTab('voice')}
-              className={`flex-1 py-2 rounded-xl text-[12px] font-bold flex items-center justify-center gap-1.5 transition ${activeTab === 'voice' ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white shadow' : 'text-slate-400 hover:text-white'}`}
-            >
-              <Mic size={14}/> Voice AI
-            </button>
-            <button
-              onClick={() => setActiveTab('search')}
-              className={`flex-1 py-2 rounded-xl text-[12px] font-bold flex items-center justify-center gap-1.5 transition ${activeTab === 'search' ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow' : 'text-slate-400 hover:text-white'}`}
-            >
-              <Search size={14}/> Smart Search
+              <X size={18} />
             </button>
           </div>
 
-          {/* TAB 1: AI CHATBOT */}
-          {activeTab === 'bot' && (
-            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-              <div className="flex-1 overflow-y-auto p-3.5 space-y-3 scrollbar-thin">
+          {/* Tabs */}
+          <div className="flex gap-1 px-3 pt-3">
+            {([
+              ['chat', 'Chat', MessageSquare],
+              ['voice', 'Voice', Mic],
+              ['discover', 'Discover', Lightbulb],
+            ] as const).map(([key, label, Icon]) => (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-2 text-[12px] font-semibold transition ${
+                  tab === key
+                    ? 'bg-gradient-to-r from-cyan-500/30 to-fuchsia-500/30 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Icon size={14} /> {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Chat tab */}
+          {tab === 'chat' && (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
                 {chatMessages.map((m, i) => (
-                  <div key={i} className={`flex flex-col ${m.sender === 'user' ? 'items-end' : 'items-start'}`}>
-                    <div className={`max-w-[88%] rounded-2xl p-3 text-[12.5px] leading-relaxed whitespace-pre-wrap ${m.sender === 'user' ? 'bg-indigo-600 text-white rounded-br-sm' : 'bg-[#182335] border border-white/10 text-slate-100 rounded-bl-sm'}`}>
+                  <div key={i} className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div
+                      className={`max-w-[82%] rounded-2xl px-3.5 py-2.5 text-[12.5px] leading-relaxed ${
+                        m.sender === 'user'
+                          ? 'rounded-br-md bg-indigo-500 text-white'
+                          : 'rounded-bl-md bg-white/[.06] text-slate-100'
+                      }`}
+                    >
                       {m.text}
+                      <div className={`mt-1 text-[9px] ${m.sender === 'user' ? 'text-indigo-200' : 'text-slate-400'}`}>
+                        {m.time}
+                      </div>
                     </div>
-                    <span className="text-[9px] text-slate-500 mt-1 px-1">{m.time}</span>
                   </div>
                 ))}
+                {chatBusy && (
+                  <div className="flex justify-start">
+                    <div className="rounded-2xl rounded-bl-md bg-white/[.06] px-3.5 py-3">
+                      <span className="ai-typing">
+                        <i /> <i /> <i />
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
-
-              {/* Quick Prompt Pills */}
-              <div className="px-3 py-2 bg-[#0e1624] border-t border-white/5 overflow-x-auto flex gap-1.5 scrollbar-hide shrink-0">
-                {quickPrompts.map((qp, idx) => (
+              <div className="flex flex-wrap gap-1.5 px-4 pb-2">
+                {quickPrompts.map((q) => (
                   <button
-                    key={idx}
-                    onClick={() => handleBotQuery(qp)}
-                    className="px-2.5 py-1 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-[10.5px] text-cyan-300 font-medium whitespace-nowrap shrink-0 transition"
+                    key={q}
+                    disabled={chatBusy}
+                    onClick={() => runAssistant(q)}
+                    className="rounded-full border border-white/10 bg-white/[.03] px-2.5 py-1 text-[10.5px] text-slate-300 active:scale-95 disabled:opacity-50"
                   >
-                    ✨ {qp}
+                    {q}
                   </button>
                 ))}
               </div>
-
-              {/* Input Bar */}
-              <div className="p-3 bg-[#111927] border-t border-white/10 flex gap-2 shrink-0">
+              <div className="flex items-center gap-2 border-t border-white/10 p-3">
                 <input
-                  type="text"
                   value={chatInput}
-                  onChange={e => setChatInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleBotQuery(chatInput)}
-                  placeholder="Ask EduBot (e.g. Who has lowest attendance?)..."
-                  className="flex-1 h-10 rounded-xl px-3.5 bg-black/40 border border-white/15 text-[12px] text-white placeholder:text-slate-500 outline-none focus:border-cyan-400 transition"
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                  placeholder="Ask your AI co-teacher…"
+                  className="h-11 flex-1 rounded-full border border-white/10 bg-white/[.04] px-4 text-[13px] text-white outline-none placeholder:text-slate-500 focus:border-cyan-400/40"
                 />
                 <button
-                  onClick={() => handleBotQuery(chatInput)}
-                  disabled={!chatInput.trim()}
-                  className="w-10 h-10 rounded-xl bg-gradient-to-r from-indigo-500 to-cyan-500 flex items-center justify-center text-white disabled:opacity-40 transition"
+                  onClick={handleSend}
+                  disabled={chatBusy}
+                  className="grid h-11 w-11 place-items-center rounded-full bg-gradient-to-br from-cyan-500 to-fuchsia-500 text-white active:scale-95 disabled:opacity-50"
                 >
-                  <Send size={16}/>
+                  <Send size={17} />
                 </button>
               </div>
             </div>
           )}
 
-          {/* TAB 2: VOICE ASSISTANT */}
-          {activeTab === 'voice' && (
-            <div className="flex-1 flex flex-col items-center justify-between p-5 text-center overflow-y-auto">
-              <div className="space-y-2">
-                <span className="px-3 py-1 rounded-full bg-violet-500/20 text-violet-300 text-[11px] font-bold inline-flex items-center gap-1.5">
-                  <Volume2 size={13} className="animate-bounce"/> EduVoice AI Assistant Active
+          {/* Voice tab */}
+          {tab === 'voice' && (
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-between gap-4 px-5 py-6">
+              <div className="w-full">
+                <canvas ref={voiceCanvasRef} className="h-20 w-full rounded-2xl bg-white/[.03]" />
+              </div>
+              <div className="text-center">
+                <div className="text-[13px] font-semibold text-white">
+                  {isListening ? 'Listening…' : voiceReply}
+                </div>
+                {voiceTranscript && (
+                  <div className="mt-1 text-[11px] text-slate-400">“{voiceTranscript}”</div>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                {!isListening ? (
+                  <button
+                    onClick={startListening}
+                    className="grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-cyan-500 to-fuchsia-500 text-white shadow-lg active:scale-95"
+                  >
+                    <Mic size={26} />
+                  </button>
+                ) : (
+                  <button
+                    onClick={stopListening}
+                    className="grid h-16 w-16 place-items-center rounded-full bg-red-500 text-white shadow-lg active:scale-95"
+                  >
+                    <X size={26} />
+                  </button>
+                )}
+                <button
+                  onClick={isSpeaking ? stopSpeaking : () => speak(voiceReply)}
+                  className="grid h-12 w-12 place-items-center rounded-full border border-white/10 bg-white/[.04] text-slate-200 active:scale-95"
+                >
+                  <Volume2 size={20} />
+                </button>
+              </div>
+              <p className="px-6 text-center text-[10px] text-slate-500">
+                Tap the mic and talk naturally — “Take attendance”, “Summarize marks”, or “Tell me a joke”.
+              </p>
+            </div>
+          )}
+
+          {/* Discover tab */}
+          {tab === 'discover' && (
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
+              <div className="rounded-2xl bg-gradient-to-br from-cyan-500/15 to-fuchsia-500/15 p-4">
+                <div className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-cyan-300">
+                  <Sparkles size={12} /> Live snapshot
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <div className="text-[20px] font-black text-white">{stats.present}</div>
+                    <div className="text-[10px] text-slate-400">Present</div>
+                  </div>
+                  <div>
+                    <div className="text-[20px] font-black text-white">{stats.absent}</div>
+                    <div className="text-[10px] text-slate-400">Absent</div>
+                  </div>
+                  <div>
+                    <div className="text-[20px] font-black text-white">{stats.attendancePct}%</div>
+                    <div className="text-[10px] text-slate-400">Rate</div>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={tellJoke}
+                className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[.03] px-4 py-3 text-left active:scale-[.98]"
+              >
+                <span className="flex items-center gap-2 text-[13px] font-semibold text-white">
+                  <Smile size={17} className="text-fuchsia-300" /> Make me smile
                 </span>
-                <p className="text-[12px] text-slate-400 max-w-[280px] mx-auto">Speak naturally or tap a quick voice simulator action to instantly trigger camera, queries, and reports.</p>
-              </div>
+                <ChevronRight size={16} className="text-slate-500" />
+              </button>
 
-              {/* Pulsating Microphone Button */}
-              <div className="my-5 relative flex items-center justify-center">
-                {isListening && <span className="absolute inset-0 w-28 h-28 rounded-full bg-fuchsia-500/30 animate-ping"/>}
-                <button
-                  onClick={startListening}
-                  className={`relative z-10 w-24 h-24 rounded-full flex flex-col items-center justify-center gap-1 transition-all duration-300 ${isListening ? 'bg-gradient-to-r from-rose-500 to-fuchsia-600 scale-110 shadow-[0_0_40px_rgba(244,63,94,0.6)]' : 'bg-gradient-to-r from-violet-600 to-indigo-600 hover:scale-105 shadow-[0_0_25px_rgba(139,92,246,0.4)]'}`}
-                >
-                  <Mic size={32} className="text-white"/>
-                  <span className="text-[10px] font-bold uppercase tracking-wider">{isListening ? 'Listening...' : 'Tap to Speak'}</span>
-                </button>
-              </div>
+              <button
+                onClick={() => {
+                  const n = localNudge(ctx) || 'Everything looks calm right now — nice work!'
+                  setChatMessages((prev) => [...prev, { sender: 'ai', text: n, time: 'just now' }])
+                  setTab('chat')
+                }}
+                className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[.03] px-4 py-3 text-left active:scale-[.98]"
+              >
+                <span className="flex items-center gap-2 text-[13px] font-semibold text-white">
+                  <Lightbulb size={17} className="text-amber-300" /> What needs my attention?
+                </span>
+                <ChevronRight size={16} className="text-slate-500" />
+              </button>
 
-              {/* Status Log */}
-              <div className="w-full p-3 rounded-2xl bg-[#182335] border border-white/10 text-cyan-300 text-[12px] font-medium">
-                💬 {voiceLog}
-              </div>
+              <button
+                onClick={() => runAssistant('Give me 3 practical suggestions for today as a teacher.')}
+                className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[.03] px-4 py-3 text-left active:scale-[.98]"
+              >
+                <span className="flex items-center gap-2 text-[13px] font-semibold text-white">
+                  <Brain size={17} className="text-cyan-300" /> Smart suggestions
+                </span>
+                <ChevronRight size={16} className="text-slate-500" />
+              </button>
 
-              {/* Quick Voice Command Buttons */}
-              <div className="w-full space-y-1.5 mt-3">
-                <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider text-left">Instant Command Simulator:</div>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { label: 'Take Attendance', cmd: 'Take Attendance', icon: Camera },
-                    { label: 'Open Student List', cmd: 'Open Student List', icon: UserCheck },
-                    { label: "Today's Attendance", cmd: "Today's Attendance", icon: CheckCircle2 },
-                    { label: 'Generate Report', cmd: 'Generate Report', icon: FileDown },
-                    { label: 'Search Rahul', cmd: 'Search Rahul', icon: Search },
-                    { label: 'Open Analytics', cmd: 'Open Analytics', icon: TrendingUp },
-                  ].map(btn => (
-                    <button
-                      key={btn.label}
-                      onClick={() => executeVoiceCommand(btn.cmd)}
-                      className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center gap-2 text-[11px] font-semibold text-left transition"
-                    >
-                      <btn.icon size={14} className="text-violet-400 shrink-0"/> {btn.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-{/* TAB 3: SMART SEARCH (FACE + TEXT) */}
-          {activeTab === 'search' && (
-            <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-4 space-y-4">
-              {/* Face Search Box */}
-              <div className="p-4 rounded-2xl bg-gradient-to-br from-[#182638] to-[#121c29] border border-cyan-400/30 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2 text-[13px] font-bold text-cyan-300"><ScanFace size={16}/> Instant Face Recognition Search</span>
-                  <span className="text-[9px] bg-cyan-400/20 text-cyan-300 px-2 py-0.5 rounded-full font-bold">AI EMBEDDING</span>
-                </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">Upload any student photo to instantly compute its 128-D embedding and verify against all {students.length} registered classroom faces.</p>
-                <input
-                  type="file"
-                  accept="image/*"
-                  ref={faceInputRef}
-                  onChange={handleFaceSearchPhoto}
-                  className="hidden"
-                />
-                <button
-                  onClick={() => faceInputRef.current?.click()}
-                  disabled={faceSearchLoading}
-                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold text-[12px] flex items-center justify-center gap-2 hover:opacity-90 transition disabled:opacity-50"
-                >
-                  <Upload size={14}/> {faceSearchLoading ? 'Scanning Embedding...' : 'Upload Photo to Search by Face'}
-                </button>
-
-                {/* Face Search Match Result Display */}
-                {faceMatchResult && (
-                  <div className={`p-3 rounded-xl border text-[12px] space-y-1 ${faceMatchResult.success ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300' : 'bg-rose-500/15 border-rose-400/40 text-rose-300'}`}>
-                    {faceMatchResult.success ? (
-                      <>
-                        <div className="font-extrabold flex items-center gap-1.5 text-[14px]">🎉 {faceMatchResult.student?.name} (Verified {faceMatchResult.confidence}%)</div>
-                        <div>• <b>Roll Number:</b> {faceMatchResult.student?.rollNumber || 'N/A'}</div>
-                        <div>• <b>Class:</b> {faceMatchResult.student?.className}-{faceMatchResult.student?.section}</div>
-                        <div>• <b>Guardian:</b> {faceMatchResult.student?.guardianName || 'N/A'} ({faceMatchResult.student?.guardianPhone || 'N/A'})</div>
-                        <button
-                          onClick={() => { navigate('/students'); setOpen(false); }}
-                          className="mt-2 px-3 py-1 rounded-lg bg-emerald-500 text-black font-bold text-[11px] hover:bg-emerald-400"
-                        >
-                          View Student Record →
-                        </button>
-                      </>
-                    ) : (
-                      <div>⚠️ {faceMatchResult.message}</div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Text / Multi-Criteria Search */}
-              <div className="space-y-2">
-                <div className="flex gap-1.5">
-                  {(['all', 'name', 'roll', 'class'] as const).map(f => (
-                    <button
-                      key={f}
-                      onClick={() => setSearchFilter(f)}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold capitalize transition ${searchFilter === f ? 'bg-cyan-500 text-black' : 'bg-white/5 text-slate-400 hover:text-white'}`}
-                    >
-                      {f}
-                    </button>
-                  ))}
-</div>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                    placeholder="Search by name, roll, admission number, class..."
-                    className="w-full h-11 rounded-xl pl-9 pr-4 bg-black/40 border border-white/15 text-[13px] text-white placeholder:text-slate-500 outline-none focus:border-cyan-400 transition"
-                  />
-                  <Search size={16} className="absolute left-3 top-3 text-slate-500"/>
-                </div>
-              </div>
-
-              {/* Results list */}
-              <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-                {filteredStudents.map(s => (
-                  <div key={s.id} className="p-3 rounded-xl bg-white/5 border border-white/10 flex items-center justify-between gap-3">
-                    <div>
-                      <div className="font-bold text-[13px] text-white">{s.name}</div>
-                      <div className="text-[11px] text-slate-400">Roll: {s.rollNumber || s.admissionNumber} • Class: {s.className}-{s.section}</div>
-                    </div>
-                    <button
-                      onClick={() => { navigate('/students'); setOpen(false); }}
-                      className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-cyan-300 font-semibold text-[11px] transition"
-                    >
-                      Profile →
-                    </button>
-                  </div>
-                ))}
-                {searchQuery && !filteredStudents.length && (
-                  <div className="text-center py-6 text-slate-500 text-[12px]">No students found for &quot;{searchQuery}&quot;</div>
-                )}
-              </div>
+              <button
+                onClick={() => navigate('/attendance')}
+                className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[.03] px-4 py-3 text-left active:scale-[.98]"
+              >
+                <span className="flex items-center gap-2 text-[13px] font-semibold text-white">
+                  <Search size={17} className="text-indigo-300" /> Go to Attendance
+                </span>
+                <ChevronRight size={16} className="text-slate-500" />
+              </button>
             </div>
           )}
         </div>
       )}
-
-      {/* Main Floating Trigger Button */}
-      <button
-        aria-label={open ? 'Close AI Copilot' : 'Open AI Copilot'}
-        onClick={() => setOpen(value => !value)}
-        className="relative grid h-14 w-14 md:h-16 md:w-16 place-items-center rounded-full bg-gradient-to-br from-indigo-600 via-violet-600 to-cyan-500 text-white shadow-[0_8px_35px_rgba(109,64,255,0.6)] hover:scale-105 active:scale-95 transition-all duration-300 group"
-      >
-        <span className="absolute -top-1 -right-1 flex h-4 w-4">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-4 w-4 bg-cyan-500 text-[8px] font-black items-center justify-center">AI</span>
-        </span>
-        {open ? <X size={24} /> : <BrainCircuit size={26} className="group-hover:rotate-12 transition-transform" />}
-      </button>
-    </div>
+    </>
   )
 }

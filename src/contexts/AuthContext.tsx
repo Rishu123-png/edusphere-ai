@@ -3,6 +3,7 @@ import { auth, db, googleProvider } from '@/lib/firebase'
 import { onAuthStateChanged, signInWithEmailAndPassword, signInWithPopup, signOut, sendPasswordResetEmail, createUserWithEmailAndPassword, sendEmailVerification, updateProfile, type User } from 'firebase/auth'
 import { ref, get, set, update, onDisconnect } from 'firebase/database'
 import { AppUser, UserRole } from '@/types'
+import { toFriendlyError } from '@/lib/errors'
 
 type AuthContextType = {
   user: User | null
@@ -127,17 +128,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user, profile])
 
   const login = async (email:string, password:string) => {
-    await signInWithEmailAndPassword(auth, email, password)
+    try {
+      await signInWithEmailAndPassword(auth, email, password)
+    } catch (error) {
+      throw toFriendlyError(error)
+    }
   }
 
   const signup = async (email:string, password:string, displayName?:string) => {
-    const cred = await createUserWithEmailAndPassword(auth, email, password)
-    if (displayName) await updateProfile(cred.user, { displayName })
-    await sendEmailVerification(cred.user)
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email, password)
+      if (displayName) await updateProfile(cred.user, { displayName })
+      await sendEmailVerification(cred.user)
+    } catch (error) {
+      throw toFriendlyError(error)
+    }
   }
 
   const loginGoogle = async () => {
-    await signInWithPopup(auth, googleProvider)
+    try {
+      await signInWithPopup(auth, googleProvider)
+    } catch (error) {
+      throw toFriendlyError(error)
+    }
   }
 
   const logout = async () => {
@@ -149,11 +162,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await signOut(auth)
   }
 
-  const resetPassword = (email:string) => sendPasswordResetEmail(auth, email)
+  const resetPassword = (email:string) => {
+    return sendPasswordResetEmail(auth, email).catch((error) => { throw toFriendlyError(error) })
+  }
 
   const resendVerification = async () => {
     if (auth.currentUser && !auth.currentUser.emailVerified) {
-      await sendEmailVerification(auth.currentUser)
+      try {
+        await sendEmailVerification(auth.currentUser)
+      } catch (error) {
+        throw toFriendlyError(error)
+      }
     }
   }
 

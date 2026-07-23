@@ -76,47 +76,85 @@ async function isValidModelBase(base: string): Promise<boolean> {
 
 async function resolveModelBase(): Promise<string> {
   if (loadedModelBase) return loadedModelBase
+  
+  // Try local models first
   if (await isValidModelBase(LOCAL_MODEL_BASE)) {
+    console.log('[EduSphere] Using local models from:', LOCAL_MODEL_BASE)
     loadedModelBase = LOCAL_MODEL_BASE
     return loadedModelBase
   }
+  
+  console.log('[EduSphere] Local models not available, trying CDN fallback...')
+  
+  // Fallback to CDN
   if (await isValidModelBase(CDN_MODEL_BASE)) {
+    console.log('[EduSphere] Using CDN models from:', CDN_MODEL_BASE)
     loadedModelBase = CDN_MODEL_BASE
     return loadedModelBase
   }
+  
   throw new Error(
-    'Face AI models could not load. Deploy the public/models folder, or check your network. (Got HTML instead of model JSON.)'
+    'Face AI models could not load from local or CDN. Check your network connection and try again.'
   )
 }
 
 export async function loadFaceApiModels() {
   if (!faceApiPromise) {
     faceApiPromise = (async () => {
+      let faceapi: any
       try {
-        const faceapi = await import('face-api.js')
-        const modelUrl = await resolveModelBase()
-        await Promise.all([
-          faceapi.nets.tinyFaceDetector.loadFromUri(modelUrl),
-          faceapi.nets.faceLandmark68TinyNet.loadFromUri(modelUrl),
-          faceapi.nets.faceRecognitionNet.loadFromUri(modelUrl),
-          faceapi.nets.ssdMobilenetv1.loadFromUri(modelUrl),
-        ])
-        return faceapi
+        faceapi = await import('face-api.js')
       } catch (e: any) {
-        // Allow retry after a failed load (e.g. temporary network)
-        faceApiPromise = null
-        loadedModelBase = null
-        const msg = String(e?.message || e || '')
-        if (msg.includes('Unexpected token') || msg.includes('<!doctype') || msg.includes('is not valid JSON')) {
-          throw new Error(
-            'Face AI models failed to load (server returned a web page instead of model files). Push public/models to your host, or allow CDN access.'
-          )
-        }
-        throw e instanceof Error ? e : new Error(msg || 'Failed to load face AI models')
+        throw new Error('Failed to import face-api.js library. Check your network connection.')
       }
+
+      const modelUrl = await resolveModelBase()
+      console.log('[EduSphere] Loading face AI models from:', modelUrl)
+
+      const modelsToLoad = [
+        { name: 'tinyFaceDetector', net: faceapi.nets.tinyFaceDetector },
+        { name: 'faceLandmark68TinyNet', net: faceapi.nets.faceLandmark68TinyNet },
+        { name: 'faceRecognitionNet', net: faceapi.nets.faceRecognitionNet },
+        { name: 'ssdMobilenetv1', net: faceapi.nets.ssdMobilenetv1 },
+      ]
+
+      for (const { name, net } of modelsToLoad) {
+        try {
+          await net.loadFromUri(modelUrl)
+          console.log(`[EduSphere] ✓ ${name} loaded successfully`)
+        } catch (e: any) {
+          console.error(`[EduSphere]  ${name} failed to load:`, e.message)
+          // Clear any partially loaded state
+          faceApiPromise = null
+          loadedModelBase = null
+
+          const msg = String(e?.message || e || '')
+          if (msg.includes('Unexpected token') || msg.includes('<!doctype') || msg.includes('is not valid JSON')) {
+            throw new Error(
+              'Face AI models failed to load (server returned HTML instead of model files). The models will be loaded from CDN on next attempt.'
+            )
+          }
+          if (msg.includes('tensor') && msg.includes('should have')) {
+            throw new Error(
+              'Face AI model corruption detected. Clearing cache and retrying from CDN...'
+            )
+          }
+          throw e instanceof Error ? e : new Error(msg || `Failed to load ${name}`)
+        }
+      }
+
+      console.log('[EduSphere] ✓ All face AI models loaded successfully')
+      return faceapi
     })()
   }
   return faceApiPromise
+}
+
+/** Force reload models from scratch (useful after tensor corruption errors) */
+export function resetFaceModels() {
+  faceApiPromise = null
+  loadedModelBase = null
+  console.log('[EduSphere] Face model cache cleared - will reload on next use')
 }
 
 /**

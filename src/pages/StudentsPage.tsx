@@ -15,7 +15,10 @@ import { toast } from 'sonner'
 import { getFriendlyError } from '@/lib/errors'
 import { QRCodeSVG } from 'qrcode.react'
 import PageHeader from '@/components/mobile/PageHeader'
-import { Search, Plus, Edit2, Trash2, Download, Camera, ImageUp, ScanFace, Smile, Eye, CheckCircle2, ShieldCheck, AlertCircle } from 'lucide-react'
+import MyTeachersPanel from '@/components/mobile/MyTeachersPanel'
+import { Search, Plus, Edit2, Trash2, Download, Camera, ImageUp, ScanFace, Smile, Eye, CheckCircle2, ShieldCheck, AlertCircle, Sparkles, Brain } from 'lucide-react'
+
+const COMMON_SUBJECTS = ['Maths', 'Physics', 'Chemistry', 'Biology', 'English', 'Hindi', 'Sanskrit', 'Social Science', 'Computer Science', 'Physical Education', 'Economics', 'Accountancy']
 
 type Student = any
 
@@ -458,6 +461,15 @@ export default function StudentsPage(){
                 <Button variant="outline" className="rounded-full" onClick={(e)=>{ e.preventDefault(); fileInputRef.current?.click(); }} disabled={uploadingPhoto}>
                   <ImageUp size={16} className="mr-1"/> Upload Photo
                 </Button>
+                <Button
+                  variant="success"
+                  className="rounded-full whitespace-nowrap"
+                  onClick={(e)=>{ e.preventDefault(); generateFaceId() }}
+                  disabled={uploadingPhoto || generatingFaceId || !form.photoUrl}
+                  title={form.photoUrl ? 'Re-generate the 128-D face embedding' : 'Upload a photo first'}
+                >
+                  <ScanFace size={16} className="mr-1.5"/> {generatingFaceId ? 'Generating…' : 'Generate Face ID'}
+                </Button>
               </div>
             </div>
 {/* Form Fields: All 9 Required Identity Fields */}
@@ -482,6 +494,46 @@ export default function StudentsPage(){
                 <Label className="text-[12px] font-bold text-muted-foreground">Section *</Label>
                 <Input className="mt-1 h-11 rounded-xl font-semibold" placeholder="e.g. A" value={form.section||''} onChange={e=>setForm({...form, section: e.target.value})} />
               </div>
+
+              {/* SUBJECTS — drives the student → teacher dashboard mapping */}
+              <div className="md:col-span-3">
+                <Label className="text-[12px] font-bold text-muted-foreground">Subjects (tap to add)</Label>
+                {(() => {
+                  const chips = Array.isArray(form.subjects) ? form.subjects : (form.subjects ? String(form.subjects).split(',').map(s=>s.trim()).filter(Boolean) : [])
+                  const toggleSubject = (sub: string) => {
+                    const cur = Array.isArray(form.subjects) ? form.subjects : (form.subjects ? String(form.subjects).split(',').map(s=>s.trim()).filter(Boolean) : [])
+                    const next = cur.includes(sub) ? cur.filter((x: string) => x !== sub) : [...cur, sub]
+                    setForm({ ...form, subjects: next })
+                  }
+                  return (
+                    <>
+                      <div className="mt-1.5 flex flex-wrap gap-2">
+                        {COMMON_SUBJECTS.map(sub => {
+                          const active = chips.includes(sub)
+                          return (
+                            <button key={sub} type="button" onClick={() => toggleSubject(sub)} className={`px-3 h-9 rounded-full text-[12px] font-semibold border transition active:scale-95 ${active ? 'bg-indigo-600 text-white border-indigo-600 shadow' : 'bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-700 text-muted-foreground'}`}>{sub}</button>
+                          )
+                        })}
+                      </div>
+                      {chips.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {chips.map((c: string) => <span key={c} className="px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 text-[11px] font-bold">{c}</span>)}
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
+              </div>
+
+              {/* Assigned teachers for this class + subjects (read-only dashboard links) */}
+              <div className="md:col-span-3">
+                <MyTeachersPanel
+                  className={form.className}
+                  section={form.section}
+                  subjects={Array.isArray(form.subjects) ? form.subjects : (form.subjects ? String(form.subjects).split(',').map(s=>s.trim()).filter(Boolean) : [])}
+                />
+              </div>
+
               <div>
                 <Label className="text-[12px] font-bold text-muted-foreground">Guardian Name *</Label>
                 <Input className="mt-1 h-11 rounded-xl font-semibold" placeholder="e.g. Suresh Sharma" value={form.guardianName||''} onChange={e=>setForm({...form, guardianName: e.target.value})} />
@@ -558,7 +610,6 @@ export default function StudentsPage(){
         </span>
       </div>
     </div>
-
     <div className="grid gap-3 md:hidden">
       {filtered.map((s:any)=>(
         <Card key={s.id} className="p-3.5 rounded-[22px] border border-slate-150 dark:border-zinc-800">
@@ -599,7 +650,7 @@ export default function StudentsPage(){
         </Card>
       )}
     </div>
-<Card className="hidden md:block rounded-[26px] overflow-hidden border border-slate-150 dark:border-zinc-800 shadow-sm">
+    <Card className="hidden md:block rounded-[26px] overflow-hidden border border-slate-150 dark:border-zinc-800 shadow-sm">
       <CardContent className="p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

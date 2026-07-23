@@ -337,7 +337,7 @@ const resetAiSession = () => {
       studentId: matchedStudent.id,
       className: matchedStudent.className,
       section: matchedStudent.section,
-      subject: matchedStudent.subject || profile?.subject || 'General',
+      subject: matchedStudent.subject || (Array.isArray(profile?.subjects) ? (profile as any).subjects?.[0] : ((profile as any)?.subject || 'General')) || 'General',
       date,
       status: statusToMark,
       markedBy: profile?.uid || 'ai_camera',
@@ -449,7 +449,7 @@ const resetAiSession = () => {
         studentId: student.id,
         className: student.className,
         section: student.section,
-        subject: student.subject || profile?.subject || 'General',
+        subject: student.subject || (Array.isArray(profile?.subjects) ? (profile as any).subjects?.[0] : ((profile as any)?.subject || 'General')) || 'General',
         date,
         status,
         markedBy: profile?.uid,
@@ -567,7 +567,7 @@ const resetAiSession = () => {
       updateAiCheck('detect', 'fail')
       return
     }
-    
+
    scanBusyRef.current = true
     updateAiCheck('detect', 'checking')
     updateAiCheck('liveness', 'checking')
@@ -613,7 +613,7 @@ const resetAiSession = () => {
           const alreadyMarked = detectedIdsRef.current.has(best.id) || marksRef.current[best.id] === 'present' || marksRef.current[best.id] === 'late'
           const inCooldown = Date.now() - (lastMarkAtRef.current.get(best.id) || 0) < AI_MARK_COOLDOWN_MS
 
-          if (alreadyMarked || inCooldown) {
+if (alreadyMarked || inCooldown) {
             matchedByFace.set(index, { id: best.id, name: best.name, confidence: best.confidence, isLate, status: 'cooldown' })
             updateAiCheck('cooldown', 'pass')
             continue
@@ -679,7 +679,7 @@ missingCount
       scanBusyRef.current = false
     }
   }
-/* Perf: self-scheduling scan chain. setInterval kept firing while a slow
+  /* Perf: self-scheduling scan chain. setInterval kept firing while a slow
      frame was still being processed, so scans queued up and the UI froze.
      Now the next scan is only scheduled AFTER the current one finishes. */
   const scheduleNextScan = () => {
@@ -790,7 +790,8 @@ await new Promise<void>(resolve => requestAnimationFrame(()=>resolve()))
       document.exitFullscreen?.().catch(()=>{})
     }
   }
-const saveAiAttendance = async ()=>{
+
+  const saveAiAttendance = async ()=>{
     const missing = students.filter(s => marks[s.id] !== 'present' && marks[s.id] !== 'late' && marks[s.id] !== 'absent')
     if (missing.length && aiScanning) {
       setAiReviewOpen(true)
@@ -845,8 +846,7 @@ const handleQrScan = async (scannedText: string) => {
   const sendParentAlert = async (student: any) => {
     const sid = schoolId || profile?.schoolId || 'global'
     const phone = student.guardianPhone || 'No Phone'
-
-    /* BUG FIX: the previous copy baked in a hardcoded "Attendance 74%" for
+/* BUG FIX: the previous copy baked in a hardcoded "Attendance 74%" for
        every student. Compute the real rate from saved attendance records. */
     let attendancePct = 0
     try {
@@ -900,7 +900,7 @@ const handleQrScan = async (scannedText: string) => {
     allStudents.forEach(s => { if (s.subject) subs.add(s.subject) })
     subs.add('General')
     // Teacher subjects
-    const teacherSubjects = Array.isArray(profile?.subjects) ? profile.subjects : (typeof profile?.subject === 'string' ? profile.subject.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
+    const teacherSubjects = Array.isArray(profile?.subjects) ? profile.subjects : (typeof (profile as any)?.subject === 'string' ? (profile as any).subject.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
     teacherSubjects.forEach((s: string) => s && subs.add(s))
     // Common fallback subjects
     ;['Mathematics', 'Physics', 'Chemistry', 'Biology', 'English', 'Hindi', 'History', 'Geography', 'Computer Science', 'Physical Education'].forEach(s => subs.add(s))
@@ -942,7 +942,7 @@ const handleQrScan = async (scannedText: string) => {
         })
       })
     })
-list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+    list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
     return list
   }, [historyMap, histClass, histSubject, histRange, histSearch, allStudents])
 
@@ -987,7 +987,8 @@ list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
     <PageHeader title="AI Attendance Vision" subtitle={`Smart Biometrics • QR • Real-Time Occupancy • ${todayIST()}`} />
     
     <ModuleArchitectureBanner />
-{/* Top Actions & Offline Mode Toggle Bar */}
+
+    {/* Top Actions & Offline Mode Toggle Bar */}
     <div className="flex items-center justify-between gap-3 flex-wrap bg-white dark:bg-zinc-900 p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 shadow-xs">
       <div className="flex items-center gap-2">
         <span className={`px-3 py-1 rounded-full text-[11px] font-bold flex items-center gap-1.5 ${isOfflineMode ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30' : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'}`}>
@@ -1089,7 +1090,7 @@ list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
               </div>
             </Card>
           ))}
-            {!students.length && <Card className="p-10 text-center text-muted-foreground text-sm rounded-[24px]">No students in {classSel || 'selected class'}. Add students from the Students page.</Card>}
+          {!students.length && <Card className="p-10 text-center text-muted-foreground text-sm rounded-[24px]">No students in {classSel || 'selected class'}. Add students from the Students page.</Card>}
         </div>
         <div className="sticky bottom-[88px] md:bottom-6 z-20 pt-3">
           <Button onClick={()=>submit('manual')} variant="success" size="lg" className="w-full rounded-full h-14 font-extrabold text-[16px] shadow-[0_10px_30px_rgba(16,185,129,0.3)]" disabled={!students.length}>
@@ -1252,7 +1253,7 @@ list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
                     key={idx}
                     className={`relative p-2.5 rounded-xl border flex flex-col items-center justify-center text-center transition hover:scale-105 shadow-xs ${!student ? 'bg-slate-200/50 dark:bg-zinc-800/40 border-dashed border-slate-300 dark:border-zinc-700 text-slate-400' : status === 'present' ? 'bg-emerald-500 text-white border-emerald-600 font-bold' : status === 'late' ? 'bg-amber-500 text-white border-amber-600 font-bold' : 'bg-rose-500/20 text-rose-600 border-rose-300'}`}
                   >
-                  <span className="text-[9px] font-mono opacity-80">Desk #{idx + 1}</span>
+                   <span className="text-[9px] font-mono opacity-80">Desk #{idx + 1}</span>
                     <span className="text-[11px] font-extrabold truncate w-full mt-0.5">
                       {student ? student.name.split(' ')[0] : 'Empty'}
                     </span>
@@ -1305,7 +1306,7 @@ list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
                 <option value="90">Last 90 days</option>
               </select>
             </div>
-            <div>
+             <div>
               <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1"><Search size={12}/> Search Student</label>
               <input
                 value={histSearch}
@@ -1412,7 +1413,8 @@ list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
         </Card>
       </TabsContent>
     </Tabs>
-{/* FULL-SCREEN AI CAMERA OVERLAY */}
+
+    {/* FULL-SCREEN AI CAMERA OVERLAY */}
     {aiScanning && (
       <div
         ref={overlayRef}
@@ -1444,8 +1446,7 @@ list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
             </Button>
           </div>
         </div>
-
-        {/* Clean camera card — ONLY face boxes + name pills float on the video
+{/* Clean camera card — ONLY face boxes + name pills float on the video
             so the teacher can always see the student being captured. All the
             status panels live BELOW the camera now (mockup design). */}
         <div className="shrink-0 px-3 pt-2.5">
@@ -1669,7 +1670,7 @@ list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
               className="mt-1 w-full h-11 rounded-xl px-3.5 bg-black/50 border border-white/20 text-white text-sm outline-none focus:border-cyan-400"
             />
           </div>
-<div className="flex justify-end gap-2 pt-2">
+         <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" className="rounded-full bg-transparent border-white/20 text-white" onClick={() => {
               setQuickRegisterModalOpen(false)
               setQuickRegisterForm({ name: '', rollNumber: '' })

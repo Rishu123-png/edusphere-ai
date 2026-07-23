@@ -16,9 +16,7 @@
 // ============================================================================
 
 // --- Gemini (Google) ---------------------------------------------------------
-const GEMINI_FALLBACK_KEY = 'AQ.Ab8RN6Ihgmq9Qy8CCGK-H8uTMZBXb7AkPiVMDB3lj6h3ENfdcg'
-const GEMINI_KEY =
-  (import.meta.env.VITE_GEMINI_API_KEY as string | undefined)?.trim() || GEMINI_FALLBACK_KEY
+const GEMINI_KEY = (import.meta.env.VITE_GEMINI_API_KEY as string | undefined)?.trim() || ''
 const GEMINI_MODEL =
   (import.meta.env.VITE_GEMINI_MODEL as string | undefined)?.trim() || 'gemini-2.0-flash'
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`
@@ -54,6 +52,9 @@ async function callModel(prompt: string, opts: GeminiOptions = {}): Promise<stri
 // Gemini implementation
 // ----------------------------------------------------------------------------
 async function callGemini(prompt: string, opts: GeminiOptions = {}): Promise<string> {
+  // Never ship an AI credential in the browser bundle. Configure a key locally
+  // for development, or proxy requests through a protected server in production.
+  if (!GEMINI_KEY) throw new Error('missing_ai_key')
   const contents = [
     ...(opts.history ?? []).map((h) => ({ role: h.role, parts: [{ text: h.text }] })),
     { role: 'user', parts: [{ text: prompt }] },
@@ -184,7 +185,7 @@ const ASSISTANT_SYSTEM = `You are "EduSphere AI Assistant", the friendly, witty,
 
 Your personality:
 - Warm, encouraging, and a little playful. You love making teachers smile with a light joke when the moment is right.
-- You proactively watch what the teacher is doing and offer helpful, specific suggestions.
+- Offer helpful, specific suggestions from the current screen and explicitly supplied school context. Never claim to see a camera, private messages, or activity outside the app.
 - You NEVER expose that you are an external AI service. You are simply "EduSphere AI".
 - Keep replies short and mobile-friendly (2-5 sentences). Use line breaks for readability.
 - When answering data questions, ONLY use the numbers given in the live context. Never invent students, counts, or percentages.

@@ -12,7 +12,7 @@ import { todayIST } from '@/lib/rtdb'
 import QRScanner from '@/components/QRScanner'
 import PageHeader from '@/components/mobile/PageHeader'
 import ModuleArchitectureBanner from '@/components/ModuleArchitectureBanner'
-import { Camera, QrCode, Users, X, ShieldCheck, SwitchCamera, ScanFace, AlertTriangle, Clock, Wifi, WifiOff, UserPlus, Grid, Volume2 } from 'lucide-react'
+import { Camera, QrCode, Users, X, ShieldCheck, SwitchCamera, ScanFace, AlertTriangle, Clock, Wifi, WifiOff, UserPlus, Grid, Volume2, History as HistoryIcon, CalendarDays, Search, Download } from 'lucide-react'
 import { get } from 'firebase/database'
 import {
   detectFacesWithDescriptors,
@@ -27,8 +27,8 @@ import {
 } from '@/lib/faceRecognition'
 import { saveToOfflineQueue } from '@/lib/offlineSync'
 
-const AI_SCAN_INTERVAL_MS = 850
-const AI_DETECTION_TIMEOUT_MS = 4500
+const AI_SCAN_INTERVAL_MS = 1200
+const AI_DETECTION_TIMEOUT_MS = 6000
 const REQUIRED_CONFIRM_FRAMES = 3
 const AI_MARK_COOLDOWN_MS = 60_000
 const LIVENESS_HISTORY_LIMIT = 6
@@ -114,6 +114,11 @@ export default function AttendancePage(){
   const [zoomReady, setZoomReady] = useState(false)
   const [aiReviewOpen, setAiReviewOpen] = useState(false)
   const [lastMarkedNames, setLastMarkedNames] = useState<string[]>([])
+  const [historyMap, setHistoryMap] = useState<Record<string, any>>({})
+  const [histClass, setHistClass] = useState<string>('')
+  const [histSubject, setHistSubject] = useState<string>('All')
+  const [histRange, setHistRange] = useState<'7' | '30' | '90'>('30')
+  const [histSearch, setHistSearch] = useState('')
 
   const lastCanvasSizeRef = useRef<{ w: number; h: number } | null>(null)
   const scanActiveRef = useRef(false)
@@ -166,6 +171,16 @@ useEffect(()=>{
     if (!classSel && classOptions.length) setClassSel(classOptions[0])
     if (classSel && classOptions.length && !classOptions.includes(classSel)) setClassSel(classOptions[0])
   }, [classOptions, classSel])
+
+  // Load attendance history for History tab
+  useEffect(() => {
+    if (!schoolId && !profile?.schoolId) return
+    const sid = schoolId || profile?.schoolId
+    const unsub = onValue(ref(db, `schools/${sid}/attendance`), (snap) => {
+      setHistoryMap(snap.val() || {})
+    })
+    return () => unsub()
+  }, [schoolId, profile?.schoolId])
 
   const students = useMemo(
     () => allStudents.filter((s:any)=> `${s.className}-${s.section}`===classSel),
@@ -322,6 +337,7 @@ const resetAiSession = () => {
       studentId: matchedStudent.id,
       className: matchedStudent.className,
       section: matchedStudent.section,
+      subject: matchedStudent.subject || profile?.subject || 'General',
       date,
       status: statusToMark,
       markedBy: profile?.uid || 'ai_camera',
@@ -433,6 +449,7 @@ const resetAiSession = () => {
         studentId: student.id,
         className: student.className,
         section: student.section,
+        subject: student.subject || profile?.subject || 'General',
         date,
         status,
         markedBy: profile?.uid,
@@ -550,7 +567,7 @@ const resetAiSession = () => {
       updateAiCheck('detect', 'fail')
       return
     }
-
+    
    scanBusyRef.current = true
     updateAiCheck('detect', 'checking')
     updateAiCheck('liveness', 'checking')
@@ -662,7 +679,7 @@ missingCount
       scanBusyRef.current = false
     }
   }
-  /* Perf: self-scheduling scan chain. setInterval kept firing while a slow
+/* Perf: self-scheduling scan chain. setInterval kept firing while a slow
      frame was still being processed, so scans queued up and the UI froze.
      Now the next scan is only scheduled AFTER the current one finishes. */
   const scheduleNextScan = () => {
@@ -773,8 +790,7 @@ await new Promise<void>(resolve => requestAnimationFrame(()=>resolve()))
       document.exitFullscreen?.().catch(()=>{})
     }
   }
-
-  const saveAiAttendance = async ()=>{
+const saveAiAttendance = async ()=>{
     const missing = students.filter(s => marks[s.id] !== 'present' && marks[s.id] !== 'late' && marks[s.id] !== 'absent')
     if (missing.length && aiScanning) {
       setAiReviewOpen(true)
@@ -874,13 +890,104 @@ const handleQrScan = async (scannedText: string) => {
   const totalSeats = 40
   const occupiedSeats = presentCount + lateCount
   const emptySeats = Math.max(0, totalSeats - occupiedSeats)
+  // ============ HISTORY TAB DATA ============
+  useEffect(() => {
+    if (!histClass && classOptions.length) setHistClass(classOptions[0])
+  }, [classOptions, histClass])
 
-  return <div className="page-container space-y-4 pb-12">
+  const subjectOptions = useMemo(() => {
+    const subs = new Set<string>(['All'])
+    allStudents.forEach(s => { if (s.subject) subs.add(s.subject) })
+    subs.add('General')
+    // Teacher subjects
+    const teacherSubjects = Array.isArray(profile?.subjects) ? profile.subjects : (typeof profile?.subject === 'string' ? profile.subject.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
+    teacherSubjects.forEach((s: string) => s && subs.add(s))
+    // Common fallback subjects
+    ;['Mathematics', 'Physics', 'Chemistry', 'Biology', 'English', 'Hindi', 'History', 'Geography', 'Computer Science', 'Physical Education'].forEach(s => subs.add(s))
+    return Array.from(subs)
+  }, [allStudents, profile])
+
+  const historyRecords = useMemo(() => {
+    const days = Number(histRange)
+    const cutoff = Date.now() - days * 86400000
+    const list: Array<{ date: string; studentId: string; studentName: string; rollNumber: string; status: string; method?: string; subject?: string; className?: string; section?: string; timestamp: number; confidence?: number }> = []
+    Object.entries(historyMap).forEach(([dateStr, dayRecs]: [string, any]) => {
+      if (!dayRecs) return
+      const [y, m, d] = dateStr.split('-').map(Number)
+      const dayDate = new Date(Date.UTC(y, (m || 1) - 1, d || 1)).getTime()
+      if (dayDate < cutoff - 86400000) return
+      const targetClass = histClass ? histClass.split('-') : null
+      Object.values(dayRecs as Record<string, any>).forEach((rec: any) => {
+        if (!rec) return
+        if (targetClass) {
+          const [c, sec] = targetClass
+          if ((rec.className || '') !== c || (rec.section || '') !== sec) return
+        }
+        if (histSubject !== 'All' && (rec.subject || 'General') !== histSubject) return
+        const student = allStudents.find(s => s.id === rec.studentId)
+        const name = student?.name || rec.name || rec.studentId || 'Unknown'
+        if (histSearch && !name.toLowerCase().includes(histSearch.toLowerCase()) && !(rec.rollNumber || student?.rollNumber || '').toLowerCase().includes(histSearch.toLowerCase())) return
+        list.push({
+          date: dateStr,
+          studentId: rec.studentId,
+          studentName: name,
+          rollNumber: rec.rollNumber || student?.rollNumber || '-',
+          status: rec.status || 'absent',
+          method: rec.method,
+          subject: rec.subject || 'General',
+          className: rec.className,
+          section: rec.section,
+          timestamp: rec.timestamp || dayDate,
+          confidence: rec.confidence,
+        })
+      })
+    })
+list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+    return list
+  }, [historyMap, histClass, histSubject, histRange, histSearch, allStudents])
+
+  const historyStats = useMemo(() => {
+    let present = 0, late = 0, absent = 0
+    const byDate: Record<string, { present: number; late: number; absent: number }> = {}
+    historyRecords.forEach(r => {
+      if (r.status === 'present') present++
+      else if (r.status === 'late') late++
+      else absent++
+      if (!byDate[r.date]) byDate[r.date] = { present: 0, late: 0, absent: 0 }
+      if (r.status === 'present') byDate[r.date].present++
+      else if (r.status === 'late') byDate[r.date].late++
+      else byDate[r.date].absent++
+    })
+    const total = historyRecords.length
+    const rate = total ? Math.round(((present + late) / total) * 100) : 0
+    return { present, late, absent, total, rate, byDate }
+  }, [historyRecords])
+
+  const exportHistory = () => {
+    try {
+      const rows = [['Date', 'Class', 'Section', 'Subject', 'Roll', 'Student', 'Status', 'Method', 'Confidence']]
+      historyRecords.forEach(r => {
+        rows.push([r.date, r.className || '', r.section || '', r.subject || '', r.rollNumber, r.studentName, r.status, r.method || '', r.confidence ? r.confidence + '%' : ''])
+      })
+      const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n')
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `attendance-${histClass || 'all'}-${histSubject}-${histRange}d.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('History CSV downloaded!')
+    } catch (e) {
+      toast.error('Could not export history')
+    }
+  }
+
+  return <div className="space-y-4">
     <PageHeader title="AI Attendance Vision" subtitle={`Smart Biometrics • QR • Real-Time Occupancy • ${todayIST()}`} />
     
     <ModuleArchitectureBanner />
-
-    {/* Top Actions & Offline Mode Toggle Bar */}
+{/* Top Actions & Offline Mode Toggle Bar */}
     <div className="flex items-center justify-between gap-3 flex-wrap bg-white dark:bg-zinc-900 p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 shadow-xs">
       <div className="flex items-center gap-2">
         <span className={`px-3 py-1 rounded-full text-[11px] font-bold flex items-center gap-1.5 ${isOfflineMode ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30' : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'}`}>
@@ -937,6 +1044,9 @@ const handleQrScan = async (scannedText: string) => {
         <TabsTrigger value="heatmap" className="rounded-full px-4 font-bold data-[state=active]:bg-zinc-900 data-[state=active]:text-white dark:data-[state=active]:bg-white dark:data-[state=active]:text-zinc-900">
           <Grid size={15} className="mr-1.5 inline"/> Classroom Occupancy & Heatmap
         </TabsTrigger>
+        <TabsTrigger value="history" className="rounded-full px-4 font-bold data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-indigo-500 data-[state=active]:text-white shadow-sm">
+          <HistoryIcon size={15} className="mr-1.5 inline"/> History
+        </TabsTrigger>
       </TabsList>
 
       {/* TAB 1: MANUAL & ROSTER */}
@@ -979,7 +1089,7 @@ const handleQrScan = async (scannedText: string) => {
               </div>
             </Card>
           ))}
-          {!students.length && <Card className="p-10 text-center text-muted-foreground text-sm rounded-[24px]">No students in {classSel || 'selected class'}. Add students from the Students page.</Card>}
+            {!students.length && <Card className="p-10 text-center text-muted-foreground text-sm rounded-[24px]">No students in {classSel || 'selected class'}. Add students from the Students page.</Card>}
         </div>
         <div className="sticky bottom-[88px] md:bottom-6 z-20 pt-3">
           <Button onClick={()=>submit('manual')} variant="success" size="lg" className="w-full rounded-full h-14 font-extrabold text-[16px] shadow-[0_10px_30px_rgba(16,185,129,0.3)]" disabled={!students.length}>
@@ -1142,7 +1252,7 @@ const handleQrScan = async (scannedText: string) => {
                     key={idx}
                     className={`relative p-2.5 rounded-xl border flex flex-col items-center justify-center text-center transition hover:scale-105 shadow-xs ${!student ? 'bg-slate-200/50 dark:bg-zinc-800/40 border-dashed border-slate-300 dark:border-zinc-700 text-slate-400' : status === 'present' ? 'bg-emerald-500 text-white border-emerald-600 font-bold' : status === 'late' ? 'bg-amber-500 text-white border-amber-600 font-bold' : 'bg-rose-500/20 text-rose-600 border-rose-300'}`}
                   >
-<span className="text-[9px] font-mono opacity-80">Desk #{idx + 1}</span>
+                  <span className="text-[9px] font-mono opacity-80">Desk #{idx + 1}</span>
                     <span className="text-[11px] font-extrabold truncate w-full mt-0.5">
                       {student ? student.name.split(' ')[0] : 'Empty'}
                     </span>
@@ -1156,9 +1266,153 @@ const handleQrScan = async (scannedText: string) => {
           </div>
         </Card>
       </TabsContent>
-    </Tabs>
 
-    {/* FULL-SCREEN AI CAMERA OVERLAY */}
+      {/* TAB 5: ATTENDANCE HISTORY */}
+      <TabsContent value="history" className="mt-4 space-y-4">
+        <Card className="p-5 rounded-[26px] border border-violet-200/60 dark:border-violet-900/40 bg-gradient-to-br from-violet-50/70 to-indigo-50/60 dark:from-violet-950/20 dark:to-indigo-950/20">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <CardTitle className="text-[17px] font-black flex items-center gap-2 text-violet-900 dark:text-violet-200">
+                <HistoryIcon className="text-violet-600" size={20} /> Attendance History
+              </CardTitle>
+              <p className="text-[12px] text-muted-foreground mt-1">View attendance history class-wise and subject-wise using the filters below.</p>
+            </div>
+            <Button variant="gradient" size="sm" className="rounded-full h-10 px-5" onClick={exportHistory}>
+              <Download size={15} className="mr-1.5"/> Export CSV
+            </Button>
+          </div>
+
+          {/* Filters */}
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div>
+              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1"><Users size={12}/> Class</label>
+              <select value={histClass} onChange={e => setHistClass(e.target.value)} className="mt-1 w-full h-11 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 px-4 text-[13px] font-bold outline-none">
+                {!classOptions.length && <option value="">No classes yet</option>}
+                {classOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1"><CalendarDays size={12}/> Subject</label>
+              <select value={histSubject} onChange={e => setHistSubject(e.target.value)} className="mt-1 w-full h-11 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 px-4 text-[13px] font-bold outline-none">
+                {subjectOptions.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Date Range</label>
+              <select value={histRange} onChange={e => setHistRange(e.target.value as '7'|'30'|'90')} className="mt-1 w-full h-11 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 px-4 text-[13px] font-bold outline-none">
+                <option value="7">Last 7 days</option>
+                <option value="30">Last 30 days</option>
+                <option value="90">Last 90 days</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1"><Search size={12}/> Search Student</label>
+              <input
+                value={histSearch}
+                onChange={e => setHistSearch(e.target.value)}
+                placeholder="Name or Roll No."
+                className="mt-1 w-full h-11 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 px-4 text-[13px] outline-none"
+              />
+            </div>
+          </div>
+
+          {/* Stat chips */}
+          <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div className="p-3 rounded-2xl bg-white/70 dark:bg-zinc-900/60 border border-slate-200 dark:border-zinc-700">
+              <div className="text-[10px] font-bold text-muted-foreground uppercase">Total Records</div>
+              <div className="text-[22px] font-black">{historyStats.total}</div>
+            </div>
+            <div className="p-3 rounded-2xl bg-emerald-100/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40">
+              <div className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 uppercase">Present</div>
+              <div className="text-[22px] font-black text-emerald-600 dark:text-emerald-400">{historyStats.present}</div>
+            </div>
+            <div className="p-3 rounded-2xl bg-amber-100/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40">
+              <div className="text-[10px] font-bold text-amber-700 dark:text-amber-300 uppercase">Late</div>
+              <div className="text-[22px] font-black text-amber-600 dark:text-amber-400">{historyStats.late}</div>
+            </div>
+            <div className="p-3 rounded-2xl bg-violet-100/70 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-900/40">
+              <div className="text-[10px] font-bold text-violet-700 dark:text-violet-300 uppercase">Attendance Rate</div>
+              <div className="text-[22px] font-black text-violet-600 dark:text-violet-400">{historyStats.rate}%</div>
+            </div>
+          </div>
+        </Card>
+
+        {/* Daily summary */}
+        {Object.keys(historyStats.byDate).length > 0 && (
+          <Card className="p-4 rounded-[24px] border border-slate-200 dark:border-zinc-800">
+            <CardTitle className="text-[14px] font-bold mb-3">Daily Summary — {histClass} • {histSubject}</CardTitle>
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
+              {Object.entries(historyStats.byDate).sort((a,b)=>a[0].localeCompare(b[0])).slice(-14).map(([date, stats]) => {
+                const total = stats.present + stats.late + stats.absent
+                const rate = total ? Math.round(((stats.present + stats.late) / total) * 100) : 0
+                return (
+                  <div key={date} className="min-w-[90px] rounded-2xl p-3 border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-center">
+                    <div className="text-[9px] font-bold uppercase text-muted-foreground">{date.slice(5)}</div>
+                    <div className={`text-[18px] font-black mt-1 ${rate >= 80 ? 'text-emerald-500' : rate >= 60 ? 'text-amber-500' : 'text-rose-500'}`}>{rate}%</div>
+                    <div className="mt-1 flex gap-0.5 justify-center text-[9px] font-bold">
+                      <span className="text-emerald-500">P{stats.present}</span>
+                      <span className="text-amber-500 ml-1">L{stats.late}</span>
+                      <span className="text-rose-500 ml-1">A{stats.absent}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </Card>
+        )}
+
+        {/* Records table (scrollable) */}
+        <Card className="rounded-[24px] border border-slate-200 dark:border-zinc-800 overflow-hidden">
+          <div className="p-4 border-b border-slate-200 dark:border-zinc-800 flex items-center justify-between">
+            <CardTitle className="text-[14px] font-bold">Detailed Records</CardTitle>
+            <span className="text-[11px] text-muted-foreground">{historyRecords.length} record(s)</span>
+          </div>
+          <div className="max-h-[500px] overflow-auto scrollbar-thin">
+            {historyRecords.length === 0 ? (
+              <div className="p-10 text-center text-muted-foreground text-sm">
+                <HistoryIcon size={32} className="mx-auto mb-2 opacity-40"/>
+                No attendance records found for this filter. Mark attendance or adjust filters.
+              </div>
+            ) : (
+              <table className="w-full text-[12px]">
+                <thead className="bg-slate-50 dark:bg-zinc-900/70 sticky top-0">
+                  <tr className="text-left">
+                    <th className="px-3 py-2.5 font-bold text-muted-foreground uppercase text-[10px]">Date</th>
+                    <th className="px-3 py-2.5 font-bold text-muted-foreground uppercase text-[10px]">Student</th>
+                    <th className="px-3 py-2.5 font-bold text-muted-foreground uppercase text-[10px] hidden sm:table-cell">Subject</th>
+                    <th className="px-3 py-2.5 font-bold text-muted-foreground uppercase text-[10px] hidden md:table-cell">Method</th>
+                    <th className="px-3 py-2.5 font-bold text-muted-foreground uppercase text-[10px]">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {historyRecords.map((r, i) => (
+                    <tr key={`${r.date}-${r.studentId}-${i}`} className="border-t border-slate-100 dark:border-zinc-800/80 hover:bg-slate-50/50 dark:hover:bg-zinc-800/40 transition">
+                      <td className="px-3 py-2.5 font-mono text-[11px] text-muted-foreground">{r.date}</td>
+                      <td className="px-3 py-2.5">
+                        <div className="font-bold">{r.studentName}</div>
+                        <div className="text-[10px] text-muted-foreground">Roll {r.rollNumber} • {r.className}-{r.section}</div>
+                      </td>
+                      <td className="px-3 py-2.5 hidden sm:table-cell text-muted-foreground">{r.subject}</td>
+                      <td className="px-3 py-2.5 hidden md:table-cell text-[10px] uppercase font-bold text-muted-foreground">{r.method || 'manual'}</td>
+                      <td className="px-3 py-2.5">
+                        <span className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-black ${
+                          r.status === 'present' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300' :
+                          r.status === 'late' ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300' :
+                          'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300'
+                        }`}>
+                          {r.status.toUpperCase()}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </Card>
+      </TabsContent>
+    </Tabs>
+{/* FULL-SCREEN AI CAMERA OVERLAY */}
     {aiScanning && (
       <div
         ref={overlayRef}

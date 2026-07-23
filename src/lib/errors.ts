@@ -23,6 +23,11 @@ const AUTH_MESSAGES: Record<string, string> = {
   'auth/requires-recent-login': 'For your security, please sign in again to continue.',
   'auth/expired-action-code': 'This action link has expired. Please request a new one.',
   'auth/invalid-action-code': 'This action link is invalid. Please request a new one.',
+  'permission-denied': 'You do not have permission to complete that action.',
+  'storage/unauthorized': 'Photo upload was not permitted. Please contact your school administrator.',
+  'storage/unauthenticated': 'Your session has expired. Please sign in again.',
+  'storage/retry-limit-exceeded': 'Photo upload is taking too long. Please check your connection and try again.',
+  'storage/canceled': 'Photo upload was cancelled.',
 }
 
 /**
@@ -37,8 +42,11 @@ export function getFriendlyError(error: unknown): string {
   const code = (error as { code?: string } | null)?.code
   if (code && AUTH_MESSAGES[code]) return AUTH_MESSAGES[code]
 
-  const match = raw?.match(/auth\/[a-z-]+/)
+  const match = raw?.match(/(?:auth|storage)\/[a-z-]+/)
   if (match && AUTH_MESSAGES[match[0]]) return AUTH_MESSAGES[match[0]]
+
+  if (/permission|not authorized|insufficient permissions/i.test(raw)) return 'You do not have permission to complete that action.'
+  if (/network|offline|failed to fetch/i.test(raw)) return 'Network error. Please check your connection and try again.'
 
   return 'We could not complete that action. Please try again in a moment.'
 }

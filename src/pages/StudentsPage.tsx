@@ -9,7 +9,7 @@ import { ref, onValue, update, remove, push, set } from 'firebase/database'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSchool } from '@/contexts/SchoolContext'
 import { generateId } from '@/lib/utils'
-import { createFaceDescriptorFromImageUrl, isValidDescriptor, loadFaceApiModels } from '@/lib/faceRecognition'
+import { createFaceDescriptorFromImageUrl, isValidDescriptor, loadFaceApiModels, resetFaceModels } from '@/lib/faceRecognition'
 import { fileToDataUrl, resizeImageDataUrl, uploadStudentPhoto } from '@/lib/studentPhoto'
 import { toast } from 'sonner'
 import { getFriendlyError } from '@/lib/errors'
@@ -233,8 +233,14 @@ export default function StudentsPage(){
       setForm((prev:any)=>({...prev, faceDescriptor, faceEmbedding: faceDescriptor}))
       toast.success('AI Face ID & 128-D Embedding vector generated. Save the student to keep it.')
     } catch(e:any) {
+      const errorMsg = friendlyFaceError(e)
+      // If tensor error, reset models and retry once
+      if (errorMsg.includes('tensor') || errorMsg.includes('corruption')) {
+        toast.info('Resetting AI models... Please try again.')
+        resetFaceModels()
+      }
       setForm((prev:any)=>({...prev, faceDescriptor: null, faceEmbedding: null}))
-      toast.error(friendlyFaceError(e))
+      toast.error(errorMsg)
     } finally {
       setGeneratingFaceId(false)
     }
@@ -436,7 +442,7 @@ export default function StudentsPage(){
         </div>
       }/>
 
-      {/* Add Student Dialog Trigger — Floating Action Button (mobile) */}
+        {/* Add Student Dialog Trigger — Floating Action Button (mobile) */}
       {canManage && (
         <Dialog open={open} onOpenChange={(o)=>{ setOpen(o); if(!o){ setEditing(null); setForm(emptyForm) }}}>
           <DialogTrigger asChild>
@@ -492,8 +498,7 @@ export default function StudentsPage(){
                   )}
                 </div>
               </div>
-
-              {/* Form Fields */}
+{/* Form Fields */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2">
                   <Label className="text-white/60 text-xs">Full Name *</Label>
@@ -549,8 +554,7 @@ export default function StudentsPage(){
               </Button>
             </div>
           </DialogContent>
-
-          {/* Camera Enrollment Dialog */}
+{/* Camera Enrollment Dialog */}
           <Dialog open={cameraEnrollOpen} onOpenChange={(o)=>{ if(!o) closeCameraEnrollment() }}>
             <DialogContent className="rounded-[28px] !bg-[#0c1125] border border-white/[0.06] max-w-md">
               <DialogHeader>
@@ -585,8 +589,7 @@ export default function StudentsPage(){
           </Dialog>
         </Dialog>
       )}
-
-      {/* ===== STATISTICS CARDS ===== */}
+{/* ===== STATISTICS CARDS ===== */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
@@ -635,8 +638,7 @@ export default function StudentsPage(){
           <div className="text-[28px] font-black leading-none text-white">{stats.aiReady}</div>
           <div className="text-[12px] text-white/50 mt-1 font-medium">AI Registered</div>
         </motion.div>
-
-        <motion.div
+<motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
@@ -687,7 +689,7 @@ export default function StudentsPage(){
             }`}
             style={filterClass === 'all' ? { background: 'linear-gradient(135deg, #4F46E5, #7C3AED)' } : { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
           >
-            All ({visibleStudents.length})
+          All ({visibleStudents.length})
           </button>
           {classOptions.map(cls => (
             <button

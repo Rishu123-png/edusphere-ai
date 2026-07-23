@@ -16,7 +16,8 @@ import { getFriendlyError } from '@/lib/errors'
 import { QRCodeSVG } from 'qrcode.react'
 import PageHeader from '@/components/mobile/PageHeader'
 import MyTeachersPanel from '@/components/mobile/MyTeachersPanel'
-import { Search, Plus, Edit2, Trash2, Download, Camera, ImageUp, ScanFace, Smile, Eye, CheckCircle2, ShieldCheck, AlertCircle, Sparkles, Brain } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Search, Plus, Edit2, Trash2, Download, Camera, ImageUp, ScanFace, Smile, Eye, CheckCircle2, ShieldCheck, AlertCircle, Sparkles, Brain, Users, UserCheck, UserX, Cpu, Filter, X, QrCode, MoreHorizontal, ChevronRight } from 'lucide-react'
 
 const COMMON_SUBJECTS = ['Maths', 'Physics', 'Chemistry', 'Biology', 'English', 'Hindi', 'Sanskrit', 'Social Science', 'Computer Science', 'Physical Education', 'Economics', 'Accountancy']
 
@@ -31,6 +32,8 @@ export default function StudentsPage(){
   const [editing, setEditing] = useState<any>(null)
   const [generatingFaceId, setGeneratingFaceId] = useState(false)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const [filterClass, setFilterClass] = useState<string>('all')
+  const [expandedCard, setExpandedCard] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const emptyForm = { name:'', className:'10', section:'A', rollNumber:'', admissionNumber:'', guardianName:'', guardianPhone:'', guardianEmail:'', subjects:'', photoUrl:'' }
   const [form, setForm] = useState<any>(emptyForm)
@@ -76,16 +79,35 @@ export default function StudentsPage(){
     )
   }, [students, isTeacher, teacherClasses, profile?.uid])
 
+  // Unique class options for filter
+  const classOptions = useMemo(() => {
+    const classes = new Set(visibleStudents.map((s:any) => `${s.className}-${s.section}`))
+    return Array.from(classes).filter(Boolean).sort() as string[]
+  }, [visibleStudents])
+
   const filtered = useMemo(() => {
-    if (!q.trim()) return visibleStudents
+    let result = visibleStudents
+    if (filterClass !== 'all') {
+      result = result.filter((s:any) => `${s.className}-${s.section}` === filterClass)
+    }
+    if (!q.trim()) return result
     const lower = q.toLowerCase()
-    return visibleStudents.filter((s:any)=>
+    return result.filter((s:any)=>
       (s.name||'').toLowerCase().includes(lower) ||
       (s.admissionNumber||'').toLowerCase().includes(lower) ||
       String(s.rollNumber||'').includes(lower) ||
       `${s.className}-${s.section}`.toLowerCase().includes(lower)
     )
-  }, [visibleStudents, q])
+  }, [visibleStudents, q, filterClass])
+
+  // Statistics
+  const stats = useMemo(() => {
+    const total = filtered.length
+    const aiReady = filtered.filter((s:any) => isValidDescriptor(s.faceDescriptor)).length
+    const withPhoto = filtered.filter((s:any) => s.photoUrl).length
+    const uniqueClasses = new Set(filtered.map((s:any) => `${s.className}-${s.section}`)).size
+    return { total, aiReady, withPhoto, uniqueClasses }
+  }, [filtered])
 
   const classKey = (className: string, section: string) => `${String(className||'').trim()}-${String(section||'').trim()}`
 
@@ -403,317 +425,474 @@ export default function StudentsPage(){
     ? `${filtered.length} in your classes • single registration & embedding storage`
     : `${filtered.length} total • AI Face Embeddings stored securely`
 
-  return <div className="page-container space-y-4">
-    <PageHeader title="Students Database" subtitle={subtitle} action={
-      <div className="flex gap-2">
-        <Button variant="outline" size="sm" className="rounded-full hidden md:flex" onClick={bulkExport}><Download size={16} className="mr-1"/> Export</Button>
-        {canManage ? (
+  return (
+    <div className="page-container">
+      {/* Header */}
+      <PageHeader title="Students Database" subtitle={subtitle} action={
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" className="rounded-full hidden md:flex btn-outline-glass" onClick={bulkExport}>
+            <Download size={16} className="mr-1.5"/> Export
+          </Button>
+        </div>
+      }/>
+
+      {/* Add Student Dialog Trigger — Floating Action Button (mobile) */}
+      {canManage && (
         <Dialog open={open} onOpenChange={(o)=>{ setOpen(o); if(!o){ setEditing(null); setForm(emptyForm) }}}>
           <DialogTrigger asChild>
-            <Button variant="gradient" size="sm" className="rounded-full h-11 px-5" onClick={(e)=>{ e.preventDefault(); openAdd() }}>
-              <Plus size={18} className="mr-1"/> Add Student
-            </Button>
+            <button
+              onClick={(e)=>{ e.preventDefault(); openAdd() }}
+              className="md:hidden fixed bottom-24 right-4 z-30 w-14 h-14 rounded-full flex items-center justify-center shadow-lg shadow-brand-primary/30 animate-pulse-glow"
+              style={{ background: 'linear-gradient(135deg, #4F46E5, #7C3AED, #A855F7)' }}
+            >
+              <Plus size={24} className="text-white" />
+            </button>
           </DialogTrigger>
-          <DialogContent className="rounded-[28px] max-h-[90vh] overflow-auto max-w-2xl">
+
+          {/* Add/Edit Dialog */}
+          <DialogContent className="rounded-[28px] max-h-[90vh] overflow-auto max-w-2xl !bg-[#0c1125] border border-white/[0.06] shadow-2xl">
             <DialogHeader>
-              <DialogTitle className="text-[20px] flex items-center gap-2">
-                <ScanFace className="text-indigo-600"/> {editing ? 'Edit Student Profile & Embedding' : 'AI Face Registration (Single Enrollment)'}
+              <DialogTitle className="text-[20px] flex items-center gap-2 text-white">
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{background: 'linear-gradient(135deg, #4F46E5, #A855F7)'}}>
+                  <ScanFace size={18} className="text-white"/>
+                </div>
+                {editing ? 'Edit Student Profile' : 'AI Face Registration'}
               </DialogTitle>
             </DialogHeader>
-            <div className="text-[12px] text-muted-foreground p-3 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/30 space-y-1.5">
-              <div>⚡ <b>AI Registration Guarantee:</b> Each student registers only once. The AI stores all 9 identity fields plus a numerical <b>128-D Face Embedding</b> vector (`[0.012, -0.045, ...]`) rather than just an image for ultra-reliable biometric recognition.</div>
-              <div>👨‍👩‍👧 <b>Parent Portal Fix:</b> Save the guardian login email here so the authenticated parent account can join the school and automatically link to the child profile.</div>
+            <div className="text-[12px] p-3 rounded-2xl border space-y-1.5 bg-white/[0.03] border-white/[0.06] text-white/60">
+              <div>⚡ <b className="text-white/80">AI Registration:</b> Each photo auto-generates a 128-D face embedding for attendance recognition.</div>
             </div>
-
-            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(e)=>{
-              const file = e.target.files?.[0]
-              e.target.value = ''
-              if(file && file.type.startsWith('image/')) fileToDataUrl(file).then(applySelectedPhoto)
-            }} />
-
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-150 dark:border-zinc-700 flex flex-col md:flex-row gap-4 items-center justify-between">
-              <div className="flex items-center gap-3.5 min-w-0">
-                <div className="w-16 h-16 min-w-[64px] min-h-[64px] max-w-[64px] max-h-[64px] rounded-2xl overflow-hidden relative bg-gradient-to-br from-indigo-500 via-violet-500 to-cyan-500 flex items-center justify-center text-white font-bold text-2xl shrink-0 shadow-md">
+            <div className="space-y-4">
+              {/* Photo */}
+              <div className="flex items-center gap-4">
+                <div className="w-20 h-20 rounded-2xl overflow-hidden relative border-2 border-white/10 flex items-center justify-center text-2xl font-bold text-white shrink-0" style={{background: 'linear-gradient(135deg, #4F46E5, #22D3EE)'}}>
                   {form.photoUrl ? (
-                    <img src={form.photoUrl} alt="Student" className="absolute inset-0 w-full h-full object-cover" />
+                    <img src={form.photoUrl} className="absolute inset-0 w-full h-full object-cover" alt=""/>
                   ) : (
-                    <span>{form.name?.[0] || 'S'}</span>
+                    <span>{form.name?.[0] || '?'}</span>
                   )}
                 </div>
-                <div className="min-w-0 space-y-1">
-                  <div className="font-bold text-[15px]">Biometric Face Embedding</div>
-                  <div className="text-[11px] text-muted-foreground leading-snug">
-                    {isValidDescriptor(form.faceDescriptor)
-                      ? '✓ 128-Dimensional vector generated (`[0.014, -0.038, 0.102, ...]`). Ready for instant matching.'
-                      : 'No numerical embedding vector extracted yet. Use Live Camera or Upload Photo.'}
+                <div className="flex flex-col gap-2">
+                  <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={async (e: ChangeEvent<HTMLInputElement>)=>{
+                    const f = e.target.files?.[0]; if(!f) return
+                    const reader = new FileReader()
+                    reader.onload = async () => { await applySelectedPhoto(reader.result as string) }
+                    reader.readAsDataURL(f)
+                  }}/>
+                  <Button variant="outline" size="sm" className="btn-outline-glass rounded-full" onClick={()=>fileInputRef.current?.click()} disabled={uploadingPhoto}>
+                    {uploadingPhoto ? 'Uploading...' : <><ImageUp size={14} className="mr-1.5"/> Upload Photo</>}
+                  </Button>
+                  <Button variant="outline" size="sm" className="btn-outline-glass rounded-full" onClick={openCameraEnrollment}>
+                    <Camera size={14} className="mr-1.5"/> Live Camera
+                  </Button>
+                  {form.photoUrl && (
+                    <Button variant="outline" size="sm" className="btn-outline-glass rounded-full" onClick={generateFaceId} disabled={generatingFaceId}>
+                      {generatingFaceId ? 'Generating...' : <><ScanFace size={14} className="mr-1.5"/> Generate Face ID</>}
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* Form Fields */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <Label className="text-white/60 text-xs">Full Name *</Label>
+                  <Input value={form.name} onChange={e=>setForm({...form, name: e.target.value})} placeholder="Student full name" className="login-input mt-1 h-11"/>
+                </div>
+                <div>
+                  <Label className="text-white/60 text-xs">Roll Number *</Label>
+                  <Input value={form.rollNumber} onChange={e=>setForm({...form, rollNumber: e.target.value})} placeholder="Roll #" className="login-input mt-1 h-11"/>
+                </div>
+                <div>
+                  <Label className="text-white/60 text-xs">Admission No.</Label>
+                  <Input value={form.admissionNumber} onChange={e=>setForm({...form, admissionNumber: e.target.value})} placeholder="Admission #" className="login-input mt-1 h-11"/>
+                </div>
+                <div>
+                  <Label className="text-white/60 text-xs">Class</Label>
+                  <select value={form.className} onChange={e=>setForm({...form, className: e.target.value})} className="login-input mt-1 h-11 w-full rounded-xl px-3">
+                    {Array.from({length:12}, (_,i)=>String(i+1)).map(c=><option key={c} value={c} className="bg-zinc-900">Class {c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <Label className="text-white/60 text-xs">Section</Label>
+                  <select value={form.section} onChange={e=>setForm({...form, section: e.target.value})} className="login-input mt-1 h-11 w-full rounded-xl px-3">
+                    {['A','B','C','D','E'].map(s=><option key={s} value={s} className="bg-zinc-900">Section {s}</option>)}
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <Label className="text-white/60 text-xs">Guardian Name</Label>
+                  <Input value={form.guardianName} onChange={e=>setForm({...form, guardianName: e.target.value})} placeholder="Father/Mother name" className="login-input mt-1 h-11"/>
+                </div>
+                <div>
+                  <Label className="text-white/60 text-xs">Phone</Label>
+                  <Input value={form.guardianPhone} onChange={e=>setForm({...form, guardianPhone: e.target.value})} placeholder="+91..." className="login-input mt-1 h-11"/>
+                </div>
+                <div>
+                  <Label className="text-white/60 text-xs">Email</Label>
+                  <Input value={form.guardianEmail} onChange={e=>setForm({...form, guardianEmail: e.target.value})} placeholder="Email" className="login-input mt-1 h-11"/>
+                </div>
+                <div className="col-span-2">
+                  <Label className="text-white/60 text-xs">Subjects (comma separated)</Label>
+                  <Input value={form.subjects} onChange={e=>setForm({...form, subjects: e.target.value})} placeholder="Maths, Physics, Chemistry..." className="login-input mt-1 h-11"/>
+                </div>
+              </div>
+
+              {isValidDescriptor(form.faceDescriptor) && (
+                <div className="flex items-center gap-2 p-3 rounded-2xl border border-brand-success/20 bg-brand-success/5">
+                  <CheckCircle2 size={16} className="text-brand-success"/>
+                  <span className="text-[12px] font-bold text-brand-success">128-D Face Embedding Generated ✓</span>
+                </div>
+              )}
+
+              <Button className="btn-gradient w-full h-12" onClick={save}>
+                {editing ? 'Update Student' : 'Register Student'}
+              </Button>
+            </div>
+          </DialogContent>
+
+          {/* Camera Enrollment Dialog */}
+          <Dialog open={cameraEnrollOpen} onOpenChange={(o)=>{ if(!o) closeCameraEnrollment() }}>
+            <DialogContent className="rounded-[28px] !bg-[#0c1125] border border-white/[0.06] max-w-md">
+              <DialogHeader>
+                <DialogTitle className="text-white flex items-center gap-2">
+                  <ScanFace className="text-brand-cyan"/> Live Camera Enrollment
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div className="relative aspect-[4/3] rounded-2xl overflow-hidden bg-zinc-900 border border-emerald-400/30 flex items-center justify-center">
+                  <video ref={enrollVideoRef} className="absolute inset-0 w-full h-full object-cover transform -scale-x-100" playsInline muted />
+                  <div className="absolute inset-12 border-2 border-dashed border-emerald-400/60 rounded-2xl pointer-events-none flex flex-col items-center justify-between p-3">
+                    <span className="text-[10px] bg-emerald-500/80 text-black px-2 py-0.5 rounded font-bold">NEON RECTANGLE</span>
+                    <div className="text-center space-y-1">
+                      <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center gap-1.5 shadow ${enrollSmile ? 'bg-emerald-500 text-black' : 'bg-black/60 text-white'}`}>
+                        <Smile size={14} className={enrollSmile ? 'animate-bounce' : ''} /> {enrollSmile ? 'Smile Verified 🙂' : 'Please Smile 🙂'}
+                      </span>
+                      <span className="block text-[10px] bg-black/60 text-cyan-300 px-2 py-0.5 rounded-full">
+                        Head Pose: {enrollPose === 'looking_straight' ? 'Looking Straight ✓' : enrollPose === 'looking_left' ? 'Looking Left ⬅️' : 'Looking Right ➡️'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 pt-0.5">
-                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${isValidDescriptor(form.faceDescriptor) ? 'bg-emerald-500 text-white' : 'bg-amber-500/20 text-amber-600'}`}>
-                      {isValidDescriptor(form.faceDescriptor) ? 'EMBEDDING VERIFIED (128-D)' : 'EMBEDDING REQUIRED'}
+                </div>
+                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-center text-[12px] text-brand-cyan font-medium">
+                  ⚡ {enrollStatusText}
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <Button variant="outline" className="rounded-full bg-transparent border-white/10 text-white/70 hover:bg-white/5 hover:text-white" onClick={closeCameraEnrollment}>Cancel</Button>
+                  <Button variant="success" className="rounded-full font-bold shadow-md" onClick={captureCameraEnrollment}>Capture & Embed</Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </Dialog>
+      )}
+
+      {/* ===== STATISTICS CARDS ===== */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="card-premium p-4"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{background: 'linear-gradient(135deg, rgba(79,70,229,0.2), rgba(168,85,247,0.15))'}}>
+              <Users size={20} className="text-brand-primary"/>
+            </div>
+            <ChevronRight size={14} className="text-white/20"/>
+          </div>
+          <div className="text-[28px] font-black leading-none text-white">{stats.total}</div>
+          <div className="text-[12px] text-white/50 mt-1 font-medium">Total Students</div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="card-premium p-4"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{background: 'rgba(34,197,94,0.12)'}}>
+              <UserCheck size={20} className="text-brand-success"/>
+            </div>
+            <ChevronRight size={14} className="text-white/20"/>
+          </div>
+          <div className="text-[28px] font-black leading-none text-white">{stats.withPhoto}</div>
+          <div className="text-[12px] text-white/50 mt-1 font-medium">With Photos</div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+          className="card-premium p-4"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{background: 'rgba(34,211,238,0.1)'}}>
+              <Cpu size={20} className="text-brand-cyan"/>
+            </div>
+            <ChevronRight size={14} className="text-white/20"/>
+          </div>
+          <div className="text-[28px] font-black leading-none text-white">{stats.aiReady}</div>
+          <div className="text-[12px] text-white/50 mt-1 font-medium">AI Registered</div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="card-premium p-4"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{background: 'rgba(245,158,11,0.12)'}}>
+              <Brain size={20} className="text-brand-warning"/>
+            </div>
+            <ChevronRight size={14} className="text-white/20"/>
+          </div>
+          <div className="text-[28px] font-black leading-none text-white">{stats.uniqueClasses}</div>
+          <div className="text-[12px] text-white/50 mt-1 font-medium">Classes</div>
+        </motion.div>
+      </div>
+
+      {/* ===== SEARCH + FILTER ===== */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.25 }}
+        className="space-y-3"
+      >
+        {/* Search */}
+        <div className="relative">
+          <Search size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-white/30" />
+          <Input
+            placeholder="Search by name, roll number, admission ID..."
+            value={q}
+            onChange={e=>setQ(e.target.value)}
+            className="pl-12 h-14 search-glass font-medium text-white rounded-full"
+          />
+          {q && (
+            <button onClick={()=>setQ('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60">
+              <X size={16}/>
+            </button>
+          )}
+        </div>
+
+        {/* Filter Chips */}
+        <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+          <button
+            onClick={()=>setFilterClass('all')}
+            className={`px-4 py-2.5 rounded-full text-[13px] font-bold whitespace-nowrap transition-all shrink-0 ${
+              filterClass === 'all'
+                ? 'text-white shadow-lg shadow-brand-primary/20'
+                : 'text-white/50 hover:text-white/80'
+            }`}
+            style={filterClass === 'all' ? { background: 'linear-gradient(135deg, #4F46E5, #7C3AED)' } : { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
+          >
+            All ({visibleStudents.length})
+          </button>
+          {classOptions.map(cls => (
+            <button
+              key={cls}
+              onClick={()=>setFilterClass(filterClass === cls ? 'all' : cls)}
+              className={`px-4 py-2.5 rounded-full text-[13px] font-bold whitespace-nowrap transition-all shrink-0 ${
+                filterClass === cls
+                  ? 'text-white shadow-lg shadow-brand-primary/20'
+                  : 'text-white/50 hover:text-white/80'
+              }`}
+              style={filterClass === cls ? { background: 'linear-gradient(135deg, #4F46E5, #7C3AED)' } : { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
+            >
+              {cls}
+            </button>
+          ))}
+          <button
+            className="px-4 py-2.5 rounded-full text-[13px] font-bold whitespace-nowrap shrink-0 flex items-center gap-1.5"
+            style={{ background: 'rgba(34,211,238,0.08)', color: '#22D3EE', border: '1px solid rgba(34,211,238,0.15)' }}
+          >
+            <Cpu size={13}/> AI Ready ({stats.aiReady})
+          </button>
+        </div>
+      </motion.div>
+
+      {/* ===== STUDENT CARDS ===== */}
+      <div className="grid gap-3 md:hidden">
+        <AnimatePresence mode="popLayout">
+          {filtered.map((s:any, i: number)=>(
+            <motion.div
+              key={s.id}
+              layout
+              initial={{ opacity: 0, y: 12, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ delay: Math.min(i * 0.03, 0.3), duration: 0.3 }}
+              className="card-premium student-card p-4"
+            >
+              <div className="flex items-center gap-3">
+                {/* Avatar */}
+                <div className="w-14 h-14 rounded-2xl overflow-hidden relative flex items-center justify-center text-white font-bold text-lg shrink-0 shadow-lg" style={{background: 'linear-gradient(135deg, #4F46E5, #22D3EE)'}}>
+                  {s.photoUrl ? (
+                    <img src={s.photoUrl} alt={s.name || 'Student'} className="absolute inset-0 w-full h-full object-cover" />
+                  ) : (
+                    <span>{s.name?.[0]||'S'}</span>
+                  )}
+                  {/* Online indicator dot */}
+                  <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-[#0c1125]" style={{background: isValidDescriptor(s.faceDescriptor) ? '#22C55E' : '#F59E0B'}}/>
+                </div>
+
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-[15px] leading-tight truncate text-white">{s.name}</div>
+                  <div className="text-[12px] text-white/50 font-medium mt-0.5 truncate">
+                    Class {s.className}-{s.section} • Roll #{s.rollNumber}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-2">
+                    <span className={`status-chip ${isValidDescriptor(s.faceDescriptor) ? 'status-chip-success' : 'status-chip-warning'}`}>
+                      {isValidDescriptor(s.faceDescriptor) ? '✓ AI Ready' : '⚠ No Embedding'}
                     </span>
                   </div>
                 </div>
-              </div>
-              <div className="flex flex-col sm:flex-row gap-2 shrink-0 w-full md:w-auto">
-                <Button variant="gradient" className="rounded-full font-bold shadow-sm" onClick={(e)=>{ e.preventDefault(); openCameraEnrollment(); }} disabled={uploadingPhoto}>
-                  <Camera size={16} className="mr-1.5"/> Live Camera Capture
-                </Button>
-                <Button variant="outline" className="rounded-full" onClick={(e)=>{ e.preventDefault(); fileInputRef.current?.click(); }} disabled={uploadingPhoto}>
-                  <ImageUp size={16} className="mr-1"/> Upload Photo
-                </Button>
-                <Button
-                  variant="success"
-                  className="rounded-full whitespace-nowrap"
-                  onClick={(e)=>{ e.preventDefault(); generateFaceId() }}
-                  disabled={uploadingPhoto || generatingFaceId || !form.photoUrl}
-                  title={form.photoUrl ? 'Re-generate the 128-D face embedding' : 'Upload a photo first'}
-                >
-                  <ScanFace size={16} className="mr-1.5"/> {generatingFaceId ? 'Generating…' : 'Generate Face ID'}
-                </Button>
-              </div>
-            </div>
-{/* Form Fields: All 9 Required Identity Fields */}
-            <div className="grid md:grid-cols-3 gap-3.5 pt-1">
-              <div>
-                <Label className="text-[12px] font-bold text-muted-foreground">Student Name *</Label>
-                <Input className="mt-1 h-11 rounded-xl font-semibold" placeholder="e.g. Rahul Sharma" value={form.name||''} onChange={e=>setForm({...form, name: e.target.value})} />
-              </div>
-              <div>
-                <Label className="text-[12px] font-bold text-muted-foreground">Roll Number *</Label>
-                <Input className="mt-1 h-11 rounded-xl font-semibold" placeholder="e.g. 101" value={form.rollNumber||''} onChange={e=>setForm({...form, rollNumber: e.target.value})} />
-              </div>
-              <div>
-                <Label className="text-[12px] font-bold text-muted-foreground">Student ID *</Label>
-                <Input className="mt-1 h-11 rounded-xl text-slate-500 font-mono text-[12px]" placeholder="Auto-generated" value={form.id || editing?.id || 'stu_auto_gen'} readOnly />
-              </div>
-              <div>
-                <Label className="text-[12px] font-bold text-muted-foreground">Class *</Label>
-                <Input className="mt-1 h-11 rounded-xl font-semibold" placeholder="e.g. XII" value={form.className||''} onChange={e=>setForm({...form, className: e.target.value})} />
-              </div>
-              <div>
-                <Label className="text-[12px] font-bold text-muted-foreground">Section *</Label>
-                <Input className="mt-1 h-11 rounded-xl font-semibold" placeholder="e.g. A" value={form.section||''} onChange={e=>setForm({...form, section: e.target.value})} />
+
+                {/* QR Code */}
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{background: 'rgba(255,255,255,0.06)'}}>
+                  <QRCodeSVG value={s.qrCode||s.id} size={24} fgColor="#818cf8" bgColor="transparent"/>
+                </div>
               </div>
 
-              {/* SUBJECTS — drives the student → teacher dashboard mapping */}
-              <div className="md:col-span-3">
-                <Label className="text-[12px] font-bold text-muted-foreground">Subjects (tap to add)</Label>
-                {(() => {
-                  const chips = Array.isArray(form.subjects) ? form.subjects : (form.subjects ? String(form.subjects).split(',').map(s=>s.trim()).filter(Boolean) : [])
-                  const toggleSubject = (sub: string) => {
-                    const cur = Array.isArray(form.subjects) ? form.subjects : (form.subjects ? String(form.subjects).split(',').map(s=>s.trim()).filter(Boolean) : [])
-                    const next = cur.includes(sub) ? cur.filter((x: string) => x !== sub) : [...cur, sub]
-                    setForm({ ...form, subjects: next })
-                  }
-                  return (
-                    <>
-                      <div className="mt-1.5 flex flex-wrap gap-2">
-                        {COMMON_SUBJECTS.map(sub => {
-                          const active = chips.includes(sub)
-                          return (
-                            <button key={sub} type="button" onClick={() => toggleSubject(sub)} className={`px-3 h-9 rounded-full text-[12px] font-semibold border transition active:scale-95 ${active ? 'bg-indigo-600 text-white border-indigo-600 shadow' : 'bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-700 text-muted-foreground'}`}>{sub}</button>
-                          )
-                        })}
+              {/* Expanded section */}
+              <AnimatePresence>
+                {expandedCard === s.id && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.25 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="pt-3 mt-3 border-t border-white/[0.06] space-y-2">
+                      <div className="flex items-center gap-2 text-[12px] text-white/50">
+                        <span>ID: {s.studentId||s.id}</span>
                       </div>
-                      {chips.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {chips.map((c: string) => <span key={c} className="px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 text-[11px] font-bold">{c}</span>)}
-                        </div>
+                      {s.guardianName && (
+                        <div className="text-[12px] text-white/50">Guardian: {s.guardianName} {s.guardianPhone ? `• ${s.guardianPhone}` : ''}</div>
                       )}
-                    </>
-                  )
-                })()}
-              </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
-              {/* Assigned teachers for this class + subjects (read-only dashboard links) */}
-              <div className="md:col-span-3">
-                <MyTeachersPanel
-                  className={form.className}
-                  section={form.section}
-                  subjects={Array.isArray(form.subjects) ? form.subjects : (form.subjects ? String(form.subjects).split(',').map(s=>s.trim()).filter(Boolean) : [])}
-                />
-              </div>
-
-              <div>
-                <Label className="text-[12px] font-bold text-muted-foreground">Guardian Name *</Label>
-                <Input className="mt-1 h-11 rounded-xl font-semibold" placeholder="e.g. Suresh Sharma" value={form.guardianName||''} onChange={e=>setForm({...form, guardianName: e.target.value})} />
-              </div>
-              <div>
-                <Label className="text-[12px] font-bold text-muted-foreground">Guardian Phone *</Label>
-                <Input className="mt-1 h-11 rounded-xl font-semibold" placeholder="e.g. 9876543210" value={form.guardianPhone||''} onChange={e=>setForm({...form, guardianPhone: e.target.value})} />
-              </div>
-              <div>
-                <Label className="text-[12px] font-bold text-muted-foreground">Guardian Login Email</Label>
-                <Input className="mt-1 h-11 rounded-xl font-semibold" type="email" placeholder="parent@example.com" value={form.guardianEmail||''} onChange={e=>setForm({...form, guardianEmail: e.target.value})} />
-              </div>
-              <div>
-                <Label className="text-[12px] font-bold text-muted-foreground">Admission Number</Label>
-                <Input className="mt-1 h-11 rounded-xl font-semibold" placeholder="e.g. ADM-2026-101" value={form.admissionNumber||''} onChange={e=>setForm({...form, admissionNumber: e.target.value})} />
-              </div>
-              <div>
-<Label className="text-[12px] font-bold text-muted-foreground">DOB & Address</Label>
-                <Input className="mt-1 h-11 rounded-xl font-semibold" placeholder="DOB or City" value={form.dob||''} onChange={e=>setForm({...form, dob: e.target.value})} />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2.5 mt-5">
-              <Button variant="outline" className="rounded-full px-5" onClick={()=>setOpen(false)}>Cancel</Button>
-              <Button variant="gradient" className="rounded-full px-7 font-bold shadow-md" onClick={save}>{editing ? 'Update Student Record' : 'Save & Register Student'}</Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-        ) : null}
-      </div>
-    } />
-{/* Live Camera Enrollment Modal */}
-    <Dialog open={cameraEnrollOpen} onOpenChange={(o)=>{ if(!o) closeCameraEnrollment(); }}>
-      <DialogContent className="rounded-[28px] max-w-lg overflow-hidden bg-black text-white p-5 border border-white/10">
-        <DialogHeader>
-          <DialogTitle className="text-white flex items-center gap-2 text-[16px]"><ScanFace className="text-emerald-400"/> Smart Face Capture & Liveness Check</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="relative aspect-[4/3] rounded-2xl overflow-hidden bg-zinc-900 border border-emerald-400/30 flex items-center justify-center">
-            <video ref={enrollVideoRef} className="absolute inset-0 w-full h-full object-cover transform -scale-x-100" playsInline muted />
-            <div className="absolute inset-12 border-2 border-dashed border-emerald-400/60 rounded-2xl pointer-events-none flex flex-col items-center justify-between p-3">
-              <span className="text-[10px] bg-emerald-500/80 text-black px-2 py-0.5 rounded font-bold">NEON RECTANGLE</span>
-              <div className="text-center space-y-1">
-                <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center gap-1.5 shadow ${enrollSmile ? 'bg-emerald-500 text-black' : 'bg-black/60 text-white'}`}>
-                  <Smile size={14} className={enrollSmile ? 'animate-bounce' : ''} /> {enrollSmile ? 'Smile Verified 🙂' : 'Please Smile 🙂'}
-                </span>
-                <span className="block text-[10px] bg-black/60 text-cyan-300 px-2 py-0.5 rounded-full">
-                  Head Pose: {enrollPose === 'looking_straight' ? 'Looking Straight ✓' : enrollPose === 'looking_left' ? 'Looking Left ⬅️' : 'Looking Right ➡️'}
-                </span>
-              </div>
-            </div>
-          </div>
-          <div className="p-3 rounded-xl bg-zinc-900 border border-white/10 text-center text-[12px] text-cyan-300 font-medium">
-            ⚡ {enrollStatusText}
-          </div>
-          <div className="grid grid-cols-2 gap-2.5">
-            <Button variant="outline" className="rounded-full bg-transparent border-white/20 text-white hover:bg-white/10" onClick={closeCameraEnrollment}>Cancel</Button>
-            <Button variant="success" className="rounded-full font-bold shadow-md" onClick={captureCameraEnrollment}>Capture & Extract Embedding</Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-    <div className="space-y-3">
-      <div className="relative">
-        <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <Input placeholder="Search students by name, roll number, admission id..." value={q} onChange={e=>setQ(e.target.value)} className="pl-11 h-14 rounded-full bg-white dark:bg-zinc-900 font-medium" />
-      </div>
-      <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-        <span className="px-4 py-2 rounded-full bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 text-[13px] font-bold whitespace-nowrap">
-          All Enrolled ({filtered.length})
-        </span>
-        <span className="px-4 py-2 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[13px] font-bold whitespace-nowrap">
-          ✓ 128-D Numerical Embeddings Ready ({students.filter(s=>isValidDescriptor(s.faceDescriptor)).length})
-        </span>
-      </div>
-    </div>
-    <div className="grid gap-3 md:hidden">
-      {filtered.map((s:any)=>(
-        <Card key={s.id} className="p-3.5 rounded-[22px] border border-slate-150 dark:border-zinc-800">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 min-w-[48px] min-h-[48px] max-w-[48px] max-h-[48px] rounded-xl overflow-hidden relative bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center text-white font-bold text-[18px] shrink-0 shadow">
-              {s.photoUrl ? (
-                <img src={s.photoUrl} alt={s.name || 'Student'} className="absolute inset-0 w-full h-full object-cover" />
-              ) : (
-                <span>{s.name?.[0]||'S'}</span>
+              {/* Actions */}
+              {teacherCanEditStudent(s) && (
+                <div className="flex gap-2 mt-3 pt-3 border-t border-white/[0.06]">
+                  <Button size="sm" className="flex-1 rounded-full h-9 text-[12px] font-semibold btn-outline-glass" onClick={()=>handleEdit(s)}>
+                    <Edit2 size={13} className="mr-1.5"/> Edit & Face ID
+                  </Button>
+                  <Button size="sm" className="rounded-full h-9 w-9 p-0" variant="ghost" onClick={()=>setExpandedCard(expandedCard === s.id ? null : s.id)}>
+                    <MoreHorizontal size={14} className="text-white/50"/>
+                  </Button>
+                  {isAdmin && (
+                    <Button size="sm" variant="ghost" className="rounded-full h-9 w-9 p-0" onClick={()=>handleDelete(s)}>
+                      <Trash2 size={14} className="text-brand-error"/>
+                    </Button>
+                  )}
+                </div>
               )}
+            </motion.div>
+          ))}
+        </AnimatePresence>
+
+        {/* Empty State */}
+        {!filtered.length && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="card-premium p-12 text-center"
+          >
+            <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{background: 'rgba(79,70,229,0.1)'}}>
+              <Users size={28} className="text-brand-primary/50"/>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-extrabold text-[15px] leading-tight truncate text-foreground">{s.name}</div>
-              <div className="text-[11.5px] text-muted-foreground font-medium mt-0.5 truncate">
-                Class {s.className}-{s.section} • Roll #{s.rollNumber} • ID: {s.studentId||s.id}
-              </div>
-              <div className="flex items-center gap-1.5 mt-1.5">
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 ${isValidDescriptor(s.faceDescriptor) ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-600 border border-amber-500/30'}`}>
-                  {isValidDescriptor(s.faceDescriptor) ? '✓ 128-D EMBEDDING STORED' : '⚠️ NO EMBEDDING'}
-                </span>
-              </div>
+            <div className="text-white/60 text-[14px] font-medium">No students found</div>
+            <div className="text-white/30 text-[12px] mt-1">
+              {q ? 'Try a different search term' : 'Add your first student to get started'}
             </div>
-            <div className="flex items-center gap-1 shrink-0">
-              <div className="w-9 h-9 rounded-xl bg-white border flex items-center justify-center shrink-0 shadow-sm"><QRCodeSVG value={s.qrCode||s.id} size={22}/></div>
-            </div>
-          </div>
-          {teacherCanEditStudent(s) && (
-            <div className="flex gap-2 mt-3.5 pt-3 border-t border-slate-100 dark:border-zinc-800">
-              <Button size="sm" variant="outline" className="flex-1 rounded-full h-9 font-semibold" onClick={()=>handleEdit(s)}><Edit2 size={13} className="mr-1.5"/> Edit & Face ID</Button>
-              {isAdmin && <Button size="sm" variant="ghost" className="rounded-full h-9 px-3 text-rose-500" onClick={()=>handleDelete(s)}><Trash2 size={14}/></Button>}
-            </div>
-          )}
-        </Card>
-      ))}
-      {!filtered.length && (
-        <Card className="p-10 text-center text-muted-foreground text-[14px] rounded-[24px]">
-          No students registered yet. Click &quot;Add Student&quot; above to enroll with AI face embedding.
-        </Card>
-      )}
-    </div>
-    <Card className="hidden md:block rounded-[26px] overflow-hidden border border-slate-150 dark:border-zinc-800 shadow-sm">
-      <CardContent className="p-0">
+          </motion.div>
+        )}
+      </div>
+
+      {/* ===== DESKTOP TABLE ===== */}
+      <div className="hidden md:block card-premium overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 dark:bg-zinc-900 border-b border-slate-200 dark:border-zinc-800">
-              <tr className="text-left text-muted-foreground font-bold text-[12px] uppercase tracking-wider">
-                <th className="p-4">Student Info</th>
-                <th>Roll & Class</th>
-                <th>Guardian & Phone</th>
-                <th>Face Embedding (128-D)</th>
-                <th>Student ID</th>
-                <th>QR Code</th>
+            <thead>
+              <tr className="text-left text-white/40 font-bold text-[11px] uppercase tracking-wider border-b border-white/[0.06]">
+                <th className="p-4">Student</th>
+                <th className="p-4">Roll & Class</th>
+                <th className="p-4">Guardian</th>
+                <th className="p-4">AI Status</th>
+                <th className="p-4">Student ID</th>
+                <th className="p-4">QR</th>
                 <th className="p-4 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-zinc-800">
-              {filtered.map((s:any)=>(
-                <tr key={s.id} className="hover:bg-slate-50/70 dark:hover:bg-zinc-800/40 transition">
+            <tbody className="divide-y divide-white/[0.04]">
+              {filtered.map((s:any, i: number)=>(
+                <motion.tr
+                  key={s.id}
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: Math.min(i * 0.02, 0.3) }}
+                  className="hover:bg-white/[0.02] transition-colors"
+                >
                   <td className="p-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 min-w-[40px] min-h-[40px] max-w-[40px] max-h-[40px] rounded-xl overflow-hidden relative bg-gradient-to-br from-indigo-500 to-cyan-500 text-white font-bold flex items-center justify-center shrink-0 shadow-xs">
+                      <div className="w-10 h-10 rounded-xl overflow-hidden relative flex items-center justify-center text-white font-bold shrink-0 shadow" style={{background: 'linear-gradient(135deg, #4F46E5, #22D3EE)'}}>
                         {s.photoUrl ? (
                           <img src={s.photoUrl} alt={s.name} className="absolute inset-0 w-full h-full object-cover"/>
                         ) : (
                           <span>{s.name?.[0]||'S'}</span>
                         )}
                       </div>
-<div className="min-w-0">
-                        <div className="font-bold text-foreground text-[14px] truncate max-w-[180px]">{s.name}</div>
-                        <div className="text-[11px] text-muted-foreground truncate">Adm: {s.admissionNumber||'N/A'}</div>
+                      <div className="min-w-0">
+                        <div className="font-bold text-white text-[14px] truncate max-w-[180px]">{s.name}</div>
+                        <div className="text-[11px] text-white/40 truncate">Adm: {s.admissionNumber||'N/A'}</div>
                       </div>
                     </div>
                   </td>
-                  <td className="font-semibold whitespace-nowrap">Roll #{s.rollNumber} • {s.className}-{s.section}</td>
-                  <td>
-                    <div className="font-medium text-foreground truncate max-w-[150px]">{s.guardianName || 'N/A'}</div>
-                    <div className="text-[11px] text-muted-foreground whitespace-nowrap">{s.guardianPhone || 'N/A'}</div>
+                  <td className="p-4 font-semibold text-white/70 whitespace-nowrap">#{s.rollNumber} • {s.className}-{s.section}</td>
+                  <td className="p-4">
+                    <div className="font-medium text-white/70 truncate max-w-[150px]">{s.guardianName || 'N/A'}</div>
+                    <div className="text-[11px] text-white/40 whitespace-nowrap">{s.guardianPhone || 'N/A'}</div>
                   </td>
-                  <td>
-                    <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold flex items-center gap-1.5 w-fit whitespace-nowrap ${isValidDescriptor(s.faceDescriptor) ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-600 border border-amber-500/30'}`}>
-                      {isValidDescriptor(s.faceDescriptor) ? '✓ 128-D VECTOR STORED' : '⚠️ NO VECTOR'}
+                  <td className="p-4">
+                    <span className={`status-chip ${isValidDescriptor(s.faceDescriptor) ? 'status-chip-success' : 'status-chip-warning'}`}>
+                      {isValidDescriptor(s.faceDescriptor) ? '✓ 128-D Vector' : '⚠ Not Ready'}
                     </span>
                   </td>
-                  <td className="font-mono text-[11.5px] text-slate-500 whitespace-nowrap">{s.studentId || s.id}</td>
-                  <td><div className="bg-white p-1 rounded-lg border w-fit shadow-xs"><QRCodeSVG value={s.qrCode||s.id} size={30}/></div></td>
+                  <td className="p-4 font-mono text-[11px] text-white/30 whitespace-nowrap">{s.studentId || s.id}</td>
+                  <td className="p-4">
+                    <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{background: 'rgba(255,255,255,0.04)'}}>
+                      <QRCodeSVG value={s.qrCode||s.id} size={28} fgColor="#818cf8" bgColor="transparent"/>
+                    </div>
+                  </td>
                   <td className="p-4 text-right space-x-2 whitespace-nowrap">
                     {teacherCanEditStudent(s) ? (
                       <>
-                        <Button size="sm" variant="outline" className="rounded-full font-semibold" onClick={()=>handleEdit(s)}>Edit & Face ID</Button>
-                        {isAdmin && <Button size="sm" variant="ghost" className="rounded-full text-rose-500" onClick={()=>handleDelete(s)}><Trash2 size={14}/></Button>}
+                        <Button size="sm" variant="outline" className="rounded-full font-semibold btn-outline-glass text-white/70" onClick={()=>handleEdit(s)}>Edit</Button>
+                        {isAdmin && <Button size="sm" variant="ghost" className="rounded-full" onClick={()=>handleDelete(s)}><Trash2 size={14} className="text-brand-error"/></Button>}
                       </>
-                    ) : <span className="text-muted-foreground text-xs">View only</span>}
+                    ) : <span className="text-white/30 text-xs">View only</span>}
                   </td>
-                </tr>
+                </motion.tr>
               ))}
               {!filtered.length && (
                 <tr>
-                  <td colSpan={7} className="p-10 text-center text-muted-foreground">No students registered yet. Click &quot;Add Student&quot; above to enroll.</td>
+                  <td colSpan={7} className="p-12 text-center text-white/40">No students found. Add students to get started.</td>
                 </tr>
               )}
-</tbody>
+            </tbody>
           </table>
         </div>
-      </CardContent>
-    </Card>
-  </div>
+      </div>
+
+      {/* Teacher Panel */}
+      {isTeacher && <MyTeachersPanel/>}
+    </div>
+  )
 }

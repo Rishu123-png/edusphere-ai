@@ -51,3 +51,80 @@ export const joinSchool = onCall({ enforceAppCheck: false }, async request => {
   await db.ref().update(updates)
   return { schoolId, schoolName: school.name, role }
 })
+
+/**
+ * Automated WhatsApp parent alerts.
+ *
+ * When deployed with a WhatsApp Business / Meta Cloud API configuration
+ * (functions env: WABA_TOKEN, WABA_PHONE_ID, WABA_VERSION), this sends the
+ * template message server-side. If no credentials are configured it safely
+ * returns a wa.me deep link so the client can open a pre-filled chat instead.
+ *
+ * The client (WhatsAppPage) also builds wa.me links directly, so parent alerts
+ * work out-of-the-box even before this function is wired to Meta.
+ */
+export const sendWhatsAppAlert = onCall({ enforceAppCheck: false }, async request => {
+  const auth = requireUser(request.auth)
+  const schoolId = clean(request.data?.schoolId, 64)
+  if (!schoolId) throw new HttpsError('invalid-argument', 'Missing school id.')
+
+  const recipients: Array<{ name: string; phone: string; message: string }> =
+    Array.isArray(request.data?.recipients) ? request.data.recipients : []
+
+  if (!recipients.length) throw new HttpsError('invalid-argument', 'No recipients provided.')
+
+  const token = process.env.WABA_TOKEN || ''
+  const phoneId = process.env.WABA_PHONE_ID || ''
+  const version = process.env.WABA_VERSION || 'v19.0'
+
+  const results: Array<{ phone: string; status: string; url?: string }> = []
+
+  for (const r of recipients.slice(0, 50)) {
+    const to = String(r.phone || '').replace(/\D/g, '')
+    const message = String(r.message || '')
+    if (!to) continue
+    const waLink = `https://wa.me/${to}?text=${encodeURIComponent(message)}`
+
+    if (!token || !phoneId) {
+      results.push({ phone: to, status: 'link', url: waLink })
+      continue
+    }
+
+    try {
+      const res = await fetch(`https://graph.facebook.com/${version}/${phoneId}/messages`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to,
+          type: 'text',
+          text: { preview_url: false, body: message },
+        }),
+      })
+      if (!res.ok) {
+        results.push({ phone: to, status: 'failed', url: waLink })
+      } else {
+        results.push({ phone: to, status: 'sent' })
+      }
+    } catch {
+      results.push({ phone: to, status: 'failed', url: waLink })
+    }
+  }
+
+  // Persist an audit log of the alert campaign.
+  try {
+    await db.ref(`schools/${schoolId}/whatsappLogs`).push({
+      sentBy: auth.uid,
+      sentAt: Date.now(),
+      count: results.length,
+      mode: token && phoneId ? 'cloud_api' : 'manual_links',
+    })
+  } catch {
+    /* non-blocking */
+  }
+
+  return { results, mode: token && phoneId ? 'cloud_api' : 'manual_links' }
+})

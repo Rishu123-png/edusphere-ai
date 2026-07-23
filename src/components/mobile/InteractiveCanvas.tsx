@@ -42,7 +42,7 @@ export default function InteractiveCanvas() {
     }
     resize()
 
-    const particleCount = reduceMotion ? 0 : Math.min(Math.floor((width * height) / 11000), 46)
+    const particleCount = reduceMotion ? 0 : Math.min(Math.floor((width * height) / 22000), 28)
     const particles: Particle[] = []
     const colors = [
       'rgba(6, 182, 212, 0.85)',
@@ -82,16 +82,34 @@ export default function InteractiveCanvas() {
     }
     const handleMouseMove = (e: MouseEvent) => onMove(e.clientX, e.clientY)
 
-    window.addEventListener('resize', resize)
     window.addEventListener('touchmove', handleTouchMove, { passive: true })
     window.addEventListener('touchend', handleTouchEnd)
     window.addEventListener('mousemove', handleMouseMove)
 
     let raf = 0
     let t = 0
+    let visible = true
+    const onVisible = () => { visible = document.visibilityState === 'visible' }
+    document.addEventListener('visibilitychange', onVisible)
 
-    const render = () => {
-      t += 0.016
+    let lastFrame = 0
+    let lastResize = 0
+    const FRAME_INTERVAL = 1000 / 30  // throttle to 30fps for battery/performance
+
+    const handleResize = () => {
+      const now = performance.now()
+      if (now - lastResize < 200) return
+      lastResize = now
+      resize()
+    }
+    window.addEventListener('resize', handleResize)
+
+    const render = (now: number) => {
+      raf = requestAnimationFrame(render)
+      if (!visible) return
+      if (now - lastFrame < FRAME_INTERVAL) return
+      lastFrame = now
+      t += 0.032
       // Ease the glow toward the pointer for a fluid "AI presence"
       glowX += (pointerX - glowX) * 0.06
       glowY += (pointerY - glowY) * 0.06
@@ -150,14 +168,14 @@ export default function InteractiveCanvas() {
         }
       }
 
-      raf = requestAnimationFrame(render)
     }
 
-    render()
+    raf = requestAnimationFrame(render)
 
     return () => {
       cancelAnimationFrame(raf)
-      window.removeEventListener('resize', resize)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('resize', handleResize)
       window.removeEventListener('touchmove', handleTouchMove)
       window.removeEventListener('touchend', handleTouchEnd)
       window.removeEventListener('mousemove', handleMouseMove)

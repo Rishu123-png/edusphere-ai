@@ -251,6 +251,16 @@ const JOKES = [
   'Knock knock. Who’s there? Leaf. Leaf who? Leaf me alone, I’m grading papers! 🍃',
 ]
 
+/** AI Tutor — explains school topics simply and quizzes the student. */
+export async function askTutor(topic: string, ctx: SchoolContext): Promise<string> {
+  const system = `You are "EduSphere AI Tutor", a patient, friendly subject tutor for school students (CBSE and state boards). Explain concepts in simple language, give a short relatable example, and when useful ask one quick check-in question. Keep replies mobile-friendly (3-6 sentences). Never mention any external AI service or brand.`
+  try {
+    return await callModel(topic, { systemInstruction: system, temperature: 0.6, maxTokens: 720 })
+  } catch {
+    return `Let's learn "${topic}". A simple way to start: break it into small steps, master each one, then connect them. Try one easy example and tell me where you get stuck — I'll guide you step by step. 📚`
+  }
+}
+
 export function getJoke(): string {
   return JOKES[Math.floor(Math.random() * JOKES.length)]
 }

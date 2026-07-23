@@ -81,7 +81,7 @@ export default function FloatingAIAssistant() {
     {
       sender: 'ai',
       text:
-        "Hi! I'm your AI co-teacher. I watch what's happening on screen and I'm here to help — ask me anything, talk to me, or let me surprise you with a tip or a joke. 💡",
+        "Hi! I'm your AI co-teacher. I use this screen's school context to help — ask me anything, talk to me, or let me surprise you with a tip or a joke. 💡",
       time: 'Just now',
     },
   ])
@@ -306,7 +306,9 @@ export default function FloatingAIAssistant() {
   const stopSpeaking = () => {
     try {
       window.speechSynthesis?.cancel()
-    } catch {}
+    } catch {
+      // Speech synthesis may be unavailable while an app is backgrounded.
+    }
     setIsSpeaking(false)
     speakingRef.current = false
   }
@@ -362,12 +364,14 @@ export default function FloatingAIAssistant() {
       toast.error('Voice could not start. Please try again.')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [voiceTranscript, ctx, speak])
+  }, [ctx, speak])
 
   const stopListening = () => {
     try {
       recognitionRef.current?.stop()
-    } catch {}
+    } catch {
+      // Recognition can already be stopped by the browser.
+    }
     setIsListening(false)
   }
 
@@ -492,7 +496,7 @@ export default function FloatingAIAssistant() {
               <div>
                 <div className="text-[13px] font-bold text-white">EduSphere AI Assistant</div>
                 <div className="text-[10px] text-cyan-300/80">
-                  {isSpeaking ? 'Speaking…' : isListening ? 'Listening…' : 'Watching & ready to help'}
+                  {isSpeaking ? 'Speaking…' : isListening ? 'Listening…' : 'Context-aware & ready'}
                 </div>
               </div>
             </div>
@@ -566,7 +570,7 @@ export default function FloatingAIAssistant() {
                     {q}
                   </button>
                 ))}
-              </div>
+</div>
               <div className="flex items-center gap-2 border-t border-white/10 p-3">
                 <input
                   value={chatInput}
@@ -626,7 +630,7 @@ export default function FloatingAIAssistant() {
               <p className="px-6 text-center text-[10px] text-slate-500">
                 Tap the mic and talk naturally — “Take attendance”, “Summarize marks”, or “Tell me a joke”.
               </p>
-            </div>
+</div>
           )}
 
           {/* Discover tab */}
@@ -675,8 +679,7 @@ export default function FloatingAIAssistant() {
                 </span>
                 <ChevronRight size={16} className="text-slate-500" />
               </button>
-
-              <button
+<button
                 onClick={() => runAssistant('Give me 3 practical suggestions for today as a teacher.')}
                 className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[.03] px-4 py-3 text-left active:scale-[.98]"
               >

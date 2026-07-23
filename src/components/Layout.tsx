@@ -9,15 +9,15 @@ import { AnimePageTransition } from './AnimeWrapper'
 
 export default function Layout() {
   return (
-    <div className="app-shell w-full bg-transparent text-foreground flex h-screen">
+    <div className="app-shell w-full h-full bg-transparent text-foreground flex flex-col md:flex-row">
       <AmbientBackground />
       <InteractiveCanvas />
       <Sidebar />
       <div className="relative z-[1] flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden">
         <Topbar />
-        <main className="mobile-main px-4 md:px-7 py-4 md:py-7 max-w-7xl w-full mx-auto flex-1 min-h-0">
+        <main className="mobile-main w-full max-w-7xl mx-auto flex-1">
           <AnimePageTransition>
-            <div className="page-contents space-y-6">
+            <div className="space-y-6 w-full">
               <Outlet />
             </div>
           </AnimePageTransition>
@@ -28,4 +28,3 @@ export default function Layout() {
     </div>
   )
 }
-

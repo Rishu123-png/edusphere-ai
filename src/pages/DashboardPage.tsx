@@ -9,12 +9,13 @@ import { db } from '@/lib/firebase'
 import { ref, onValue } from 'firebase/database'
 import { aiDailySummary } from '@/lib/ai'
 import { todayIST } from '@/lib/rtdb'
-import { Users, GraduationCap, CheckCircle2, Clock3, AlertTriangle, Sparkles, TrendingUp, Award, Activity, Camera, UserPlus, FilePenLine, MessageCircle, CalendarDays, BrainCircuit, ArrowUpRight, RotateCcw } from 'lucide-react'
+import { Users, GraduationCap, CheckCircle2, Clock3, AlertTriangle, Sparkles, TrendingUp, Award, Activity, Camera, UserPlus, FilePenLine, MessageCircle, CalendarDays, BrainCircuit, ArrowUpRight, RotateCcw, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Link } from 'react-router-dom'
 import NeonGauge from '@/components/mobile/NeonGauge'
 import { AnimeEntrance } from '@/components/AnimeWrapper'
+import { motion } from 'framer-motion'
 
 const dateKey = (daysAgo = 0) => new Date(Date.now() - daysAgo * 86400000).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
 const dayLabel = (daysAgo = 0) => new Date(Date.now() - daysAgo * 86400000).toLocaleDateString('en-IN', { weekday: 'short', timeZone: 'Asia/Kolkata' })
@@ -39,27 +40,17 @@ export default function DashboardPage(){
     return ()=>unsub()
   }, [schoolId])
 
-  // Admin only: live teacher list + presence
   useEffect(()=>{
     if(!isAdmin || !schoolId){ setTeachers([]); return }
     const unsub = onValue(ref(db, `schools/${schoolId}/teachers`), snap=>{
       const v = snap.val() || {}
       const list = Object.entries(v)
         .map(([id, t]:any)=>({ uid: t.uid || id, id, ...t }))
-        .filter((t:any)=> t.role !== 'school_admin') // only teachers
+        .filter((t:any)=> t.role !== 'school_admin')
       setTeachers(list)
     })
     return ()=>unsub()
   }, [schoolId, isAdmin])
-
-  /*
-    REMOVED BUG: this page listened on the GLOBAL `users/` node to merge
-    presence. Realtime DB rules only allow a super_admin to read that node,
-    so every school_admin dashboard fired PERMISSION_DENIED and the
-    "Teachers Online" KPI silently stayed 0. Presence is already mirrored by
-    AuthContext onto `schools/$id/teachers/$uid` (heartbeat + onDisconnect),
-    which school admins CAN read — that node is now the single source.
-  */
 
   useEffect(()=>{
     if(!schoolId){ setAttendance({}); return }
@@ -82,8 +73,6 @@ export default function DashboardPage(){
 
   const teachersWithPresence = useMemo(() => {
     return teachers.map((t: any) => {
-      // The school teacher record carries the live heartbeat (every 45 s)
-      // and the onDisconnect offline flag — fresh within 3 minutes = online.
       const lastSeen = t.lastSeen || 0
       const fresh = lastSeen ? (Date.now() - lastSeen) < 3 * 60 * 1000 : false
       return {
@@ -144,26 +133,24 @@ export default function DashboardPage(){
   const summary = useMemo(() => students.length || todayRecords.length
     ? aiDailySummary({attendancePct: counts.present, present: counts.presentCount, absent: counts.absent, late: counts.late })
     : ['No student or attendance data yet.', 'Add students from the Students page to start seeing live dashboard analytics.', 'Only real school records appear here.'],
-    // summaryTick lets the "Regenerate" button re-run the engine on demand.
     [students.length, todayRecords.length, counts.present, counts.presentCount, counts.absent, counts.late, summaryTick])
 
-  // Teachers never see "Teachers Online" KPI
   const kpis = isAdmin
     ? [
-        { label: 'Total Students', value: counts.students.toLocaleString(), icon: Users, color: 'from-indigo-500 to-violet-500' },
-        { label: 'Teachers Online', value: `${counts.teachersOnline}/${counts.teachers}`, icon: GraduationCap, color: 'from-emerald-500 to-teal-500' },
-        { label: "Today's Attendance", value: `${counts.present}%`, icon: CheckCircle2, color: 'from-blue-500 to-cyan-500' },
-        { label: 'New Enrollments', value: counts.newEnrollments.toString(), icon: TrendingUp, color: 'from-amber-500 to-orange-500' },
-        { label: 'Late Today', value: counts.late.toString(), icon: Clock3, color: 'from-fuchsia-500 to-pink-500' },
-        { label: 'At Risk', value: counts.atRisk.toString(), icon: AlertTriangle, color: 'from-red-500 to-rose-500' },
+        { label: 'Total Students', value: counts.students.toLocaleString(), icon: Users, color: 'rgba(79,70,229,0.15)', iconColor: '#818cf8' },
+        { label: 'Teachers Online', value: `${counts.teachersOnline}/${counts.teachers}`, icon: GraduationCap, color: 'rgba(34,197,94,0.12)', iconColor: '#22C55E' },
+        { label: "Today's Attendance", value: `${counts.present}%`, icon: CheckCircle2, color: 'rgba(34,211,238,0.1)', iconColor: '#22D3EE' },
+        { label: 'New Enrollments', value: counts.newEnrollments.toString(), icon: TrendingUp, color: 'rgba(245,158,11,0.12)', iconColor: '#F59E0B' },
+        { label: 'Late Today', value: counts.late.toString(), icon: Clock3, color: 'rgba(168,85,247,0.12)', iconColor: '#A855F7' },
+        { label: 'At Risk', value: counts.atRisk.toString(), icon: AlertTriangle, color: 'rgba(239,68,68,0.12)', iconColor: '#EF4444' },
       ]
     : [
-        { label: 'My Students', value: counts.students.toLocaleString(), icon: Users, color: 'from-indigo-500 to-violet-500' },
-        { label: "Today's Attendance", value: `${counts.present}%`, icon: CheckCircle2, color: 'from-blue-500 to-cyan-500' },
-        { label: 'Present Today', value: counts.presentCount.toString(), icon: GraduationCap, color: 'from-emerald-500 to-teal-500' },
-        { label: 'Late Today', value: counts.late.toString(), icon: Clock3, color: 'from-fuchsia-500 to-pink-500' },
-        { label: 'Absent Today', value: counts.absent.toString(), icon: AlertTriangle, color: 'from-red-500 to-rose-500' },
-        { label: 'At Risk', value: counts.atRisk.toString(), icon: TrendingUp, color: 'from-amber-500 to-orange-500' },
+        { label: 'My Students', value: counts.students.toLocaleString(), icon: Users, color: 'rgba(79,70,229,0.15)', iconColor: '#818cf8' },
+        { label: "Today's Attendance", value: `${counts.present}%`, icon: CheckCircle2, color: 'rgba(34,211,238,0.1)', iconColor: '#22D3EE' },
+        { label: 'Present Today', value: counts.presentCount.toString(), icon: GraduationCap, color: 'rgba(34,197,94,0.12)', iconColor: '#22C55E' },
+        { label: 'Late Today', value: counts.late.toString(), icon: Clock3, color: 'rgba(168,85,247,0.12)', iconColor: '#A855F7' },
+        { label: 'Absent Today', value: counts.absent.toString(), icon: AlertTriangle, color: 'rgba(239,68,68,0.12)', iconColor: '#EF4444' },
+        { label: 'At Risk', value: counts.atRisk.toString(), icon: TrendingUp, color: 'rgba(245,158,11,0.12)', iconColor: '#F59E0B' },
       ]
 
   const recentActivities = todayRecords
@@ -176,217 +163,300 @@ export default function DashboardPage(){
       return { time, text: `${st?.name || 'Student'} marked ${r.status} (${(r.method || 'manual').replace('_',' ')})` }
     })
 
-  return <div className="page-container space-y-5">
-    {/* anime.js spring entrance for the whole dashboard fold (plays on mount) */}
-    <AnimeEntrance delay={70}>
-    <section className="dashboard-hero relative overflow-hidden rounded-[28px] p-[1px] shadow-[0_18px_55px_rgba(0,0,0,.25)]">
-      <div className="relative overflow-hidden rounded-[27px] bg-gradient-to-br from-[#15202d] via-[#101621] to-[#10101a] p-5 text-white md:bg-gradient-to-br md:from-indigo-600 md:via-violet-600 md:to-fuchsia-500 md:p-6">
-        <div className="absolute -right-12 -top-16 h-52 w-52 rounded-full bg-cyan-400/10 blur-3xl md:bg-white/15" />
-        <div className="absolute -bottom-16 -left-10 h-44 w-44 rounded-full bg-violet-500/15 blur-3xl md:bg-white/10" />
-        <div className="relative z-10">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[.13em] text-cyan-200/70 md:text-[12px] md:normal-case md:tracking-normal md:text-white/80"><Sparkles size={13}/> Live campus intelligence</div>
-              <h1 className="mt-1.5 text-[24px] font-black leading-tight tracking-[-.035em] md:text-[28px]">Good Morning, {profile?.displayName?.split(' ')[0] || profile?.email?.split('@')[0] || 'Admin'}!</h1>
-              <p className="mt-1 max-w-[90%] text-[11px] leading-relaxed text-slate-400 md:text-[14px] md:text-white/80">
-                {school?.name || 'Your school'} • {new Date().toLocaleDateString('en-IN', { weekday:'short', month:'short', day:'numeric', timeZone:'Asia/Kolkata' })}
-              </p>
-            </div>
-            <Link to="/ai" className="md:hidden grid h-10 w-10 shrink-0 place-items-center rounded-full border border-cyan-300/15 bg-cyan-300/[.07] text-cyan-300"><ArrowUpRight size={17}/></Link>
-          </div>
+  return (
+    <div className="page-container space-y-6">
+      {/* anime.js spring entrance */}
+      <AnimeEntrance delay={70}>
+        {/* ===== HERO SECTION ===== */}
+        <section className="card-premium overflow-hidden p-[1px]">
+          <div className="relative overflow-hidden rounded-[20px] p-6" style={{background: 'linear-gradient(135deg, rgba(79,70,229,0.15), rgba(168,85,247,0.08), rgba(34,211,238,0.06))'}}>
+            {/* Glow orbs */}
+            <div className="absolute -right-12 -top-16 h-52 w-52 rounded-full blur-3xl pointer-events-none" style={{background: 'rgba(34,211,238,0.08)'}} />
+            <div className="absolute -bottom-16 -left-10 h-44 w-44 rounded-full blur-3xl pointer-events-none" style={{background: 'rgba(168,85,247,0.1)'}} />
 
-          <div className="mt-1 grid grid-cols-[1.25fr_.75fr] items-center gap-1 md:hidden">
-            {/* Hero is an always-dark surface in both themes → force dark gauge */}
-            <NeonGauge value={counts.present} size={190} label="Today's Attendance" caption="Live from saved records" surface="dark" />
-            <div className="space-y-2">
-              <div className="rounded-2xl border border-white/[.07] bg-white/[.035] p-3">
-                <div className="text-[9px] uppercase tracking-[.13em] text-slate-500">Present</div>
-                <div className="mt-0.5 text-[22px] font-black text-emerald-300">{counts.presentCount}</div>
+            <div className="relative z-10 flex flex-col md:flex-row gap-6">
+              {/* Left: Welcome + Info */}
+              <div className="flex-1 space-y-4">
+                <div>
+                  <p className="text-[12px] uppercase tracking-[0.15em] text-white/40 font-semibold mb-1">Dashboard</p>
+                  <h1 className="text-[26px] md:text-[32px] font-black leading-tight text-white">
+                    Welcome back,{' '}
+                    <span className="text-gradient-ai">{school?.name || 'EduSphere'}</span>
+                  </h1>
+                </div>
+
+                {/* Stats Row */}
+                <div className="flex gap-4">
+                  <div className="rounded-2xl border border-white/[0.06] p-3 flex-1" style={{background: 'rgba(255,255,255,0.03)'}}>
+                    <div className="text-[9px] uppercase tracking-[0.13em] text-white/40">Present</div>
+                    <div className="mt-0.5 text-[22px] font-black text-brand-success">{counts.presentCount}</div>
+                  </div>
+                  <div className="rounded-2xl border border-white/[0.06] p-3 flex-1" style={{background: 'rgba(255,255,255,0.03)'}}>
+                    <div className="text-[9px] uppercase tracking-[0.13em] text-white/40">Absent</div>
+                    <div className="mt-0.5 text-[22px] font-black text-brand-error">{counts.absent}</div>
+                  </div>
+                  <div className="rounded-2xl border border-white/[0.06] p-3 flex-1" style={{background: 'rgba(255,255,255,0.03)'}}>
+                    <div className="text-[9px] uppercase tracking-[0.13em] text-white/40">Late</div>
+                    <div className="mt-0.5 text-[22px] font-black text-brand-warning">{counts.late}</div>
+                  </div>
+                </div>
+
+                {todayHoliday && (
+                  <div className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold" style={{background: 'rgba(245,158,11,0.1)', color: '#F59E0B', border: '1px solid rgba(245,158,11,0.15)'}}>
+                    🎉 Holiday today: {todayHoliday.title || todayHoliday.name}
+                  </div>
+                )}
               </div>
-              <div className="rounded-2xl border border-white/[.07] bg-white/[.035] p-3">
-                <div className="text-[9px] uppercase tracking-[.13em] text-slate-500">Needs attention</div>
-                <div className="mt-0.5 text-[22px] font-black text-amber-300">{counts.atRisk}</div>
+
+              {/* Right: Attendance Gauge */}
+              <div className="flex items-center justify-center">
+                <NeonGauge value={counts.present} size={180} label="Today's Attendance" caption="Live from records" surface="dark" />
               </div>
             </div>
           </div>
+        </section>
+      </AnimeEntrance>
 
-          <p className="hidden md:block text-white/80 text-[14px] mt-1 max-w-[85%]">
-            Welcome to {school?.name || 'your school'}. Today&apos;s saved attendance is {counts.present}% from your real records.
-          </p>
-          {todayHoliday && (
-            <div className="mt-3 inline-flex rounded-full bg-amber-400/10 px-3 py-1.5 text-[11px] font-semibold text-amber-200 md:bg-white/15 md:text-white">
-              Holiday today: {todayHoliday.title || todayHoliday.name} — schedule alerts paused
+      {/* ===== KPI CARDS ===== */}
+      <div className="md:hidden flex gap-3 overflow-x-auto scrollbar-hide snap-x snap-mandatory pb-1 -mx-1 px-1">
+        {kpis.map((k, i)=>(
+          <motion.div
+            key={k.label}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.05 }}
+            className="kpi-card min-w-[152px] max-w-[152px] shrink-0 snap-start"
+          >
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-2" style={{background: k.color}}>
+              <k.icon size={18} style={{color: k.iconColor}}/>
             </div>
-          )}
-        </div>
-      </div>
-    </section>
-
-    <ModuleArchitectureBanner />
-
-    <div className="md:hidden flex gap-3 overflow-x-auto scrollbar-hide snap-x snap-mandatory pb-1 -mx-1 px-1">
-      {kpis.map((k)=>(
-        <div key={k.label} className="kpi-card min-w-[152px] max-w-[152px] shrink-0 snap-start">
-          <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${k.color} flex items-center justify-center text-white mb-1`}><k.icon size={16}/></div>
-          <div className="text-[20px] font-extrabold leading-none tracking-tight">{k.value}</div>
-          <div className="text-[11px] text-muted-foreground font-medium leading-tight">{k.label}</div>
-        </div>
-      ))}
-    </div>
-
-    <div className="hidden md:grid grid-cols-3 lg:grid-cols-6 gap-4">
-      {kpis.map((k)=>(
-        <Card key={k.label} className="p-0">
-          <CardContent className="p-4">
-            <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${k.color} flex items-center justify-center text-white mb-3`}><k.icon size={18}/></div>
-            <div className="text-[22px] font-bold leading-none">{k.value}</div>
-            <div className="text-xs text-muted-foreground mt-1">{k.label}</div>
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-
-    <div className="md:hidden">
-      <div className="mb-2.5 flex items-center justify-between px-1">
-        <h2 className="text-[14px] font-extrabold tracking-tight">Quick actions</h2>
-        <span className="text-[9px] uppercase tracking-[.14em] text-slate-500">Swipe</span>
-      </div>
-      <div className="-mx-1 flex snap-x gap-2.5 overflow-x-auto px-1 pb-1 scrollbar-hide">
-        {[
-          { label: 'AI Camera', hint: 'Face scan', to: '/attendance', icon: Camera, color: 'from-emerald-400/20 to-cyan-500/10 text-emerald-300' },
-          { label: 'Add Student', hint: 'New profile', to: '/students', icon: UserPlus, color: 'from-blue-400/20 to-indigo-500/10 text-blue-300' },
-          { label: 'Enter Marks', hint: 'Publish score', to: '/marks', icon: FilePenLine, color: 'from-violet-400/20 to-fuchsia-500/10 text-violet-300' },
-          { label: 'AI Predict', hint: 'Risk & grades', to: '/ai', icon: BrainCircuit, color: 'from-cyan-400/20 to-violet-500/10 text-cyan-300' },
-          { label: 'Calendar', hint: 'School plan', to: '/calendar', icon: CalendarDays, color: 'from-amber-400/20 to-orange-500/10 text-amber-300' },
-          ...(isAdmin ? [{ label: 'WhatsApp', hint: 'Parent alerts', to: '/whatsapp', icon: MessageCircle, color: 'from-emerald-400/20 to-teal-500/10 text-emerald-300' }] : []),
-        ].map(action => (
-          <Link key={action.label} to={action.to} className="card-premium min-w-[118px] snap-start p-3.5 active:scale-[.97]">
-            <span className={`grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-br ${action.color}`}><action.icon size={18}/></span>
-            <span className="mt-3 block text-[12px] font-bold">{action.label}</span>
-            <span className="mt-0.5 block text-[9px] text-slate-500">{action.hint}</span>
-          </Link>
+            <div className="text-[22px] font-black leading-none tracking-tight text-white">{k.value}</div>
+            <div className="text-[11px] text-white/50 font-medium leading-tight mt-1">{k.label}</div>
+          </motion.div>
         ))}
       </div>
-    </div>
-    </AnimeEntrance>
 
-    <div className="grid lg:grid-cols-3 gap-4">
-      <Card className="lg:col-span-2 overflow-hidden">
-        <div className="flex items-center justify-between pr-5">
-          <CardTitle>Weekly Attendance Trend</CardTitle>
-          <span className="text-xs px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 font-medium">Best: {bestDay.name} {bestDay.present}%</span>
+      <div className="hidden md:grid grid-cols-3 lg:grid-cols-6 gap-4">
+        {kpis.map((k, i)=>(
+          <motion.div
+            key={k.label}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.05 }}
+            className="card-premium p-4"
+          >
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{background: k.color}}>
+              <k.icon size={18} style={{color: k.iconColor}}/>
+            </div>
+            <div className="text-[22px] font-black leading-none text-white">{k.value}</div>
+            <div className="text-xs text-white/50 mt-1">{k.label}</div>
+          </motion.div>
+        ))}
+      </div>
+
+      {/* ===== QUICK ACTIONS (Mobile) ===== */}
+      <div className="md:hidden">
+        <div className="mb-2.5 flex items-center justify-between px-1">
+          <h2 className="text-[14px] font-extrabold tracking-tight text-white">Quick actions</h2>
+          <span className="text-[9px] uppercase tracking-[.14em] text-white/30">Swipe</span>
         </div>
-        <CardContent>
-          <div className="h-[200px] md:h-[220px] -mx-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={trend}>
-                <defs>
-                  <linearGradient id="attendGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#6366f1" stopOpacity={0.4}/>
-                    <stop offset="100%" stopColor="#6366f1" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="name" axisLine={false} tickLine={false} stroke="hsl(var(--muted-foreground))" fontSize={12}/>
-                <YAxis hide domain={[0,100]} />
-                <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }} />
-                <Area type="monotone" dataKey="present" stroke="#6366f1" strokeWidth={2.5} fill="url(#attendGrad)" dot={{ r:4, fill:'#6366f1' }} activeDot={{ r:6 }}/>
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="bg-gradient-to-b from-white to-slate-50 dark:from-zinc-900 dark:to-zinc-900/50">
-        <div className="flex items-center gap-2 px-5 pt-5">
-          <div className="w-8 h-8 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-600"><Activity size={18}/></div>
-          <CardTitle className="p-0">AI Daily Summary</CardTitle>
+        <div className="-mx-1 flex snap-x gap-2.5 overflow-x-auto px-1 pb-1 scrollbar-hide">
+          {[
+            { label: 'AI Camera', hint: 'Face scan', to: '/attendance', icon: Camera, bgColor: 'rgba(34,197,94,0.1)', iconColor: '#22C55E' },
+            { label: 'Add Student', hint: 'New profile', to: '/students', icon: UserPlus, bgColor: 'rgba(79,70,229,0.12)', iconColor: '#818cf8' },
+            { label: 'Enter Marks', hint: 'Publish score', to: '/marks', icon: FilePenLine, bgColor: 'rgba(168,85,247,0.1)', iconColor: '#A855F7' },
+            { label: 'AI Predict', hint: 'Risk & grades', to: '/ai', icon: BrainCircuit, bgColor: 'rgba(34,211,238,0.08)', iconColor: '#22D3EE' },
+            { label: 'Calendar', hint: 'School plan', to: '/calendar', icon: CalendarDays, bgColor: 'rgba(245,158,11,0.1)', iconColor: '#F59E0B' },
+            ...(isAdmin ? [{ label: 'WhatsApp', hint: 'Parent alerts', to: '/whatsapp', icon: MessageCircle, bgColor: 'rgba(34,197,94,0.1)', iconColor: '#22C55E' }] : []),
+          ].map(action => (
+            <Link key={action.label} to={action.to} className="card-premium min-w-[118px] snap-start p-4 active:scale-[.97] transition-transform">
+              <span className="grid h-11 w-11 place-items-center rounded-2xl" style={{background: action.bgColor}}>
+                <action.icon size={20} style={{color: action.iconColor}}/>
+              </span>
+              <span className="mt-3 block text-[12px] font-bold text-white">{action.label}</span>
+              <span className="mt-0.5 block text-[10px] text-white/40">{action.hint}</span>
+            </Link>
+          ))}
         </div>
-        <CardContent className="text-[13px] leading-[1.5] space-y-1.5 mt-3">
-          {summary.map((s,i)=><p key={`${summaryTick}-${i}`} className="flex gap-2"><span className="mt-1 w-1 h-1 rounded-full bg-zinc-900 dark:bg-white shrink-0" />{s}</p>)}
-          <Button variant="gradient" size="sm" className="w-full mt-4 rounded-full h-11" onClick={()=>{ setSummaryTick(t=>t+1); toast.success('Summary refreshed from live records') }}><RotateCcw size={14} className="mr-1.5"/>Regenerate Summary</Button>
-        </CardContent>
-      </Card>
-    </div>
+      </div>
 
-    <div className="grid lg:grid-cols-3 gap-4">
-      <Card>
-        <CardTitle className="flex items-center gap-2"><TrendingUp size={18}/> Attendance Trend</CardTitle>
-        <CardContent>
-          <div className="h-[140px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={trend}>
-                <Line type="monotone" dataKey="present" stroke="#8b5cf6" strokeWidth={2.5} dot={false}/>
-                <XAxis dataKey="name" hide/>
-                <YAxis hide domain={[0,100]}/>
-                <Tooltip/>
-              </LineChart>
-            </ResponsiveContainer>
+      {/* ===== CHARTS ROW ===== */}
+      <div className="grid lg:grid-cols-3 gap-4">
+        {/* Attendance Trend Chart */}
+        <div className="lg:col-span-2 card-premium overflow-hidden">
+          <div className="flex items-center justify-between p-5 pb-2">
+            <div>
+              <h3 className="text-[14px] font-bold text-white">Weekly Attendance Trend</h3>
+              <p className="text-[11px] text-white/40 mt-0.5">Last 6 days</p>
+            </div>
+            <span className="status-chip status-chip-success">Best: {bestDay.name} {bestDay.present}%</span>
           </div>
-          <div className="text-xs text-muted-foreground mt-2">Based on saved attendance records only.</div>
-        </CardContent>
-      </Card>
+          <CardContent className="p-2">
+            <div className="h-[200px] md:h-[220px] -mx-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={trend}>
+                  <defs>
+                    <linearGradient id="attendGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#4F46E5" stopOpacity={0.3}/>
+                      <stop offset="100%" stopColor="#4F46E5" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} stroke="rgba(255,255,255,0.2)" fontSize={11}/>
+                  <YAxis hide domain={[0,100]} />
+                  <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', background: '#0c1125', boxShadow: '0 8px 24px rgba(0,0,0,0.4)', color: '#fff' }} />
+                  <Area type="monotone" dataKey="present" stroke="#4F46E5" strokeWidth={2.5} fill="url(#attendGrad)" dot={{ r:4, fill:'#4F46E5' }} activeDot={{ r:6 }}/>
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </div>
 
-      <Card>
-        <CardTitle className="flex items-center gap-2"><Award size={18}/> Top Performers</CardTitle>
-        <CardContent className="text-[13px] space-y-3 mt-2 text-muted-foreground">
-          No marks data yet. Add and publish marks to show real rank/performance information here.
-        </CardContent>
-      </Card>
-
-      <Card className="border-red-100 dark:border-red-900/20">
-        <CardTitle className="flex items-center gap-2 text-red-600"><AlertTriangle size={18}/> Students at Risk</CardTitle>
-        <CardContent className="text-[13px] space-y-2.5 mt-1">
-          <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-red-500"/> {counts.atRisk} students below 75% from saved attendance</div>
-          <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-amber-500"/> {counts.absent} absent today</div>
-<div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500"/> {counts.presentCount} present today</div>
-        </CardContent>
-      </Card>
-    </div>
-
-    {/* Teacher Live Status — ADMIN ONLY */}
-    {isAdmin && (
-      <Card>
-        <CardTitle>Teacher Live Status</CardTitle>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-            {teachersWithPresence.map((t:any,i)=>(
-              <div key={t.uid || i} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-zinc-800/80 border border-slate-100 dark:border-zinc-700/50">
-                <div>
-                  <div className="font-semibold text-[14px]">{t.displayName || t.name || 'Teacher'}</div>
-                  <div className="text-[11px] text-muted-foreground">{(t.subjects||[]).join(', ') || t.email || 'No subjects'}</div>
-                </div>
-                <span className={`text-[11px] px-2.5 py-1 rounded-full font-medium ${t.isOnline ? 'bg-emerald-500/15 text-emerald-600' : 'bg-zinc-500/15 text-zinc-500'}`}>
-                  {t.isOnline ? 'Active' : 'Offline'}
-                </span>
-              </div>
+        {/* AI Daily Summary */}
+        <div className="card-premium card-glow">
+          <div className="flex items-center gap-2 px-5 pt-5">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{background: 'rgba(79,70,229,0.12)'}}>
+              <Activity size={16} style={{color: '#818cf8'}}/>
+            </div>
+            <h3 className="text-[14px] font-bold text-white">AI Daily Summary</h3>
+          </div>
+          <CardContent className="text-[13px] leading-[1.6] space-y-2 mt-3 px-5">
+            {summary.map((s,i)=>(
+              <p key={`${summaryTick}-${i}`} className="flex gap-2 text-white/70">
+                <span className="mt-2 w-1 h-1 rounded-full shrink-0" style={{background: 'linear-gradient(135deg, #4F46E5, #A855F7)'}}/>
+                {s}
+              </p>
             ))}
-            {!teachersWithPresence.length && <div className="md:col-span-3 text-center text-muted-foreground p-6 rounded-2xl bg-slate-50 dark:bg-zinc-800/80">No teachers added yet.</div>}
+            <button
+              className="w-full mt-3 h-11 rounded-full font-semibold text-[13px] text-white flex items-center justify-center gap-1.5 transition-all hover:shadow-lg"
+              style={{background: 'linear-gradient(135deg, #4F46E5, #7C3AED, #A855F7)', boxShadow: '0 8px 20px rgba(79,70,229,0.3)'}}
+              onClick={()=>{ setSummaryTick(t=>t+1); toast.success('Summary refreshed from live records') }}
+            >
+              <RotateCcw size={13}/> Regenerate
+            </button>
+          </CardContent>
+        </div>
+      </div>
+
+      {/* ===== SECOND ROW ===== */}
+      <div className="grid lg:grid-cols-3 gap-4">
+        {/* Trend line */}
+        <div className="card-premium">
+          <div className="flex items-center gap-2 px-5 pt-5">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{background: 'rgba(168,85,247,0.1)'}}>
+              <TrendingUp size={16} style={{color: '#A855F7'}}/>
+            </div>
+            <h3 className="text-[14px] font-bold text-white">Attendance Trend</h3>
           </div>
-          <p className="text-[11px] text-muted-foreground mt-3">Admin-only • Updates when teachers login (live Firebase presence)</p>
-        </CardContent>
-      </Card>
-    )}
-<div className="grid md:grid-cols-2 gap-4 pb-4">
-      <Card>
-        <CardTitle>Recent Activities</CardTitle>
-        <CardContent>
-          <ul className="text-[13px] space-y-2.5 text-muted-foreground">
-            {recentActivities.map((a,i)=><li key={i} className="flex gap-2"><span className="text-foreground font-medium">{a.time}</span> {a.text}</li>)}
-            {!recentActivities.length && <li>No activity saved today yet.</li>}
-          </ul>
-</CardContent>
-      </Card>
-      <Card className="hidden md:block">
-        <CardTitle>Quick Actions</CardTitle>
-        <CardContent>
-          <div className="flex flex-wrap gap-2">
-            {(isAdmin
-              ? ['Mark Attendance','Add Student','Enter Marks','Send WhatsApp','Export Report','AI Predict']
-              : ['Mark Attendance','Add Student','Enter Marks','My Schedule','Calendar']
-            ).map(a=><span key={a} className="px-3.5 py-2 rounded-full bg-slate-100 dark:bg-zinc-800 text-[13px] font-medium hover:bg-slate-200 dark:hover:bg-zinc-700 cursor-pointer transition">{a}</span>)}
+          <CardContent className="px-3">
+            <div className="h-[140px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={trend}>
+                  <Line type="monotone" dataKey="present" stroke="#A855F7" strokeWidth={2.5} dot={false}/>
+                  <XAxis dataKey="name" hide/>
+                  <YAxis hide domain={[0,100]}/>
+                  <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', background: '#0c1125', color: '#fff' }}/>
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="text-[11px] text-white/30 mt-2 px-2">Based on saved attendance records.</div>
+          </CardContent>
+        </div>
+
+        {/* Top Performers */}
+        <div className="card-premium">
+          <div className="flex items-center gap-2 px-5 pt-5">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{background: 'rgba(245,158,11,0.1)'}}>
+              <Award size={16} style={{color: '#F59E0B'}}/>
+            </div>
+            <h3 className="text-[14px] font-bold text-white">Top Performers</h3>
           </div>
-        </CardContent>
-      </Card>
+          <CardContent className="text-[13px] mt-3 px-5 text-white/40">
+            No marks data yet. Add and publish marks to see real performance information here.
+          </CardContent>
+        </div>
+        
+        {/* At Risk */}
+        <div className="card-premium" style={{borderColor: 'rgba(239,68,68,0.12)'}}>
+          <div className="flex items-center gap-2 px-5 pt-5">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{background: 'rgba(239,68,68,0.1)'}}>
+              <AlertTriangle size={16} style={{color: '#EF4444'}}/>
+            </div>
+            <h3 className="text-[14px] font-bold text-brand-error">Students at Risk</h3>
+          </div>
+          <CardContent className="text-[13px] space-y-2.5 mt-3 px-5">
+            <div className="flex items-center gap-3 text-white/70">
+              <span className="w-2.5 h-2.5 rounded-full" style={{background: '#EF4444'}}/> {counts.atRisk} students below 75% attendance
+            </div>
+            <div className="flex items-center gap-3 text-white/70">
+              <span className="w-2.5 h-2.5 rounded-full" style={{background: '#F59E0B'}}/> {counts.absent} absent today
+            </div>
+            <div className="flex items-center gap-3 text-white/70">
+              <span className="w-2.5 h-2.5 rounded-full" style={{background: '#22C55E'}}/> {counts.presentCount} present today
+            </div>
+          </CardContent>
+        </div>
+      </div>
+
+      {/* Teacher Live Status — ADMIN ONLY */}
+      {isAdmin && (
+        <div className="card-premium">
+          <div className="flex items-center gap-2 px-5 pt-5">
+            <h3 className="text-[14px] font-bold text-white">Teacher Live Status</h3>
+          </div>
+          <CardContent className="px-5">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm mt-3">
+              {teachersWithPresence.map((t:any,i)=>(
+                <div key={t.uid || i} className="flex items-center justify-between p-3.5 rounded-2xl border border-white/[0.06]" style={{background: 'rgba(255,255,255,0.02)'}}>
+                  <div>
+                    <div className="font-semibold text-[14px] text-white">{t.displayName || t.name || 'Teacher'}</div>
+                    <div className="text-[11px] text-white/40">{(t.subjects||[]).join(', ') || t.email || 'No subjects'}</div>
+                  </div>
+                  <span className={`status-chip ${t.isOnline ? 'status-chip-success' : 'status-chip-warning'}`}>
+                    {t.isOnline ? '● Active' : '○ Offline'}
+                  </span>
+                </div>
+              ))}
+              {!teachersWithPresence.length && (
+                <div className="md:col-span-3 text-center text-white/30 p-6 rounded-2xl border border-white/[0.04]" style={{background: 'rgba(255,255,255,0.02)'}}>
+                  No teachers added yet.
+                </div>
+              )}
+            </div>
+            <p className="text-[11px] text-white/30 mt-3">Admin-only • Updates when teachers login (live Firebase presence)</p>
+          </CardContent>
+        </div>
+      )}
+     {/* Recent Activities + Quick Actions */}
+      <div className="grid md:grid-cols-2 gap-4 pb-4">
+        <div className="card-premium">
+          <div className="px-5 pt-5">
+            <h3 className="text-[14px] font-bold text-white">Recent Activities</h3>
+          </div>
+          <CardContent className="px-5">
+            <ul className="text-[13px] space-y-2.5 mt-3">
+              {recentActivities.map((a,i)=>(
+                <li key={i} className="flex gap-2 text-white/60">
+                  <span className="text-white/40 font-medium">{a.time}</span> {a.text}
+                </li>
+              ))}
+              {!recentActivities.length && <li className="text-white/30">No activity saved today yet.</li>}
+            </ul>
+          </CardContent>
+        </div>
+        <div className="card-premium hidden md:block">
+          <div className="px-5 pt-5">
+            <h3 className="text-[14px] font-bold text-white">Quick Actions</h3>
+          </div>
+          <CardContent className="px-5">
+            <div className="flex flex-wrap gap-2 mt-3">
+              {(isAdmin
+                ? ['Mark Attendance','Add Student','Enter Marks','Send WhatsApp','Export Report','AI Predict']
+                : ['Mark Attendance','Add Student','Enter Marks','My Schedule','Calendar']
+              ).map(a=><span key={a} className="px-3.5 py-2 rounded-full text-[13px] font-medium cursor-pointer transition-all hover:border-brand-primary/30" style={{background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)'}}>{a}</span>)}
+            </div>
+          </CardContent>
+        </div>
+      </div>
     </div>
-  </div>
+  )
 }

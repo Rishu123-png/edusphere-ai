@@ -3,6 +3,7 @@ import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import PageHeader from '@/components/mobile/PageHeader'
 import NeonGauge from '@/components/mobile/NeonGauge'
+import MyTeachersPanel from '@/components/mobile/MyTeachersPanel'
 import { db } from '@/lib/firebase'
 import { ref, onValue } from 'firebase/database'
 import { useSchool } from '@/contexts/SchoolContext'
@@ -196,6 +197,15 @@ export default function ParentPortalPage(){
             </CardContent>
           </Card>
         </div>
+
+        {child && (
+          <MyTeachersPanel
+            className={child.className}
+            section={child.section}
+            subjects={subjectScores.map((s) => s.subject)}
+            title="My Teachers"
+          />
+        )}
 
         <Link to="/notifications" className="block">
           <Card className="rounded-[22px]">

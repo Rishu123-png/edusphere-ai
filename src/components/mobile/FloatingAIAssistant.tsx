@@ -20,6 +20,7 @@ import { todayIST } from '@/lib/rtdb'
 import { toast } from 'sonner'
 import {
   askAssistant,
+  askTutor,
   getJoke,
   getProactiveWhisper,
   localNudge,
@@ -32,6 +33,7 @@ type Tab = 'chat' | 'voice' | 'discover'
 const quickPrompts = [
   'Summarize today’s attendance',
   'Who needs attention today?',
+  'Explain a topic as my AI tutor',
   'Tell me a joke',
   'Draft a message to absentees’ parents',
   'How is the class performing?',
@@ -95,6 +97,7 @@ export default function FloatingAIAssistant() {
   const recognitionRef = useRef<any>(null)
   const transcriptRef = useRef('')
   const voiceCanvasRef = useRef<HTMLCanvasElement>(null)
+  const orbCanvasRef = useRef<HTMLCanvasElement>(null)
   const speakingRef = useRef(false)
 
   // Discover / proactive
@@ -207,7 +210,9 @@ export default function FloatingAIAssistant() {
     if (open) return
     let active = true
     const id = window.setInterval(() => {
-      if (!active || open || Date.now() - lastWhisperAt.current < 45000) return
+      if (!active || open || Date.now() - lastWhisperAt.current < 40000) return
+      // Mostly smart nudges; occasionally a light joke so the teacher smiles.
+      if (Math.random() < 0.25) { pushWhisper(getJoke()); return }
       getProactiveWhisper(ctx)
         .then((w) => {
           if (active && w) pushWhisper(w)
@@ -216,7 +221,7 @@ export default function FloatingAIAssistant() {
           const local = localNudge(ctx)
           if (active && local) pushWhisper(local)
         })
-    }, 30000)
+    }, 28000)
     return () => {
       active = false
       window.clearInterval(id)
@@ -240,8 +245,9 @@ export default function FloatingAIAssistant() {
         .slice(-8)
         .map((m) => ({ role: m.sender === 'user' ? 'user' : 'model', text: m.text }))
 
+      const wantsTutor = /tutor|explain|teach|quiz|solve|concept|how does|what is|why (does|is)|define|learn/i.test(text)
       try {
-        const reply = await askAssistant(text, history, ctx)
+        const reply = wantsTutor ? await askTutor(text, ctx) : await askAssistant(text, history, ctx)
         setChatMessages((prev) => [
           ...prev,
           {
@@ -407,6 +413,37 @@ export default function FloatingAIAssistant() {
     return () => cancelAnimationFrame(raf)
   }, [isSpeaking, tab])
 
+  // ---- Orb sonar ripple (canvas) — makes the AI feel "alive" ----------------
+  useEffect(() => {
+    const canvas = orbCanvasRef.current
+    if (!canvas) return
+    const ctx2d = canvas.getContext('2d')
+    if (!ctx2d) return
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    let raf = 0
+    const start = performance.now()
+    const draw = (now: number) => {
+      const w = (canvas.width = 96)
+      const h = (canvas.height = 96)
+      ctx2d.clearRect(0, 0, w, h)
+      const t = (now - start) / 1000
+      const rings = 3
+      for (let i = 0; i < rings; i++) {
+        const phase = (t * 0.5 + i / rings) % 1
+        const radius = 14 + phase * 34
+        const alpha = (1 - phase) * 0.5
+        ctx2d.beginPath()
+        ctx2d.arc(w / 2, h / 2, radius, 0, Math.PI * 2)
+        ctx2d.strokeStyle = `rgba(56,189,248,${alpha})`
+        ctx2d.lineWidth = 2
+        ctx2d.stroke()
+      }
+      raf = requestAnimationFrame(draw)
+    }
+    raf = requestAnimationFrame(draw)
+    return () => cancelAnimationFrame(raf)
+  }, [])
+
   // ---- Eye tracking ("sees everything") ------------------------------------
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
@@ -471,6 +508,7 @@ export default function FloatingAIAssistant() {
         aria-label="Open AI assistant"
         className="ai-orb group fixed bottom-[96px] right-4 z-40 grid h-[60px] w-[60px] place-items-center rounded-full md:bottom-[28px]"
       >
+        <canvas ref={orbCanvasRef} className="pointer-events-none absolute inset-[-18px] h-[96px] w-[96px]" aria-hidden="true" />
         <span className="ai-orb-aura" />
         <span className="ai-orb-ring" />
         <span className="ai-orb-core grid h-[52px] w-[52px] place-items-center rounded-full bg-gradient-to-br from-cyan-400 via-indigo-500 to-fuchsia-500 text-white shadow-[0_10px_30px_rgba(99,102,241,.5)]">
@@ -571,7 +609,7 @@ export default function FloatingAIAssistant() {
                   </button>
                 ))}
 </div>
-              <div className="flex items-center gap-2 border-t border-white/10 p-3">
+                <div className="flex items-center gap-2 border-t border-white/10 p-3">
                 <input
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
@@ -662,6 +700,16 @@ export default function FloatingAIAssistant() {
               >
                 <span className="flex items-center gap-2 text-[13px] font-semibold text-white">
                   <Smile size={17} className="text-fuchsia-300" /> Make me smile
+                </span>
+                <ChevronRight size={16} className="text-slate-500" />
+              </button>
+
+              <button
+                onClick={() => runAssistant('Start AI Tutor mode. Give me a clear, friendly 2-minute study tip I can use with my class today.')}
+                className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[.03] px-4 py-3 text-left active:scale-[.98]"
+              >
+                <span className="flex items-center gap-2 text-[13px] font-semibold text-white">
+                  <Brain size={17} className="text-cyan-300" /> AI Tutor
                 </span>
                 <ChevronRight size={16} className="text-slate-500" />
               </button>

@@ -381,22 +381,27 @@ export default function FloatingAIAssistant() {
     setIsListening(false)
   }
 
-  // Voice waveform canvas animation
+  // Voice waveform canvas animation (throttled for performance)
   useEffect(() => {
     const canvas = voiceCanvasRef.current
     if (!canvas) return
     const ctx2d = canvas.getContext('2d')
     if (!ctx2d) return
     let raf = 0
-    const draw = () => {
-      const w = (canvas.width = canvas.clientWidth * (window.devicePixelRatio || 1))
-      const h = (canvas.height = canvas.clientHeight * (window.devicePixelRatio || 1))
+    let last = 0
+    const FPS = 30
+    const draw = (now: number) => {
+      raf = requestAnimationFrame(draw)
+      if (now - last < 1000 / FPS) return
+      last = now
+      const w = (canvas.width = canvas.clientWidth * Math.min(window.devicePixelRatio || 1, 1.5))
+      const h = (canvas.height = canvas.clientHeight * Math.min(window.devicePixelRatio || 1, 1.5))
       ctx2d.clearRect(0, 0, w, h)
-      const bars = 28
+      const bars = 22
       const mid = h / 2
-      const now = Date.now() / 1000
+      const t = now / 1000
       for (let i = 0; i < bars; i++) {
-        const phase = now * (isSpeaking ? 9 : 2.4) + i * 0.5
+        const phase = t * (isSpeaking ? 7 : 2.0) + i * 0.5
         const amp = (isSpeaking ? 0.85 : 0.18) * Math.abs(Math.sin(phase)) * (0.4 + (i % 5) / 7)
         const bh = amp * h * 0.92
         const x = (i / (bars - 1)) * w
@@ -407,13 +412,12 @@ export default function FloatingAIAssistant() {
         const bw = w / bars * 0.5
         ctx2d.fillRect(x - bw / 2, mid - bh / 2, bw, bh)
       }
-      raf = requestAnimationFrame(draw)
     }
-    draw()
+    raf = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(raf)
   }, [isSpeaking, tab])
 
-  // ---- Orb sonar ripple (canvas) — makes the AI feel "alive" ----------------
+  // ---- Orb sonar ripple (canvas) — throttled for performance ----------------
   useEffect(() => {
     const canvas = orbCanvasRef.current
     if (!canvas) return
@@ -421,8 +425,13 @@ export default function FloatingAIAssistant() {
     if (!ctx2d) return
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
     let raf = 0
+    let last = 0
     const start = performance.now()
+    const FPS = 24
     const draw = (now: number) => {
+      raf = requestAnimationFrame(draw)
+      if (now - last < 1000 / FPS) return
+      last = now
       const w = (canvas.width = 96)
       const h = (canvas.height = 96)
       ctx2d.clearRect(0, 0, w, h)
@@ -438,7 +447,6 @@ export default function FloatingAIAssistant() {
         ctx2d.lineWidth = 2
         ctx2d.stroke()
       }
-      raf = requestAnimationFrame(draw)
     }
     raf = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(raf)
@@ -722,7 +730,7 @@ export default function FloatingAIAssistant() {
                 }}
                 className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[.03] px-4 py-3 text-left active:scale-[.98]"
               >
-                <span className="flex items-center gap-2 text-[13px] font-semibold text-white">
+               <span className="flex items-center gap-2 text-[13px] font-semibold text-white">
                   <Lightbulb size={17} className="text-amber-300" /> What needs my attention?
                 </span>
                 <ChevronRight size={16} className="text-slate-500" />

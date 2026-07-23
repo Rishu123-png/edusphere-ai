@@ -52,13 +52,19 @@
     -webkit-tap-highlight-color: transparent;
     scrollbar-width: none;
   }
-  body {
+  html, body, #root {
     @apply antialiased overflow-x-hidden text-[var(--brand-text)];
     font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-feature-settings: "ss01","ss02","cv01","cv02";
     background: var(--brand-bg);
     min-height: 100dvh;
     min-height: -webkit-fill-available;
+  }
+  body {
+    width: 100%;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
   }
   html { background-color: var(--brand-bg); }
   :root {
@@ -189,9 +195,16 @@
     color: var(--brand-text-secondary);
     background: rgba(255,255,255,0.06);
   }
-  .page-container {
-    @apply space-y-6 pb-[100px] md:pb-6;
-    padding: 24px;
+  .page-container, .page-contents {
+    @apply space-y-6;
+  }
+  .page-contents {
+    padding: 8px 4px calc(108px + env(safe-area-inset-bottom));
+  }
+  @media (min-width: 768px) {
+    .page-contents {
+      padding: 12px 4px 28px;
+    }
   }
   .safe-bottom {
     padding-bottom: calc(16px + env(safe-area-inset-bottom));
@@ -355,9 +368,11 @@
    ================================================================ */
 .app-shell {
   min-height: 100dvh;
+  height: 100dvh;
   isolation: isolate;
   background: var(--brand-bg);
   position: relative;
+  overflow: hidden;
 }
 .app-shell::before {
   content: '';
@@ -429,7 +444,17 @@
   mask-image: radial-gradient(circle at center, rgba(0,0,0,0.8), transparent 75%);
 }
 
-.mobile-main { padding-bottom: calc(7rem + env(safe-area-inset-bottom)); }
+.mobile-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  padding-bottom: calc(7rem + env(safe-area-inset-bottom));
+  scrollbar-width: none;
+}
+.mobile-main::-webkit-scrollbar { display: none; }
 .mobile-icon-button {
   color: var(--brand-text);
   transition: background-color .2s ease, transform .2s ease;
@@ -462,6 +487,11 @@
 
 /* Bottom nav active tab */
 .mobile-nav-item { min-width: 54px; }
+/* AI orb — lift it above the bottom nav so it never hides buttons */
+#ai-orb { bottom: calc(84px + env(safe-area-inset-bottom)) !important; }
+@media (min-width: 768px) {
+  #ai-orb { bottom: 28px !important; }
+}
 .mobile-nav-active .nav-icon-wrap {
   background: linear-gradient(135deg, rgba(79,70,229,0.2), rgba(168,85,247,0.15));
   box-shadow: inset 0 0 0 1px rgba(79,70,229,0.2), 0 4px 12px rgba(79,70,229,0.15);
@@ -540,6 +570,12 @@
 /* ================================================================
    LOGIN / ONBOARDING GLASS
    ================================================================ */
+.login-shell {
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  padding-bottom: env(safe-area-inset-bottom);
+}
 .login-card,
 .onboarding-card {
   border: 1px solid rgba(255,255,255,.06);

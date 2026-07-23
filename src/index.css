@@ -525,3 +525,42 @@
 @media (prefers-reduced-motion: reduce) {
   .ai-orb, .ai-orb-aura, .ai-orb-ring, .ai-orb-sound, .ai-typing i { animation: none !important; }
 }
+
+/* -------------------------------------------------------------------------
+   Aurora mobile final theme — designed for a 360–480px phone viewport.
+   Existing data components retain their semantic colours; this layer gives
+   every page the cohesive glass / neon depth shown in the supplied designs.
+   ------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  .app-shell::before {
+    background:
+      radial-gradient(ellipse 95% 45% at 100% 5%, rgba(135, 50, 255, .24), transparent 62%),
+      radial-gradient(ellipse 85% 38% at 0% 36%, rgba(0, 214, 255, .13), transparent 60%),
+      radial-gradient(ellipse 80% 40% at 65% 92%, rgba(195, 55, 255, .12), transparent 64%),
+      #060914;
+  }
+  .dark .app-shell::before { background-color: #060914; }
+  .mobile-main { padding-inline: 14px; padding-top: 14px; }
+  .page-container { gap: 14px; }
+  .card-premium, .card-glass,
+  .mobile-main [class*="rounded-[24px]"], .mobile-main [class*="rounded-[20px]"] {
+    border-color: rgba(135, 156, 255, .16);
+    box-shadow: 0 14px 35px rgba(0, 0, 0, .22), inset 0 1px rgba(255,255,255,.04);
+  }
+  .dark .mobile-main [class*="bg-zinc-900"],
+  .dark .mobile-main [class*="bg-card"] {
+    background-color: rgba(12, 17, 35, .79);
+    backdrop-filter: blur(18px) saturate(1.3);
+  }
+  .bottom-nav-glass {
+    border-radius: 27px 27px 0 0;
+    border-color: rgba(132, 153, 255, .18);
+    background: rgba(8, 12, 27, .88);
+    box-shadow: 0 -12px 36px rgba(0,0,0,.28);
+  }
+  .mobile-page-header { padding-top: max(2px, env(safe-area-inset-top)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+}

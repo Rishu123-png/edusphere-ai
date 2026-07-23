@@ -4,6 +4,7 @@ import { LayoutDashboard, Users, ClipboardCheck, FileText, Settings, Brain, User
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
 import { AnimeBounceClick } from '../AnimeWrapper'
+import { motion, AnimatePresence } from 'framer-motion'
 
 const tabs = [
   { to: '/', label: 'Home', icon: LayoutDashboard, roles: ['super_admin','school_admin','teacher','student','parent'] },
@@ -18,15 +19,12 @@ export default function BottomNav(){
   const { profile } = useAuth()
   const role = profile?.role || 'student'
   const visibleTabs = tabs.filter(t => t.roles.includes(role)).slice(0,5)
-  // If less than 5, add Settings as last
   if(visibleTabs.length < 5){
     visibleTabs.push({ to: '/settings', label: 'Settings', icon: Settings, roles: ['super_admin','school_admin','teacher','student','parent'] })
   }
   const loc = useLocation()
   const navRef = useRef<HTMLDivElement>(null)
 
-  /* anime.js spring "pop" on the newly-active tab — mirrors the playful
-     micro-bounce feel of animejs.com, tuned for mobile. */
   useEffect(() => {
     const root = navRef.current
     if (!root || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
@@ -37,7 +35,6 @@ export default function BottomNav(){
       .then((mod) => {
         if (cancelled || !activeIcon.isConnected) return
         const { animate } = mod
-        // anime.js 4.5 renamed createSpring → spring; use whichever is present.
         const springFactory = (mod as unknown as Record<string, (p: { stiffness: number; damping: number; mass: number }) => unknown>)
         const spring = (springFactory.spring ?? springFactory.createSpring)({ stiffness: 340, damping: 13, mass: 1 })
         animate(activeIcon, {
@@ -67,17 +64,41 @@ export default function BottomNav(){
                 aria-current={active ? 'page' : undefined}
                 className={cn(
                   'mobile-nav-item relative mx-auto flex min-h-[55px] max-w-[72px] flex-col items-center justify-center gap-1 rounded-2xl transition-colors duration-300',
-                  /* THEME FIX: cyan-300 is unreadable on the light glass bar.
-                     Theme-aware active color, soft in light, neon in dark. */
                   active
-                    ? 'mobile-nav-active text-indigo-600 dark:text-cyan-300'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                    ? 'mobile-nav-active'
+                    : 'text-white/40 hover:text-white/70'
                 )}
               >
-                <span className="nav-icon-wrap relative grid h-7 w-9 place-items-center rounded-xl">
-                  <item.icon size={20} strokeWidth={active ? 2.5 : 1.9} />
+                <span className={cn(
+                  'nav-icon-wrap relative grid h-8 w-9 place-items-center rounded-xl transition-all duration-300',
+                  active ? 'shadow-lg' : ''
+                )}
+                  style={active ? {
+                    background: 'linear-gradient(135deg, rgba(79,70,229,0.25), rgba(168,85,247,0.15))',
+                    boxShadow: '0 4px 16px rgba(79,70,229,0.2), inset 0 0 0 1px rgba(79,70,229,0.15)'
+                  } : {}}
+                >
+                  <item.icon
+                    size={20}
+                    strokeWidth={active ? 2.5 : 1.8}
+                    style={active ? { color: '#818cf8' } : {}}
+                  />
+                  {active && (
+                    <motion.span
+                      layoutId="navIndicator"
+                      className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-4 h-0.5 rounded-full"
+                      style={{ background: 'linear-gradient(90deg, #4F46E5, #A855F7)' }}
+                      initial={false}
+                      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                    />
+                  )}
                 </span>
-                <span className="text-[9px] font-semibold leading-none tracking-wide">{item.label}</span>
+                <span className={cn(
+                  'text-[9px] font-semibold leading-none tracking-wide transition-colors',
+                  active ? 'text-brand-primary' : ''
+                )}>
+                  {item.label}
+                </span>
               </NavLink>
             </AnimeBounceClick>
           )

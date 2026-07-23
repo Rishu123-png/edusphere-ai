@@ -51,7 +51,8 @@ export default function LoginPage() {
       toast.success('Login successful — welcome back!')
       nav('/')
     } catch (error:any) {
-      toast.error(error?.message || 'Login failed. Please check your details and try again.')
+      // White-label rule: never surface raw Firebase backend errors.
+      toast.error('Login failed. ' + (getFriendlyError(error) || 'Please check your email and password.'))
     } finally { setLoading(false) }
   }
 

@@ -32,10 +32,17 @@ export default function LoginPage() {
 
   // Auth pages live outside <Layout> but the global CSS locks
   // html/body/#root to overflow:hidden for the app-shell. Release
-  // that lock while this page is mounted so the shell can scroll.
+  // that lock while this page is mounted so the page can scroll.
   useEffect(() => {
-    document.body.classList.add('auth-page-open')
-    return () => document.body.classList.remove('auth-page-open')
+    const root = document.documentElement
+    root.classList.add('auth-page-open')
+    // Reset scroll position to top when entering
+    window.scrollTo(0, 0)
+    return () => {
+      root.classList.remove('auth-page-open')
+      // also defensively remove from body in case a previous build left it
+      document.body.classList.remove('auth-page-open')
+    }
   }, [])
 
   if (user && !authLoading) {
@@ -473,7 +480,7 @@ function LoginCard(p: LoginCardProps) {
                     .catch((error: any) => toast.error(getFriendlyError(error) || 'Could not send reset email'))
                 }}
               >
-                Forgot password?
+               Forgot password?
               </button>
             </div>
 
@@ -486,7 +493,7 @@ function LoginCard(p: LoginCardProps) {
                 boxShadow: '0 10px 28px rgba(37,99,235,0.35), 0 6px 20px rgba(34,211,238,0.25)',
               }}
             >
-             {p.loading ? 'Authenticating…' : 'Login'}
+              {p.loading ? 'Authenticating…' : 'Login'}
             </button>
 
             <div className="flex items-center gap-3 py-2">
@@ -537,8 +544,7 @@ function LoginCard(p: LoginCardProps) {
             </div>
           </form>
         </TabsContent>
-
-        <TabsContent value="signup">
+  <TabsContent value="signup">
           <form onSubmit={p.handleSignup} className="space-y-4">
             <div className="space-y-1.5">
               <Label className="text-[13px] font-medium text-white/70">Full name</Label>
@@ -550,7 +556,7 @@ function LoginCard(p: LoginCardProps) {
                 autoComplete="name"
                 placeholder="Your full name"
               />
-              </div>
+            </div>
             <div className="space-y-1.5">
               <Label className="text-[13px] font-medium text-white/70">Email address</Label>
               <Input

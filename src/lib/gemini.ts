@@ -287,6 +287,21 @@ function localFallbackReply(message: string, ctx: SchoolContext): string {
   if (lower.includes('joke') || lower.includes('smile') || lower.includes('funny')) {
     return getJoke()
   }
+  // If we genuinely have no data (students haven't loaded yet, or attendance
+  // hasn't been marked today) the assistant should say so instead of lying
+  // that attendance is 0%.
+  const hasAttendanceToday =
+    typeof ctx.totalStudents === 'number' &&
+    ctx.totalStudents > 0 &&
+    (typeof ctx.present === 'number' || typeof ctx.absent === 'number' || typeof ctx.attendancePct === 'number')
+
+  if (!hasAttendanceToday) {
+    if (lower.includes('attendance') || lower.includes('present') || lower.includes('absent') || lower.includes('who')) {
+      return "I don't see today's attendance marked yet. Open the Attendance screen and start a class — I'll summarize it live as you mark students. 😊"
+    }
+    return "I'm running locally right now because the cloud AI isn't reachable. Open Attendance, Marks, or Students and I'll give you live insights from that screen. 😊"
+  }
+
   if (lower.includes('present') || lower.includes('attendance today')) {
     if (typeof ctx.present === 'number' && typeof ctx.totalStudents === 'number') {
       const pct = ctx.totalStudents ? Math.round((ctx.present / ctx.totalStudents) * 100) : 0
@@ -302,13 +317,15 @@ function localFallbackReply(message: string, ctx: SchoolContext): string {
       : 'Everyone’s looking steady right now — no clear low-attendance outlier yet.'
   }
   const bits: string[] = []
-  if (typeof ctx.present === 'number' && typeof ctx.totalStudents === 'number') {
+  if (typeof ctx.present === 'number' && typeof ctx.totalStudents === 'number' && ctx.totalStudents > 0) {
     bits.push(`Today ${ctx.present}/${ctx.totalStudents} students are present`)
   }
-  if (typeof ctx.attendancePct === 'number') bits.push(`${ctx.attendancePct}% attendance`)
+  if (typeof ctx.attendancePct === 'number' && ctx.totalStudents && ctx.totalStudents > 0) {
+    bits.push(`${ctx.attendancePct}% attendance`)
+  }
   if (ctx.lowAttendanceStudent) bits.push(`${ctx.lowAttendanceStudent} may need a check-in`)
   if (bits.length) {
-    return `Quick snapshot (lightweight mode): ${bits.join(' • ')}. I’ll give the full analysis once I’m back to full strength. 😊`
+    return `Quick snapshot: ${bits.join(' • ')}. Tap over to the Attendance tab for full details.`
   }
-  return 'I’m in lightweight mode right now, so I’ll keep this simple — open the Attendance or Marks screen and I’ll watch things for you. 😊'
+  return "I'm running locally right now — open the Attendance, Marks, or Students screen and I'll give you live insights there. 😊"
 }

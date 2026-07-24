@@ -1,4 +1,3 @@
-
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { gradeFromMarks, gpaFromMarks, PASSING_PERCENT, type GradeBand, GRADE_BANDS } from './utils'
@@ -99,8 +98,9 @@ export function generateReportCard(input: ReportCardInput): jsPDF {
     margin: { left: margin, right: margin },
   })
 
-  // @ts-ignore
-  y = (doc as any).lastAutoTable.finalY + 8
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const lastAutoY = (doc as any).lastAutoTable?.finalY as number | undefined
+  y = (typeof lastAutoY === 'number' ? lastAutoY : y) + 8
 
   // Grading scale
   doc.setFont('helvetica', 'bold')

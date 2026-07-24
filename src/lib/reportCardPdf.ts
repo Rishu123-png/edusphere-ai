@@ -1,3 +1,4 @@
+
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { gradeFromMarks, gpaFromMarks, PASSING_PERCENT, type GradeBand, GRADE_BANDS } from './utils'

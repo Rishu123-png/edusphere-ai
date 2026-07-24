@@ -74,7 +74,6 @@ export default function FloatingAIAssistant() {
   // Live data
   const [students, setStudents] = useState<any[]>([])
   const [attendance, setAttendance] = useState<Record<string, any>>({})
-  const [marks, setMarks] = useState<Record<string, any>>({})
 
   // Chat
   const [chatInput, setChatInput] = useState('')
@@ -128,11 +127,6 @@ export default function FloatingAIAssistant() {
     unsubs.push(
       onValue(ref(db, `schools/${schoolId}/attendance`), (snap) => {
         setAttendance(snap.val() || {})
-      }),
-    )
-    unsubs.push(
-      onValue(ref(db, `schools/${schoolId}/marks`), (snap) => {
-        setMarks(snap.val() || {})
       }),
     )
     return () => unsubs.forEach((u) => u())
@@ -641,7 +635,7 @@ export default function FloatingAIAssistant() {
             })()}
           </svg>
         </span>
-
+         
         <span className="ai-orb-status" />
         {isSpeaking && <span className="ai-orb-sound">🔊</span>}
       </button>
@@ -746,7 +740,7 @@ export default function FloatingAIAssistant() {
                   disabled={chatBusy}
                   className="grid h-11 w-11 place-items-center rounded-full bg-gradient-to-br from-cyan-500 to-fuchsia-500 text-white active:scale-95 disabled:opacity-50"
                 >
-                 <Send size={17} />
+                  <Send size={17} />
                 </button>
               </div>
             </div>

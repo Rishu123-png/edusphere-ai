@@ -30,6 +30,14 @@ export default function LoginPage() {
     if (code) setSchoolCode(code)
   }, [searchParams])
 
+  // Auth pages live outside <Layout> but the global CSS locks
+  // html/body/#root to overflow:hidden for the app-shell. Release
+  // that lock while this page is mounted so the shell can scroll.
+  useEffect(() => {
+    document.body.classList.add('auth-page-open')
+    return () => document.body.classList.remove('auth-page-open')
+  }, [])
+
   if (user && !authLoading) {
     return <Navigate to={profile?.schoolId ? '/' : '/onboarding'} replace />
   }
@@ -73,7 +81,7 @@ export default function LoginPage() {
 
   return (
     <div
-      className="login-shell relative w-full text-white"
+      className="login-shell relative flex min-h-[100dvh] w-full flex-col items-center text-white"
       style={{
         background:
           'radial-gradient(ellipse 80% 40% at 20% 10%, rgba(34,211,238,0.18), transparent 55%),' +
@@ -412,7 +420,7 @@ function LoginCard(p: LoginCardProps) {
           </TabsTrigger>
         </TabsList>
 
-               <TabsContent value="login">
+        <TabsContent value="login">
           <form onSubmit={p.handleLogin} className="space-y-4">
             <div className="space-y-1.5">
               <Label className="text-[13px] font-medium text-white/70">Email address</Label>
@@ -478,7 +486,7 @@ function LoginCard(p: LoginCardProps) {
                 boxShadow: '0 10px 28px rgba(37,99,235,0.35), 0 6px 20px rgba(34,211,238,0.25)',
               }}
             >
-              {p.loading ? 'Authenticating…' : 'Login'}
+             {p.loading ? 'Authenticating…' : 'Login'}
             </button>
 
             <div className="flex items-center gap-3 py-2">
@@ -519,7 +527,8 @@ function LoginCard(p: LoginCardProps) {
                 <Fingerprint size={18} className="text-[#A855F7]" /> Touch ID
               </button>
             </div>
-<div className="pt-3 text-center text-[14px] text-white/50">
+
+            <div className="pt-3 text-center text-[14px] text-white/50">
               Don't have an account?{' '}
               <button type="button" onClick={() => {
                 const tabsList = document.querySelector('[role="tablist"]');
@@ -541,7 +550,7 @@ function LoginCard(p: LoginCardProps) {
                 autoComplete="name"
                 placeholder="Your full name"
               />
-            </div>
+              </div>
             <div className="space-y-1.5">
               <Label className="text-[13px] font-medium text-white/70">Email address</Label>
               <Input
@@ -585,7 +594,7 @@ function LoginCard(p: LoginCardProps) {
                 onChange={e => p.setSchoolCode(e.target.value.toUpperCase())}
                 placeholder="EDU-XXXXXX"
               />
-               </div>
+            </div>
             <button
               type="submit"
               disabled={p.loading}

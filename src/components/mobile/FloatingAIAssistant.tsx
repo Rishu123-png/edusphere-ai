@@ -29,6 +29,7 @@ import {
 } from '@/lib/gemini'
 
 type Tab = 'chat' | 'voice' | 'discover'
+type Emotion = 'happy' | 'thinking' | 'listening' | 'speaking' | 'curious' | 'idle' | 'wink'
 
 const quickPrompts = [
   'Summarize today’s attendance',
@@ -97,13 +98,22 @@ export default function FloatingAIAssistant() {
   const recognitionRef = useRef<any>(null)
   const transcriptRef = useRef('')
   const voiceCanvasRef = useRef<HTMLCanvasElement>(null)
-  const orbCanvasRef = useRef<HTMLCanvasElement>(null)
   const speakingRef = useRef(false)
 
   // Discover / proactive
   const [whisper, setWhisper] = useState<string | null>(null)
   const [showWhisper, setShowWhisper] = useState(false)
   const [pupil, setPupil] = useState({ x: 0, y: 0 })
+  const [emotion, setEmotion] = useState<Emotion>('happy')
+  const [blinkNow, setBlinkNow] = useState(false)
+  const idleTimerRef = useRef<number | null>(null)
+  const emotionTimerRef = useRef<number | null>(null)
+
+  const setEmotionTemp = useCallback((e: Emotion, ms = 1400) => {
+    setEmotion(e)
+    if (emotionTimerRef.current) window.clearTimeout(emotionTimerRef.current)
+    emotionTimerRef.current = window.setTimeout(() => setEmotion('happy'), ms)
+  }, [])
 
   // ---- Live data subscriptions ---------------------------------------------
   useEffect(() => {
@@ -424,41 +434,6 @@ export default function FloatingAIAssistant() {
     return () => cancelAnimationFrame(raf)
   }, [isSpeaking, tab])
 
-  // ---- Orb sonar ripple (canvas) — throttled for performance ----------------
-  useEffect(() => {
-    const canvas = orbCanvasRef.current
-    if (!canvas) return
-    const ctx2d = canvas.getContext('2d')
-    if (!ctx2d) return
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    let raf = 0
-    let last = 0
-    const start = performance.now()
-    const FPS = 24
-    const draw = (now: number) => {
-      raf = requestAnimationFrame(draw)
-      if (now - last < 1000 / FPS) return
-      last = now
-      const w = (canvas.width = 96)
-      const h = (canvas.height = 96)
-      ctx2d.clearRect(0, 0, w, h)
-      const t = (now - start) / 1000
-      const rings = 3
-      for (let i = 0; i < rings; i++) {
-        const phase = (t * 0.5 + i / rings) % 1
-        const radius = 14 + phase * 34
-        const alpha = (1 - phase) * 0.5
-        ctx2d.beginPath()
-        ctx2d.arc(w / 2, h / 2, radius, 0, Math.PI * 2)
-        ctx2d.strokeStyle = `rgba(56,189,248,${alpha})`
-        ctx2d.lineWidth = 2
-        ctx2d.stroke()
-      }
-    }
-    raf = requestAnimationFrame(draw)
-    return () => cancelAnimationFrame(raf)
-  }, [])
-
   // ---- Eye tracking ("sees everything") ------------------------------------
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
@@ -472,10 +447,57 @@ export default function FloatingAIAssistant() {
       const dist = Math.hypot(dx, dy) || 1
       const max = 5
       setPupil({ x: (dx / dist) * max, y: (dy / dist) * max })
+      // Curious when pointer is near the orb
+      if (dist < 90) setEmotionTemp('curious', 900)
     }
+    const onLeave = () => setEmotion('happy')
     window.addEventListener('pointermove', onMove)
-    return () => window.removeEventListener('pointermove', onMove)
+    window.addEventListener('pointerleave', onLeave)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerleave', onLeave)
+    }
+  }, [setEmotionTemp])
+
+  // Occasional blink + idle emotion changes
+  useEffect(() => {
+    let active = true
+    const blink = () => {
+      if (!active) return
+      setBlinkNow(true)
+      window.setTimeout(() => { setBlinkNow(false); schedule() }, 60 + Math.random() * 80)
+    }
+    const schedule = () => {
+      const next = 2800 + Math.random() * 3800
+      idleTimerRef.current = window.setTimeout(blink, next)
+    }
+    schedule()
+    const idleEmotion = window.setInterval(() => {
+      if (!active) return
+      // When idle, flip through friendly micro-expressions
+      const moods: Emotion[] = ['happy', 'thinking', 'curious']
+      setEmotion(moods[Math.floor(Math.random() * moods.length)])
+    }, 7000)
+    return () => {
+      active = false
+      if (idleTimerRef.current) window.clearTimeout(idleTimerRef.current)
+      window.clearInterval(idleEmotion)
+      if (emotionTimerRef.current) window.clearTimeout(emotionTimerRef.current)
+    }
   }, [])
+
+  // React to AI speaking / listening / busy
+  useEffect(() => {
+    if (isSpeaking) setEmotion('speaking')
+    else if (isListening) setEmotion('listening')
+    else if (chatBusy) setEmotion('thinking')
+    else setEmotion('happy')
+  }, [isSpeaking, isListening, chatBusy])
+
+  // When chat opens, greet with a smile + tiny wink
+  useEffect(() => {
+    if (open) setEmotionTemp('wink', 900)
+  }, [open, setEmotionTemp])
 
   // ---- Whisper action (jump to relevant screen) -----------------------------
   const whisperTap = () => {
@@ -513,27 +535,114 @@ export default function FloatingAIAssistant() {
         </button>
       )}
 
-      {/* Floating moving orb */}
+      {/* Floating mascot orb — cute 3D neural face */}
       <button
         id="ai-orb"
         onClick={() => {
           setOpen((o) => !o)
           setShowWhisper(false)
+          setEmotionTemp('happy', 1200)
         }}
+        onMouseEnter={() => setEmotionTemp('curious', 1200)}
         aria-label="Open AI assistant"
-        className="ai-orb group fixed bottom-[96px] right-4 z-40 grid h-[60px] w-[60px] place-items-center rounded-full md:bottom-[28px]"
+        className="ai-orb group fixed bottom-[96px] right-4 z-40 grid h-[70px] w-[70px] place-items-center rounded-full md:bottom-[28px]"
       >
-        <canvas ref={orbCanvasRef} className="pointer-events-none absolute inset-[-18px] h-[96px] w-[96px]" aria-hidden="true" />
         <span className="ai-orb-aura" />
         <span className="ai-orb-ring" />
-        <span className="ai-orb-core grid h-[52px] w-[52px] place-items-center rounded-full bg-gradient-to-br from-cyan-400 via-indigo-500 to-fuchsia-500 text-white shadow-[0_10px_30px_rgba(99,102,241,.5)]">
-          <Brain size={24} className="drop-shadow" />
-          {/* Eyes that follow the teacher's pointer */}
-          <span className="pointer-events-none absolute flex gap-[6px]">
-            <span className="ai-eye" style={{ transform: `translate(${pupil.x}px, ${pupil.y}px)` }} />
-            <span className="ai-eye" style={{ transform: `translate(${pupil.x}px, ${pupil.y}px)` }} />
-          </span>
+        <span className="ai-orb-ring-2" />
+        <span className="ai-orb-satellite" />
+
+        <span className={`ai-orb-core emotion-${emotion}`}>
+          {/* Gold ear panels */}
+          <span className="ai-orb-ear left" />
+          <span className="ai-orb-ear right" />
+          {/* Lens flares beside ears */}
+          <span className="ai-orb-flare left"><span className="flare-h"/><span className="flare-v"/><span className="flare-star"/></span>
+          <span className="ai-orb-flare right"><span className="flare-h"/><span className="flare-v"/><span className="flare-star"/></span>
+
+          {/* SVG face */}
+          <svg className="ai-face" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <radialGradient id="aiIrisGrad" cx="40%" cy="40%" r="60%">
+                <stop offset="0%" stopColor="#67e8f9" />
+                <stop offset="55%" stopColor="#22d3ee" />
+                <stop offset="100%" stopColor="#4f46e5" />
+              </radialGradient>
+              <radialGradient id="aiCheek" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="rgba(244,114,182,0.55)" />
+                <stop offset="100%" stopColor="rgba(244,114,182,0)" />
+              </radialGradient>
+            </defs>
+
+            {/* Eyebrows — shape shifts per emotion */}
+            {(() => {
+              const brow = {
+                happy:   { l: 'M26,36 Q31,31 36,35', r: 'M64,35 Q69,31 74,36' },
+                thinking:{ l: 'M27,36 Q31,31 37,32', r: 'M63,33 Q69,31 73,37' },
+                curious: { l: 'M27,38 Q32,30 36,33', r: 'M64,33 Q69,31 73,35' },
+                listening:{l: 'M27,35 Q32,31 37,33', r: 'M63,33 Q68,31 73,35' },
+                speaking:{ l: 'M27,36 Q31,32 37,35', r: 'M63,35 Q69,32 73,36' },
+                idle:    { l: 'M27,36 Q32,33 36,36', r: 'M64,36 Q69,33 73,36' },
+                wink:    { l: 'M27,38 Q32,30 36,34', r: 'M63,33 Q69,31 73,38' },
+              }[emotion] || { l: 'M27,36 Q32,33 36,36', r: 'M64,36 Q69,33 73,36' }
+              return (
+                <>
+                  <path className="ai-brow left" d={brow.l} />
+                  <path className="ai-brow right" d={brow.r} />
+                </>
+              )
+            })()}
+
+            {/* Cheeks */}
+            <circle cx="26" cy="60" r="6" fill="url(#aiCheek)" />
+            <circle cx="74" cy="60" r="6" fill="url(#aiCheek)" />
+
+            {/* Left eye */}
+            <g className={`ai-eye-blink left ${blinkNow ? 'ai-blink-now' : ''}`} style={{ transformOrigin: '33px 49px' }}>
+              <ellipse className="ai-eye-sclera" cx="33" cy="49" rx="9" ry="10" />
+              <circle className="ai-eye-ring" cx="33" cy="49" r="8" />
+              <g style={{ transform: `translate(${pupil.x * 0.6}px, ${pupil.y * 0.6}px)` }}>
+                <circle className="ai-iris-inner" cx="33" cy="49" r="5.5" />
+                <circle className="ai-pupil" cx="33" cy="49" r="3.2" />
+                <circle className="ai-pupil-glow" cx="31.5" cy="47" r="1.4" />
+              </g>
+            </g>
+
+            {/* Right eye */}
+            <g className={`ai-eye-blink right ${blinkNow ? 'ai-blink-now' : ''}`} style={{ transformOrigin: '67px 49px' }}>
+              <ellipse className="ai-eye-sclera" cx="67" cy="49" rx="9" ry="10" />
+              <circle className="ai-eye-ring" cx="67" cy="49" r="8" />
+              {emotion === 'wink' ? (
+                <path d="M59,49 Q67,45 75,49" stroke="#0b0f1a" strokeWidth="2" fill="none" strokeLinecap="round" />
+              ) : (
+                <g style={{ transform: `translate(${pupil.x * 0.6}px, ${pupil.y * 0.6}px)` }}>
+                  <circle className="ai-iris-inner" cx="67" cy="49" r="5.5" />
+                  <circle className="ai-pupil" cx="67" cy="49" r="3.2" />
+                  <circle className="ai-pupil-glow" cx="65.5" cy="47" r="1.4" />
+                </g>
+              )}
+            </g>
+
+            {/* Nose (small glossy highlight) */}
+            <ellipse className="ai-nose" cx="50" cy="60" rx="3.5" ry="2.5" />
+
+            {/* Mouth — changes with emotion */}
+            {(() => {
+              const mouth = {
+                happy:   <path className="ai-mouth" d="M40,70 Q50,80 60,70" />,
+                thinking:<path className="ai-mouth" d="M42,72 Q50,68 58,72" />,
+                curious: <path className="ai-mouth" d="M42,72 Q50,78 58,72" />,
+                listening:<path className="ai-mouth" d="M44,72 Q50,74 56,72" />,
+                speaking:<ellipse className="ai-mouth-fill" cx="50" cy="73" rx="5" ry="3.5" />,
+                idle:    <path className="ai-mouth" d="M43,72 Q50,75 57,72" />,
+                wink:    <path className="ai-mouth" d="M40,70 Q48,78 55,68 Q52,75 60,72" />,
+              }[emotion] || <path className="ai-mouth" d="M40,70 Q50,78 60,70" />
+              return mouth
+            })()}
+          </svg>
         </span>
+
+        <span className="ai-orb-status" />
         {isSpeaking && <span className="ai-orb-sound">🔊</span>}
       </button>
 
@@ -543,8 +652,8 @@ export default function FloatingAIAssistant() {
           {/* Header */}
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <div className="flex items-center gap-2.5">
-              <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-cyan-400 to-fuchsia-500 text-white">
-                <Brain size={18} />
+              <span className="ai-mascot-header">
+                <span className="ai-mini-orb" />
               </span>
               <div>
                 <div className="text-[13px] font-bold text-white">EduSphere AI Assistant</div>
@@ -561,7 +670,6 @@ export default function FloatingAIAssistant() {
             </button>
           </div>
 
-          
           {/* Tabs */}
           <div className="flex gap-1 px-3 pt-3">
             {([
@@ -638,7 +746,7 @@ export default function FloatingAIAssistant() {
                   disabled={chatBusy}
                   className="grid h-11 w-11 place-items-center rounded-full bg-gradient-to-br from-cyan-500 to-fuchsia-500 text-white active:scale-95 disabled:opacity-50"
                 >
-                  <Send size={17} />
+                 <Send size={17} />
                 </button>
               </div>
             </div>

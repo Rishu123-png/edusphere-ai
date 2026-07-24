@@ -574,39 +574,56 @@
 /* ================================================================
    LOGIN / ONBOARDING GLASS
    ================================================================ */
-/* Full-page auth shells need to scroll themselves because html/body/#root
-   are locked with overflow:hidden by the app-shell layout. Override any
-   Tailwind overflow-hidden utility on these containers. */
+/* Full-page auth shells. They are rendered outside Layout so they
+   must size to 100dvh and provide their own scroll. No position:fixed
+   here — Framer Motion / anime.js wrappers apply CSS transforms which
+   trap fixed positioning and hide all content. */
 .login-shell,
 .onboarding-shell {
-  position: fixed !important;
-  inset: 0 !important;
-  width: 100% !important;
-  height: 100dvh !important;
-  height: -webkit-fill-available !important;
-  overflow-x: hidden !important;
+  position: relative;
+  width: 100%;
+  min-height: 100dvh;
+  min-height: -webkit-fill-available;
+  overflow-x: hidden;
   overflow-y: auto !important;
   -webkit-overflow-scrolling: touch !important;
   overscroll-behavior-y: contain !important;
-  padding-bottom: calc(20px + env(safe-area-inset-bottom)) !important;
-  /* Ensure scrolling works in every mobile browser */
   touch-action: pan-y;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  /* When an auth page mounts it becomes the #root scroll surface;
+     app-shell locks the root scroll so we temporarily release it. */
 }
-/* Inner wrapper on auth pages prevents min-height:100dvh flex sizing bugs */
+/* Inner wrapper that centers content vertically on desktop while
+   still letting content grow (and scroll) on mobile. */
 .login-shell > .login-inner,
 .onboarding-shell > .login-inner {
-  min-height: 100%;
+  position: relative;
+  width: 100%;
+  min-height: calc(100dvh - 20px - env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
-  align-items: stretch;
 }
-/* On desktop, vertically center the split login layout when content is shorter
-   than viewport; on mobile content flows naturally so it can scroll. */
 @media (min-width: 768px) {
   .login-shell > .login-inner {
-    min-height: 100%;
     justify-content: center;
+    padding-top: 24px;
+    padding-bottom: 24px;
   }
+  .onboarding-shell > .login-inner {
+    justify-content: flex-start;
+    padding-top: 24px;
+    padding-bottom: 40px;
+  }
+}
+/* Release #root/body overflow lock while auth pages are visible —
+   targeted via a body class set from the page components. */
+body.auth-page-open,
+body.auth-page-open html,
+body.auth-page-open > #root {
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  height: auto !important;
+  max-height: none !important;
 }
 @media (min-width: 768px) {
   .login-shell,
@@ -868,7 +885,6 @@
     transition-duration: .01ms !important;
   }
 }
-
 /* ================================================================
    GAUGE GLOW
    ================================================================ */

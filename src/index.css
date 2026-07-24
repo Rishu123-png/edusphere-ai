@@ -53,20 +53,21 @@
     scrollbar-width: none;
   }
   html, body, #root {
-    @apply antialiased overflow-hidden text-[var(--brand-text)];
+    @apply antialiased text-[var(--brand-text)];
     font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-feature-settings: "ss01","ss02","cv01","cv02";
     background: var(--brand-bg);
     width: 100%;
-    height: 100dvh;
-    height: -webkit-fill-available;
-    max-height: 100dvh;
+    min-height: 100dvh;
+    /* DO NOT lock overflow here — let pages that sit outside Layout
+       (Login/Onboarding) scroll the document naturally. The app-shell
+       (Layout) uses position:fixed + internal scroller instead. */
+    margin: 0;
   }
+  body { background: var(--brand-bg); }
   #root {
-    overscroll-behavior-y: contain;
     -webkit-overflow-scrolling: touch;
   }
-  html { background-color: var(--brand-bg); }
   :root {
     --sat: env(safe-area-inset-top);
     --sar: env(safe-area-inset-right);
@@ -363,11 +364,15 @@
    APP SHELL — Deep space aurora background
    ================================================================ */
 .app-shell {
-  min-height: 100dvh;
+  /* Fill the viewport as a self-contained scroll island — this way
+     Login/Onboarding (outside Layout) can scroll the document normally. */
+  position: fixed;
+  inset: 0;
+  width: 100vw;
   height: 100dvh;
+  height: -webkit-fill-available;
   isolation: isolate;
   background: var(--brand-bg);
-  position: relative;
   overflow: hidden;
 }
 .app-shell::before {
@@ -574,11 +579,8 @@
 /* ================================================================
    LOGIN / ONBOARDING GLASS
    ================================================================ */
-/* Full-page auth shells. They are rendered outside Layout so they
-   must size to at least 100dvh; scrolling happens on html/body/#root
-   (which are released via the html.auth-page-open rule below).
-   Do NOT put overflow:auto on these — nested scroll containers on
-   mobile Safari trap the gesture. */
+/* Auth pages are rendered OUTSIDE the fixed <Layout> (app-shell), so
+   they scroll the document naturally. No overflow tricks needed. */
 .login-shell,
 .onboarding-shell {
   position: relative;
@@ -586,46 +588,25 @@
   min-height: 100dvh;
   min-height: -webkit-fill-available;
   overflow-x: hidden;
-  overflow-y: visible;
-  padding-bottom: calc(40px + env(safe-area-inset-bottom));
-  touch-action: pan-y;
+  padding: 0 0 calc(48px + env(safe-area-inset-bottom)) 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
-/* Inner wrapper that centers content vertically on desktop while
-   still letting content grow naturally on mobile. */
 .login-shell > .login-inner,
 .onboarding-shell > .login-inner {
   position: relative;
   width: 100%;
-  min-height: calc(100dvh - 40px - env(safe-area-inset-bottom));
+  max-width: 1280px;
+  flex: 1 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 @media (min-width: 768px) {
-  .login-shell > .login-inner {
-    justify-content: center;
-    padding-top: 32px;
-    padding-bottom: 32px;
+  .login-shell, .onboarding-shell {
+    padding-bottom: 64px;
   }
-  .onboarding-shell > .login-inner {
-    justify-content: flex-start;
-    padding-top: 32px;
-    padding-bottom: 48px;
-  }
-}
-/* Release #root/body/html overflow lock while auth pages are visible —
-   targeted via an `auth-page-open` class that LoginPage/OnboardingPage
-   add to <html> on mount. */
-html.auth-page-open,
-html.auth-page-open body,
-html.auth-page-open #root {
-  overflow-y: auto !important;
-  overflow-x: hidden !important;
-  height: auto !important;
-  min-height: 100dvh !important;
-  max-height: none !important;
-  -webkit-overflow-scrolling: touch !important;
-  overscroll-behavior-y: contain !important;
 }
 @media (min-width: 768px) {
   .login-shell,
@@ -681,7 +662,6 @@ html.auth-page-open #root {
 .onboarding-progress {
   filter: drop-shadow(0 16px 36px rgba(0,0,0,.25));
 }
-
 
 /* ================================================================
    ANIMATIONS
@@ -848,7 +828,6 @@ html.auth-page-open #root {
   font-size: 13px;
   animation: ai-bounce 1.1s ease-in-out infinite;
 }
-
 .ai-whisper { animation: ai-pop 0.3s ease-out both; }
 .ai-panel {
   background:
@@ -888,6 +867,7 @@ html.auth-page-open #root {
     transition-duration: .01ms !important;
   }
 }
+
 /* ================================================================
    GAUGE GLOW
    ================================================================ */
@@ -901,18 +881,7 @@ html.auth-page-open #root {
   50% { border-color: rgba(168,85,247,0.35); }
 }
 
-/* Smaller orbit variants for the desktop-sized neural E */
-@keyframes orbit-orb-sm {
-  from { transform: rotate(0deg) translateX(56px) rotate(0deg); }
-  to   { transform: rotate(360deg) translateX(56px) rotate(-360deg); }
-}
-@keyframes orbit-orb-sm-rev {
-  from { transform: rotate(180deg) translateX(46px) rotate(-180deg); }
-  to   { transform: rotate(-180deg) translateX(46px) rotate(180deg); }
-}
-.desktop-neural-e .orbit-node-1 { animation-name: orbit-orb-sm !important; }
-.desktop-neural-e .orbit-node-2 { animation-name: orbit-orb-sm-rev !important; }
-.desktop-neural-e .orbit-node-trail { animation-name: orbit-orb-sm, orbit-orb-trail !important; }
+
 .neon-border { animation: neon-border 4s ease-in-out infinite; }
 
 /* Student card hover effect */

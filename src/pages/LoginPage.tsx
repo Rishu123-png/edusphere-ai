@@ -73,7 +73,7 @@ export default function LoginPage() {
 
   return (
     <div
-      className="login-shell relative flex min-h-[100dvh] w-full flex-col items-center overflow-hidden overflow-y-auto text-white"
+      className="login-shell relative w-full text-white"
       style={{
         background:
           'radial-gradient(ellipse 80% 40% at 20% 10%, rgba(34,211,238,0.18), transparent 55%),' +
@@ -83,7 +83,7 @@ export default function LoginPage() {
       }}
     >
       {/* Stars / particle field */}
-      <div className="pointer-events-none absolute inset-0">
+      <div className="pointer-events-none absolute inset-0 z-0">
         {Array.from({ length: 50 }).map((_, i) => (
           <span
             key={i}
@@ -106,26 +106,74 @@ export default function LoginPage() {
           to { opacity: 0.7; transform: scale(1.1); }
         }
         @keyframes neural-pulse {
-          0%, 100% { opacity: 0.6; transform: scale(1); }
+          0%, 100% { opacity: 0.75; transform: scale(1); }
           50% { opacity: 1; transform: scale(1.04); }
         }
         @keyframes orbit-ring {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
+        @keyframes orbit-orb {
+          from { transform: rotate(0deg) translateX(74px) rotate(0deg); }
+          to { transform: rotate(360deg) translateX(74px) rotate(-360deg); }
+        }
+        @keyframes orbit-orb-rev {
+          from { transform: rotate(180deg) translateX(58px) rotate(-180deg); }
+          to { transform: rotate(-180deg) translateX(58px) rotate(180deg); }
+        }
+        @keyframes orbit-orb-trail {
+          0%, 100% { opacity: 0.3; }
+          50% { opacity: 0.9; }
+        }
         .neural-logo { animation: neural-pulse 3.8s ease-in-out infinite; }
         .orbit-ring { animation: orbit-ring 22s linear infinite; }
         .orbit-ring-rev { animation: orbit-ring 30s linear infinite reverse; }
+        /* Orbiting nodes circling the neural E */
+        .orbit-node-1 {
+          position: absolute;
+          top: 50%; left: 50%;
+          width: 12px; height: 12px;
+          margin: -6px 0 0 -6px;
+          border-radius: 999px;
+          background: radial-gradient(circle, #fff 0%, #67e8f9 35%, rgba(34,211,238,0) 70%);
+          box-shadow: 0 0 16px 4px rgba(34,211,238,0.55), 0 0 32px 8px rgba(34,211,238,0.25);
+          animation: orbit-orb 6s linear infinite;
+          pointer-events: none;
+        }
+        .orbit-node-2 {
+          position: absolute;
+          top: 50%; left: 50%;
+          width: 8px; height: 8px;
+          margin: -4px 0 0 -4px;
+          border-radius: 999px;
+          background: radial-gradient(circle, #fff 0%, #c4b5fd 35%, rgba(168,85,247,0) 70%);
+          box-shadow: 0 0 12px 3px rgba(168,85,247,0.55), 0 0 24px 6px rgba(168,85,247,0.25);
+          animation: orbit-orb-rev 9s linear infinite;
+          pointer-events: none;
+        }
+        .orbit-node-trail {
+          position: absolute;
+          top: 50%; left: 50%;
+          width: 22px; height: 22px;
+          margin: -11px 0 0 -11px;
+          border-radius: 999px;
+          background: radial-gradient(circle, rgba(255,255,255,0.5), rgba(34,211,238,0.15) 50%, transparent 70%);
+          filter: blur(3px);
+          animation: orbit-orb 6s linear infinite, orbit-orb-trail 2s ease-in-out infinite;
+          pointer-events: none;
+        }
       `}</style>
 
+      <div className="login-inner relative z-10 mx-auto w-full max-w-7xl px-0">
+
       {/* ====== MOBILE / SHARED: Brand (top) ====== */}
-      <div className="relative z-10 flex w-full max-w-[480px] flex-col items-center px-5 pt-[max(1.25rem,env(safe-area-inset-top))] md:hidden">
+      <div className="relative z-10 mx-auto flex w-full max-w-[480px] flex-col items-center px-5 pt-[max(1.25rem,env(safe-area-inset-top))] md:hidden">
         {/* Neural "E" logo */}
         <motion.div
           initial={{ opacity: 0, y: -16, scale: 0.9 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ type: 'spring', stiffness: 160, damping: 18 }}
-          className="neural-logo relative mt-6 grid h-[132px] w-[132px] place-items-center"
+          className="neural-logo relative mt-6 grid h-[160px] w-[160px] place-items-center"
         >
           <div className="orbit-ring absolute inset-[-6px] rounded-full border border-cyan-400/20" />
           <div className="orbit-ring-rev absolute inset-[-16px] rounded-full border border-violet-400/15" />
@@ -136,6 +184,10 @@ export default function LoginPage() {
               filter: 'blur(12px)',
             }}
           />
+          {/* Orbiting orbs (the glowing dots that travel around the E) */}
+          <span className="orbit-node-trail" aria-hidden="true" />
+          <span className="orbit-node-1" aria-hidden="true" />
+          <span className="orbit-node-2" aria-hidden="true" />
           {/* Simplified neural net sphere */}
           <svg viewBox="0 0 120 120" className="relative h-full w-full">
             <defs>
@@ -218,7 +270,7 @@ export default function LoginPage() {
       </div>
 
       {/* ====== DESKTOP SPLIT: Hidden on mobile ====== */}
-      <div className="relative z-10 hidden w-full max-w-7xl flex-1 items-stretch md:grid md:grid-cols-[.9fr_1.1fr] md:gap-8 md:px-10 md:py-10 lg:px-16">
+      <div className="relative z-10 hidden w-full flex-1 min-h-0 items-stretch md:grid md:grid-cols-[.9fr_1.1fr] md:gap-8 md:px-10 md:py-10 lg:px-16">
         <section className="flex min-h-0 flex-col justify-center">
           <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -239,8 +291,13 @@ export default function LoginPage() {
           </motion.div>
 
           <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }} className="mt-10">
-            <div className="mx-auto grid h-28 w-28 place-items-center rounded-[28px]" style={{ background: 'linear-gradient(135deg, rgba(79,70,229,0.25), rgba(34,211,238,0.18))' }}>
-              <span className="text-[54px] font-black text-white" style={{ filter: 'drop-shadow(0 0 18px rgba(34,211,238,0.55))' }}>E</span>
+            <div className="neural-logo desktop-neural-e relative mx-auto grid h-32 w-32 place-items-center rounded-[28px]" style={{ background: 'linear-gradient(135deg, rgba(79,70,229,0.25), rgba(34,211,238,0.18))' }}>
+              <div className="orbit-ring absolute inset-[-8px] rounded-full border border-cyan-400/20" />
+              <div className="orbit-ring-rev absolute inset-[-18px] rounded-full border border-violet-400/15" />
+              <span className="orbit-node-trail" aria-hidden="true" />
+              <span className="orbit-node-1" aria-hidden="true" />
+              <span className="orbit-node-2" aria-hidden="true" />
+              <span className="relative z-[1] text-[54px] font-black text-white" style={{ filter: 'drop-shadow(0 0 18px rgba(34,211,238,0.55))' }}>E</span>
             </div>
             <p className="mt-6 text-[10px] font-bold uppercase tracking-[.22em] text-[#22D3EE]/80">Intelligence for every classroom</p>
             <h1 className="mt-2 max-w-[480px] text-[52px] font-black leading-[0.96] tracking-[-.05em]">
@@ -290,13 +347,14 @@ export default function LoginPage() {
         />
       </div>
 
-      {/* Bottom shield + horizon for mobile */}
-      <div className="relative z-0 mt-[-30px] hidden h-[80px] w-full items-end justify-center pb-4 md:flex">
+      {/* Bottom shield + horizon */}
+      <div className="relative z-0 mt-2 flex h-[60px] w-full items-end justify-center pb-4">
         <div className="flex items-center gap-2 text-[10px] uppercase tracking-[.18em] text-white/25">
           <ShieldCheck size={14} style={{ color: 'rgba(34,197,94,0.6)' }} />
           Encrypted • Role-based • Firebase secured
         </div>
       </div>
+      </div>{/* /.login-inner */}
     </div>
   )
 }
@@ -354,7 +412,7 @@ function LoginCard(p: LoginCardProps) {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="login">
+               <TabsContent value="login">
           <form onSubmit={p.handleLogin} className="space-y-4">
             <div className="space-y-1.5">
               <Label className="text-[13px] font-medium text-white/70">Email address</Label>
@@ -461,8 +519,7 @@ function LoginCard(p: LoginCardProps) {
                 <Fingerprint size={18} className="text-[#A855F7]" /> Touch ID
               </button>
             </div>
-
-            <div className="pt-3 text-center text-[14px] text-white/50">
+<div className="pt-3 text-center text-[14px] text-white/50">
               Don't have an account?{' '}
               <button type="button" onClick={() => {
                 const tabsList = document.querySelector('[role="tablist"]');
@@ -471,7 +528,7 @@ function LoginCard(p: LoginCardProps) {
             </div>
           </form>
         </TabsContent>
-        
+
         <TabsContent value="signup">
           <form onSubmit={p.handleSignup} className="space-y-4">
             <div className="space-y-1.5">
@@ -528,7 +585,7 @@ function LoginCard(p: LoginCardProps) {
                 onChange={e => p.setSchoolCode(e.target.value.toUpperCase())}
                 placeholder="EDU-XXXXXX"
               />
-            </div>
+               </div>
             <button
               type="submit"
               disabled={p.loading}
@@ -546,6 +603,7 @@ function LoginCard(p: LoginCardProps) {
           </form>
         </TabsContent>
       </Tabs>
+
       {p.user && !p.user.emailVerified && (
         <div className="mt-5 flex items-center justify-between gap-2 rounded-2xl p-3 text-[11px]"
           style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', color: '#F59E0B' }}>

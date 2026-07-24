@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSchool } from '@/contexts/SchoolContext'
 import PageHeader from '@/components/mobile/PageHeader'
-import { Moon, Sun, Monitor, School, Bell, User, Palette, ShieldCheck, Mail, Phone, Sparkles } from 'lucide-react'
+import { Moon, School, Bell, User, Palette, ShieldCheck, Mail, Phone, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 import { getFriendlyError } from '@/lib/errors'
 import { db } from '@/lib/firebase'
@@ -61,50 +61,26 @@ export default function SettingsPage(){
   const assigned = Array.isArray(profile?.assignedClasses) ? profile.assignedClasses.join(', ') : ''
   const subjects = Array.isArray(profile?.subjects) ? profile.subjects.join(', ') : ''
 
-  const activeThemeLabel = useMemo(() => {
-    if (theme === 'system') return `System (${resolvedTheme})`
-    return resolvedTheme === 'dark' ? 'Dark' : 'Light'
-  }, [theme, resolvedTheme])
-
-  const themeCards = [
-    {
-      value: 'light' as const,
-      label: 'Light',
-      icon: Sun,
-      preview: 'bg-[linear-gradient(180deg,#ffffff,#eef2ff)] border-slate-200 text-slate-700',
-      accent: 'from-amber-400 to-orange-500',
-    },
-    {
-      value: 'dark' as const,
-      label: 'Dark',
-      icon: Moon,
-      preview: 'bg-[linear-gradient(180deg,#111827,#020617)] border-zinc-700 text-white',
-      accent: 'from-cyan-400 to-violet-500',
-    },
-    {
-      value: 'system' as const,
-      label: 'System',
-      icon: Monitor,
-      preview: 'bg-[linear-gradient(120deg,#ffffff_0%,#ffffff_48%,#0f172a_48%,#020617_100%)] border-slate-200 text-slate-700',
-      accent: 'from-emerald-400 to-cyan-500',
-    },
-  ]
+  // NOTE: EduSphere ships with a single deep-space dark theme (see ThemeContext).
+  // The theme card is shown as "Dark (Deep Space)" with a friendly note, so users
+  // don't expect a light toggle that would break the hard-coded glass surfaces.
+  const activeThemeLabel = 'Deep-space Dark'
 
   return <div className="page-container space-y-4 pb-12">
     <PageHeader title="Settings" subtitle="Theme • School • Notifications • Account" />
 
-    <Card className="overflow-hidden rounded-[28px] border border-cyan-200/60 dark:border-cyan-900/30 bg-gradient-to-br from-white to-cyan-50/70 dark:from-zinc-900 dark:to-cyan-950/10">
+    <Card className="overflow-hidden rounded-[28px] border border-white/10 bg-gradient-to-br from-violet-500/15 via-indigo-500/10 to-cyan-500/15 text-white">
       <CardContent className="p-5 md:p-6 flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
         <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-[10px] font-black uppercase tracking-[.18em] text-cyan-700 dark:text-cyan-300">
+          <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 text-[10px] font-black uppercase tracking-[.18em] text-cyan-200">
             <Palette size={13} /> Active theme
           </div>
-          <h2 className="mt-3 text-[24px] font-black tracking-tight">{activeThemeLabel}</h2>
-          <p className="mt-1 text-[13px] text-muted-foreground max-w-xl">The shell, cards, navigation and support surfaces now use smoother glass layers for both light and dark mode on mobile.</p>
+          <h2 className="mt-3 text-[24px] font-black tracking-tight text-white">{activeThemeLabel}</h2>
+          <p className="mt-1 text-[13px] text-white/70 max-w-xl">EduSphere uses a premium deep-space glass theme tuned for classrooms and low-light mobile use. Light mode is intentionally disabled so cards, charts and the AI mascot render consistently for every teacher, student and parent.</p>
         </div>
-        <Button variant="gradient" size="sm" className="rounded-full h-11 px-5 self-start md:self-auto" onClick={toggle}>
-          Switch to {resolvedTheme === 'dark' ? 'Light' : 'Dark'}
-        </Button>
+        <div className="grid h-11 place-items-center rounded-full border border-white/15 bg-white/5 px-5 text-[12px] font-semibold text-white/80 self-start md:self-auto">
+          <Moon size={14} className="mr-2" /> Dark • Always
+        </div>
       </CardContent>
     </Card>
 
@@ -112,42 +88,30 @@ export default function SettingsPage(){
       <Card className="rounded-[26px]">
         <CardTitle className="flex items-center gap-2"><Moon size={18}/> Theme</CardTitle>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-3">
-            {themeCards.map(card => {
-              const Icon = card.icon
-              const selected = theme === card.value
-              return (
-                <button
-                  key={card.value}
-                  onClick={() => setTheme(card.value)}
-                  className={`rounded-[22px] border p-3 text-left transition-all active:scale-[0.98] ${selected ? 'border-indigo-500 shadow-[0_14px_34px_rgba(79,70,229,.18)]' : 'border-slate-200 dark:border-zinc-800 hover:border-indigo-300 dark:hover:border-indigo-700'}`}
-                >
-                  <div className={`relative h-24 overflow-hidden rounded-2xl border ${card.preview}`}>
-                    <div className={`absolute left-3 top-3 grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br ${card.accent} text-white shadow`}>
-                      <Icon size={16} />
-                    </div>
-                    <div className="absolute inset-x-3 bottom-3 space-y-2">
-                      <div className="h-2 rounded-full bg-white/80 dark:bg-white/10" />
-                      <div className="grid grid-cols-3 gap-1.5">
-                        <div className="h-8 rounded-xl bg-white/85 dark:bg-white/8" />
-                        <div className="h-8 rounded-xl bg-white/70 dark:bg-white/12" />
-                        <div className="h-8 rounded-xl bg-white/65 dark:bg-white/6" />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex items-center justify-between">
-                    <div>
-                      <div className="font-bold text-[14px]">{card.label}</div>
-                      <div className="text-[11px] text-muted-foreground">{card.value === 'system' ? 'Follow device preference' : `${card.label} interface`}</div>
-                    </div>
-                    {selected && <span className="rounded-full bg-indigo-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-300">Selected</span>}
-                  </div>
-                </button>
-              )
-            })}
+          <div className="rounded-[22px] border p-4 border-indigo-500/30 bg-gradient-to-br from-indigo-500/10 to-fuchsia-500/10">
+            <div className="relative h-28 overflow-hidden rounded-2xl border border-white/10 bg-[linear-gradient(180deg,#111827,#020617)]">
+              <div className="absolute left-3 top-3 grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-cyan-400 to-violet-500 text-white shadow">
+                <Moon size={16} />
+              </div>
+              <div className="absolute inset-x-3 bottom-3 space-y-2">
+                <div className="h-2 rounded-full bg-white/15" />
+                <div className="grid grid-cols-3 gap-1.5">
+                  <div className="h-8 rounded-xl bg-white/10" />
+                  <div className="h-8 rounded-xl bg-white/12" />
+                  <div className="h-8 rounded-xl bg-white/8" />
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 flex items-center justify-between">
+              <div>
+                <div className="font-bold text-[14px] text-white">Deep-space Dark</div>
+                <div className="text-[11px] text-white/50">Signature glass look • OLED-friendly • default</div>
+              </div>
+              <span className="rounded-full bg-cyan-400/15 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-cyan-200 border border-cyan-400/30">Active</span>
+            </div>
           </div>
-          <div className="rounded-2xl border border-slate-200/80 dark:border-zinc-800 bg-slate-50/90 dark:bg-zinc-900/70 p-3 text-[12px] text-muted-foreground">
-            Smooth mode improvements applied: softer contrast in white mode, improved glass surfaces in dark mode, and better mobile-safe spacing for bottom navigation.
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-[12px] text-white/60">
+            Light / System themes are hidden because every screen (Marks, Attendance, Dashboard, AI, Parent portal) is authored against the dark palette. Switching themes would cause white-on-white cards and unreadable charts. You still get smooth theme animations when the app boots and when the AI mascot reacts.
           </div>
         </CardContent>
       </Card>

@@ -16,60 +16,38 @@ function getSystemTheme(): ResolvedTheme {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    try {
-      if (typeof window === 'undefined') return 'system'
-      const saved = localStorage.getItem('edusphere-theme') as Theme | null
-      // The premium mobile experience is designed dark-first; users can still
-      // choose Light or System at any time from Settings.
-      return saved === 'light' || saved === 'dark' || saved === 'system' ? saved : 'dark'
-    } catch {
-      return 'dark'
-    }
-  })
-  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() => getSystemTheme())
-
-  const resolvedTheme = theme === 'system' ? systemTheme : theme
+  // EduSphere AI ships with a single premium deep-space dark theme. The
+  // ThemeContext is kept for API compatibility (other components call
+  // useTheme()), but user-selectable Light/System themes are disabled
+  // because most screens use hard-coded deep-space glass styles that are
+  // not designed for light backgrounds. This prevents the white-on-white
+  // / dark-on-dark breakage users saw when flipping to Light mode.
+  const theme: Theme = 'dark'
+  const resolvedTheme: ResolvedTheme = 'dark'
 
   useEffect(() => {
     try {
       if (typeof document === 'undefined') return
       const root = document.documentElement
-      root.classList.remove('light', 'dark')
-      root.classList.add(resolvedTheme)
-      root.style.colorScheme = resolvedTheme
-      localStorage.setItem('edusphere-theme', theme)
-
-      /* PWA POLISH: keep the Android/browser chrome bar in sync with the
-         resolved theme instead of the stale purple/dark from index.html. */
-      const themeColor = resolvedTheme === 'dark' ? '#0b0f1a' : '#ffffff'
+      root.classList.remove('light')
+      root.classList.add('dark')
+      root.style.colorScheme = 'dark'
+      try { localStorage.setItem('edusphere-theme', 'dark') } catch { /* private mode */ }
+      const themeColor = '#0b0f1a'
       document.querySelectorAll('meta[name="theme-color"]').forEach(meta => {
         meta.setAttribute('content', themeColor)
       })
-
-      /* Mark the document once, enabling the `.42s` easing between themes
-         (defined in index.css) without touching first paint. */
       root.classList.add('theme-ready')
     } catch {
-      // Storage can be unavailable in private/embedded browsers; theme still works in memory.
+      // ignore
     }
-  }, [theme, resolvedTheme])
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const handler = () => setSystemTheme(mq.matches ? 'dark' : 'light')
-    handler()
-    mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
   }, [])
 
-  const setTheme = useCallback((t: Theme) => setThemeState(t), [])
+  const setTheme = useCallback((_t: Theme) => {
+    // no-op: dark only
+  }, [])
   const toggle = useCallback(() => {
-    setThemeState(prev => {
-      const current = prev === 'system' ? getSystemTheme() : prev
-      return current === 'dark' ? 'light' : 'dark'
-    })
+    // no-op: dark only
   }, [])
 
   return (

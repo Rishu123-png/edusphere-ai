@@ -135,6 +135,10 @@ export default function FloatingAIAssistant() {
 
   const stats = useMemo(() => {
     const total = students.length
+    // todayRecords only contains students who actually have an attendance
+    // record for today. Don't assume everyone else is absent — only count
+    // records whose status is explicitly set.
+    const marked = todayRecords.length
     const present = todayRecords.filter((r: any) => ['present', 'late'].includes(r.status)).length
     const absent = todayRecords.filter((r: any) => r.status === 'absent').length
     const late = todayRecords.filter((r: any) => r.status === 'late').length
@@ -154,12 +158,15 @@ export default function FloatingAIAssistant() {
       }
     }
 
-    const pct = total ? Math.round((present / total) * 1000) / 10 : 0
+    // Only report a percentage when attendance has actually been taken for
+    // at least one student today. Otherwise leave undefined so the assistant
+    // doesn't falsely claim "0% attendance".
+    const pct = total && marked > 0 ? Math.round((present / total) * 1000) / 10 : undefined
     return {
       total,
-      present,
-      absent,
-      late,
+      present: marked > 0 ? present : undefined,
+      absent: marked > 0 ? absent : undefined,
+      late: marked > 0 ? late : undefined,
       attendancePct: pct,
       lowAttendanceStudent: lowestStudent ? lowestStudent.name : null,
     }
@@ -554,6 +561,7 @@ export default function FloatingAIAssistant() {
             </button>
           </div>
 
+          
           {/* Tabs */}
           <div className="flex gap-1 px-3 pt-3">
             {([
@@ -686,20 +694,26 @@ export default function FloatingAIAssistant() {
                 <div className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-cyan-300">
                   <Sparkles size={12} /> Live snapshot
                 </div>
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <div>
-                    <div className="text-[20px] font-black text-white">{stats.present}</div>
-                    <div className="text-[10px] text-slate-400">Present</div>
+                {typeof stats.attendancePct === 'number' ? (
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div>
+                      <div className="text-[20px] font-black text-white">{stats.present ?? 0}</div>
+                      <div className="text-[10px] text-slate-400">Present</div>
+                    </div>
+                    <div>
+                      <div className="text-[20px] font-black text-white">{stats.absent ?? 0}</div>
+                      <div className="text-[10px] text-slate-400">Absent</div>
+                    </div>
+                    <div>
+                      <div className="text-[20px] font-black text-white">{stats.attendancePct}%</div>
+                      <div className="text-[10px] text-slate-400">Rate</div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-[20px] font-black text-white">{stats.absent}</div>
-                    <div className="text-[10px] text-slate-400">Absent</div>
-                  </div>
-                  <div>
-                    <div className="text-[20px] font-black text-white">{stats.attendancePct}%</div>
-                    <div className="text-[10px] text-slate-400">Rate</div>
-                  </div>
-                </div>
+                ) : (
+                  <p className="text-[11px] leading-relaxed text-slate-400">
+                    No attendance marked yet today. Open the Attendance screen and start a class — I'll show live numbers here as you mark students.
+                  </p>
+                )}
               </div>
 
               <button
@@ -730,7 +744,7 @@ export default function FloatingAIAssistant() {
                 }}
                 className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[.03] px-4 py-3 text-left active:scale-[.98]"
               >
-               <span className="flex items-center gap-2 text-[13px] font-semibold text-white">
+                <span className="flex items-center gap-2 text-[13px] font-semibold text-white">
                   <Lightbulb size={17} className="text-amber-300" /> What needs my attention?
                 </span>
                 <ChevronRight size={16} className="text-slate-500" />

@@ -35,7 +35,20 @@ ReactDOM.createRoot(root).render(
             <AuthProvider>
               <SchoolProvider>
                 <App />
-                <Toaster richColors position="top-right" />
+                <Toaster
+                  richColors
+                  position={typeof window !== 'undefined' && window.innerWidth < 768 ? 'top-center' : 'top-right'}
+                  toastOptions={{
+                    style: {
+                      borderRadius: '16px',
+                      fontSize: '13px',
+                      background: 'rgba(12,17,37,0.96)',
+                      color: '#fff',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      backdropFilter: 'blur(12px)',
+                    },
+                  }}
+                />
               </SchoolProvider>
             </AuthProvider>
           </ThemeProvider>

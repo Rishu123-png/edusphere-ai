@@ -30,19 +30,8 @@ export default function LoginPage() {
     if (code) setSchoolCode(code)
   }, [searchParams])
 
-  // Auth pages live outside <Layout> but the global CSS locks
-  // html/body/#root to overflow:hidden for the app-shell. Release
-  // that lock while this page is mounted so the page can scroll.
   useEffect(() => {
-    const root = document.documentElement
-    root.classList.add('auth-page-open')
-    // Reset scroll position to top when entering
     window.scrollTo(0, 0)
-    return () => {
-      root.classList.remove('auth-page-open')
-      // also defensively remove from body in case a previous build left it
-      document.body.classList.remove('auth-page-open')
-    }
   }, [])
 
   if (user && !authLoading) {
@@ -120,126 +109,162 @@ export default function LoginPage() {
           from { opacity: 0.1; transform: scale(0.9); }
           to { opacity: 0.7; transform: scale(1.1); }
         }
-        @keyframes neural-pulse {
-          0%, 100% { opacity: 0.75; transform: scale(1); }
-          50% { opacity: 1; transform: scale(1.04); }
-        }
-        @keyframes orbit-ring {
+        @keyframes globe-rotate {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
-        @keyframes orbit-orb {
-          from { transform: rotate(0deg) translateX(74px) rotate(0deg); }
-          to { transform: rotate(360deg) translateX(74px) rotate(-360deg); }
+        @keyframes globe-rotate-rev {
+          from { transform: rotate(360deg); }
+          to { transform: rotate(0deg); }
         }
-        @keyframes orbit-orb-rev {
-          from { transform: rotate(180deg) translateX(58px) rotate(-180deg); }
-          to { transform: rotate(-180deg) translateX(58px) rotate(180deg); }
+        @keyframes globe-pulse {
+          0%, 100% { opacity: 0.85; transform: scale(1); }
+          50% { opacity: 1; transform: scale(1.03); }
         }
-        @keyframes orbit-orb-trail {
-          0%, 100% { opacity: 0.3; }
-          50% { opacity: 0.9; }
+        @keyframes satellite-orbit {
+          from { transform: rotate(0deg) translateX(92px) rotate(0deg); }
+          to   { transform: rotate(360deg) translateX(92px) rotate(-360deg); }
         }
-        .neural-logo { animation: neural-pulse 3.8s ease-in-out infinite; }
-        .orbit-ring { animation: orbit-ring 22s linear infinite; }
-        .orbit-ring-rev { animation: orbit-ring 30s linear infinite reverse; }
-        /* Orbiting nodes circling the neural E */
-        .orbit-node-1 {
+        @keyframes satellite-pulse {
+          0%, 100% { opacity: 0.65; box-shadow: 0 0 14px 3px rgba(34,211,238,0.55), 0 0 28px 6px rgba(34,211,238,0.25); }
+          50%      { opacity: 1;    box-shadow: 0 0 22px 5px rgba(34,211,238,0.85), 0 0 44px 10px rgba(34,211,238,0.45); }
+        }
+        /* The glowing globe with E inside — breathes gently */
+        .neural-globe {
+          position: relative;
+          animation: globe-pulse 4s ease-in-out infinite;
+        }
+        /* The outer orbital ring rotates slowly like a planet ring */
+        .neural-ring {
           position: absolute;
-          top: 50%; left: 50%;
-          width: 12px; height: 12px;
-          margin: -6px 0 0 -6px;
-          border-radius: 999px;
-          background: radial-gradient(circle, #fff 0%, #67e8f9 35%, rgba(34,211,238,0) 70%);
-          box-shadow: 0 0 16px 4px rgba(34,211,238,0.55), 0 0 32px 8px rgba(34,211,238,0.25);
-          animation: orbit-orb 6s linear infinite;
+          inset: -18px;
+          border-radius: 50%;
+          border: 1.5px solid rgba(34,211,238,0.35);
+          border-top-color: rgba(34,211,238,0.9);
+          border-right-color: rgba(168,85,247,0.6);
+          box-shadow: 0 0 22px rgba(34,211,238,0.25), inset 0 0 18px rgba(34,211,238,0.12);
+          transform: rotateX(68deg);
+          animation: globe-rotate 14s linear infinite;
           pointer-events: none;
         }
-        .orbit-node-2 {
+        .neural-ring-2 {
           position: absolute;
-          top: 50%; left: 50%;
-          width: 8px; height: 8px;
-          margin: -4px 0 0 -4px;
-          border-radius: 999px;
-          background: radial-gradient(circle, #fff 0%, #c4b5fd 35%, rgba(168,85,247,0) 70%);
-          box-shadow: 0 0 12px 3px rgba(168,85,247,0.55), 0 0 24px 6px rgba(168,85,247,0.25);
-          animation: orbit-orb-rev 9s linear infinite;
+          inset: -30px;
+          border-radius: 50%;
+          border: 1px dashed rgba(168,85,247,0.28);
+          transform: rotateX(68deg) rotateY(35deg);
+          animation: globe-rotate-rev 24s linear infinite;
           pointer-events: none;
         }
-        .orbit-node-trail {
-          position: absolute;
-          top: 50%; left: 50%;
-          width: 22px; height: 22px;
-          margin: -11px 0 0 -11px;
-          border-radius: 999px;
-          background: radial-gradient(circle, rgba(255,255,255,0.5), rgba(34,211,238,0.15) 50%, transparent 70%);
-          filter: blur(3px);
-          animation: orbit-orb 6s linear infinite, orbit-orb-trail 2s ease-in-out infinite;
-          pointer-events: none;
+        /* Inner sphere longitude/latitude lines spin slowly to feel like a globe */
+        .neural-sphere-svg {
+          animation: globe-rotate 32s linear infinite;
+          transform-origin: center;
         }
+        /* Single satellite dot that orbits the globe — Earth-like revolution */
+        .neural-satellite {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          width: 14px;
+          height: 14px;
+          margin: -7px 0 0 -7px;
+          border-radius: 999px;
+          background: radial-gradient(circle at 35% 35%, #fff 0%, #a5f3fc 30%, #22D3EE 60%, rgba(34,211,238,0) 80%);
+          animation: satellite-orbit 7s linear infinite, satellite-pulse 2.2s ease-in-out infinite;
+          pointer-events: none;
+          z-index: 3;
+        }
+        .neural-satellite::after {
+          content: '';
+          position: absolute;
+          inset: -6px;
+          border-radius: 999px;
+          background: radial-gradient(circle, rgba(34,211,238,0.45), transparent 65%);
+          filter: blur(2px);
+        }
+        /* Desktop-sized globe (smaller) uses a tighter orbit radius */
+        .neural-globe.desktop .neural-satellite {
+          width: 10px;
+          height: 10px;
+          margin: -5px 0 0 -5px;
+          animation-name: satellite-orbit-sm, satellite-pulse;
+          animation-duration: 8s, 2.2s;
+          animation-timing-function: linear, ease-in-out;
+          animation-iteration-count: infinite, infinite;
+        }
+        @keyframes satellite-orbit-sm {
+          from { transform: rotate(0deg) translateX(68px) rotate(0deg); }
+          to   { transform: rotate(360deg) translateX(68px) rotate(-360deg); }
+        }
+        .neural-globe.desktop .neural-ring { inset: -12px; }
+        .neural-globe.desktop .neural-ring-2 { inset: -20px; }
       `}</style>
 
-      <div className="login-inner relative z-10 mx-auto w-full max-w-7xl px-0">
+      <div className="login-inner relative z-10 w-full px-0">
 
       {/* ====== MOBILE / SHARED: Brand (top) ====== */}
       <div className="relative z-10 mx-auto flex w-full max-w-[480px] flex-col items-center px-5 pt-[max(1.25rem,env(safe-area-inset-top))] md:hidden">
-        {/* Neural "E" logo */}
+        {/* Neural globe with E inside + orbiting satellite */}
         <motion.div
           initial={{ opacity: 0, y: -16, scale: 0.9 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ type: 'spring', stiffness: 160, damping: 18 }}
-          className="neural-logo relative mt-6 grid h-[160px] w-[160px] place-items-center"
+          className="neural-globe relative mt-8 grid h-[180px] w-[180px] place-items-center"
         >
-          <div className="orbit-ring absolute inset-[-6px] rounded-full border border-cyan-400/20" />
-          <div className="orbit-ring-rev absolute inset-[-16px] rounded-full border border-violet-400/15" />
+          {/* Outer aurora halo behind the globe */}
           <div
-            className="absolute inset-0 rounded-full"
+            className="absolute inset-[-28px] rounded-full"
             style={{
-              background: 'radial-gradient(circle, rgba(34,211,238,0.35), rgba(79,70,229,0.15) 55%, transparent 70%)',
-              filter: 'blur(12px)',
+              background: 'radial-gradient(circle, rgba(34,211,238,0.25), rgba(79,70,229,0.12) 45%, transparent 70%)',
+              filter: 'blur(16px)',
             }}
           />
-          {/* Orbiting orbs (the glowing dots that travel around the E) */}
-          <span className="orbit-node-trail" aria-hidden="true" />
-          <span className="orbit-node-1" aria-hidden="true" />
-          <span className="orbit-node-2" aria-hidden="true" />
-          {/* Simplified neural net sphere */}
-          <svg viewBox="0 0 120 120" className="relative h-full w-full">
-            <defs>
-              <radialGradient id="g1" cx="50%" cy="40%" r="60%">
-                <stop offset="0%" stopColor="rgba(34,211,238,0.4)" />
-                <stop offset="100%" stopColor="rgba(79,70,229,0.05)" />
-              </radialGradient>
-            </defs>
-            <circle cx="60" cy="60" r="48" fill="url(#g1)" stroke="rgba(34,211,238,0.35)" strokeWidth="0.6" />
-            {/* Longitude lines */}
-            {[0, 30, 60, 90, 120, 150].map(a => (
-              <ellipse key={`lo${a}`} cx="60" cy="60" rx={48 * Math.abs(Math.cos((a * Math.PI) / 180)) || 2} ry="48" fill="none" stroke="rgba(129,140,248,0.35)" strokeWidth="0.6" />
-            ))}
-            <ellipse cx="60" cy="60" rx="48" ry="16" fill="none" stroke="rgba(168,85,247,0.4)" strokeWidth="0.6" />
-            <ellipse cx="60" cy="60" rx="48" ry="30" fill="none" stroke="rgba(34,211,238,0.35)" strokeWidth="0.6" />
-            {/* Nodes */}
-            {[
-              [30, 40], [60, 24], [90, 40], [100, 62], [86, 90], [60, 100], [34, 90], [20, 62],
-              [50, 50], [72, 52], [70, 76], [48, 78], [60, 60],
-            ].map(([cx, cy], i) => (
-              <g key={`n${i}`}>
-                <circle cx={cx} cy={cy} r="2.6" fill="#a5f3fc" />
-                <circle cx={cx} cy={cy} r="5" fill="rgba(34,211,238,0.25)" />
+          {/* Orbital rings */}
+          <span className="neural-ring" aria-hidden="true" />
+          <span className="neural-ring-2" aria-hidden="true" />
+          {/* Orbiting satellite dot */}
+          <span className="neural-satellite" aria-hidden="true" />
+          {/* The planet itself */}
+          <div
+            className="relative h-[116px] w-[116px] rounded-full overflow-hidden"
+            style={{
+              background:
+                'radial-gradient(circle at 32% 28%, rgba(255,255,255,0.22) 0%, rgba(34,211,238,0.45) 18%, rgba(79,70,229,0.55) 55%, rgba(12,18,40,1) 100%)',
+              boxShadow:
+                'inset -14px -18px 38px rgba(0,0,0,0.65), inset 8px 10px 22px rgba(165,243,252,0.18), 0 0 50px rgba(34,211,238,0.28), 0 0 90px rgba(79,70,229,0.25)',
+            }}
+          >
+            {/* Longitude/latitude grid that slowly rotates inside the globe */}
+            <svg viewBox="0 0 120 120" className="neural-sphere-svg absolute inset-0 h-full w-full">
+              <defs>
+                <clipPath id="globeClip">
+                  <circle cx="60" cy="60" r="58" />
+                </clipPath>
+              </defs>
+              <g clipPath="url(#globeClip)" opacity="0.75">
+                {[0, 30, 60, 90, 120, 150].map(a => (
+                  <ellipse key={`lo${a}`} cx="60" cy="60" rx={58 * Math.abs(Math.cos((a * Math.PI) / 180)) || 3} ry="58" fill="none" stroke="rgba(165,243,252,0.45)" strokeWidth="0.7" />
+                ))}
+                {[15, 30, 45].map(ry => (
+                  <ellipse key={`la${ry}`} cx="60" cy="60" rx="58" ry={ry * 58 / 45} fill="none" stroke="rgba(168,85,247,0.40)" strokeWidth="0.6" />
+                ))}
+                {/* Sparkle nodes */}
+                {[
+                  [38, 42], [62, 30], [86, 48], [92, 66], [80, 86], [58, 92], [36, 84], [26, 64],
+                  [52, 54], [70, 56], [68, 78], [48, 80], [60, 62],
+                ].map(([cx, cy], i) => (
+                  <circle key={i} cx={cx} cy={cy} r="1.6" fill="#e0f7ff" />
+                ))}
               </g>
-            ))}
-            {/* Connecting lines */}
-            {[
-              [30, 40, 50, 50], [50, 50, 60, 24], [60, 24, 72, 52], [72, 52, 90, 40],
-              [90, 40, 100, 62], [100, 62, 70, 76], [70, 76, 86, 90], [86, 90, 60, 100],
-              [60, 100, 48, 78], [48, 78, 34, 90], [34, 90, 20, 62], [20, 62, 30, 40],
-              [50, 50, 60, 60], [60, 60, 72, 52], [70, 76, 60, 60], [48, 78, 60, 60], [50, 50, 48, 78],
-            ].map(([x1, y1, x2, y2], i) => (
-              <line key={`l${i}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(129,140,248,0.55)" strokeWidth="0.7" />
-            ))}
-            {/* Central E */}
-            <text x="60" y="78" textAnchor="middle" fontSize="42" fontWeight="900" fill="white" fontFamily="Inter, sans-serif" style={{ filter: 'drop-shadow(0 0 12px rgba(34,211,238,0.55))' }}>E</text>
-          </svg>
+              {/* Highlight sheen */}
+              <ellipse cx="48" cy="40" rx="22" ry="14" fill="rgba(255,255,255,0.12)" />
+            </svg>
+            {/* The E — center of the planet */}
+            <span className="absolute inset-0 grid place-items-center">
+              <span className="text-[52px] font-black leading-none text-white" style={{ textShadow: '0 0 18px rgba(34,211,238,0.85), 0 0 38px rgba(79,70,229,0.55)' }}>E</span>
+            </span>
+          </div>
         </motion.div>
 
         <motion.h1
@@ -306,13 +331,28 @@ export default function LoginPage() {
           </motion.div>
 
           <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }} className="mt-10">
-            <div className="neural-logo desktop-neural-e relative mx-auto grid h-32 w-32 place-items-center rounded-[28px]" style={{ background: 'linear-gradient(135deg, rgba(79,70,229,0.25), rgba(34,211,238,0.18))' }}>
-              <div className="orbit-ring absolute inset-[-8px] rounded-full border border-cyan-400/20" />
-              <div className="orbit-ring-rev absolute inset-[-18px] rounded-full border border-violet-400/15" />
-              <span className="orbit-node-trail" aria-hidden="true" />
-              <span className="orbit-node-1" aria-hidden="true" />
-              <span className="orbit-node-2" aria-hidden="true" />
-              <span className="relative z-[1] text-[54px] font-black text-white" style={{ filter: 'drop-shadow(0 0 18px rgba(34,211,238,0.55))' }}>E</span>
+            <div className="neural-globe desktop relative mx-auto grid h-[140px] w-[140px] place-items-center">
+              {/* halo */}
+              <div className="absolute inset-[-24px] rounded-full" style={{
+                background: 'radial-gradient(circle, rgba(34,211,238,0.22), rgba(79,70,229,0.12) 45%, transparent 70%)',
+                filter: 'blur(14px)',
+              }} />
+              <span className="neural-ring" aria-hidden="true" />
+              <span className="neural-ring-2" aria-hidden="true" />
+              <span className="neural-satellite" aria-hidden="true" />
+              <div
+                className="relative h-[90px] w-[90px] rounded-full"
+                style={{
+                  background:
+                    'radial-gradient(circle at 32% 28%, rgba(255,255,255,0.22) 0%, rgba(34,211,238,0.45) 18%, rgba(79,70,229,0.55) 55%, rgba(12,18,40,1) 100%)',
+                  boxShadow:
+                    'inset -10px -14px 28px rgba(0,0,0,0.65), inset 6px 8px 16px rgba(165,243,252,0.18), 0 0 36px rgba(34,211,238,0.28), 0 0 64px rgba(79,70,229,0.22)',
+                }}
+              >
+                <span className="absolute inset-0 grid place-items-center">
+                  <span className="text-[40px] font-black leading-none text-white" style={{ textShadow: '0 0 14px rgba(34,211,238,0.85), 0 0 28px rgba(79,70,229,0.5)' }}>E</span>
+                </span>
+              </div>
             </div>
             <p className="mt-6 text-[10px] font-bold uppercase tracking-[.22em] text-[#22D3EE]/80">Intelligence for every classroom</p>
             <h1 className="mt-2 max-w-[480px] text-[52px] font-black leading-[0.96] tracking-[-.05em]">
@@ -391,6 +431,7 @@ interface LoginCardProps {
   mobile?: boolean
 }
 
+
 function LoginCard(p: LoginCardProps) {
   return (
     <motion.div
@@ -468,7 +509,7 @@ function LoginCard(p: LoginCardProps) {
                 </button>
               </div>
             </div>
-
+            
             <div className="flex justify-end">
               <button
                 type="button"
@@ -480,7 +521,7 @@ function LoginCard(p: LoginCardProps) {
                     .catch((error: any) => toast.error(getFriendlyError(error) || 'Could not send reset email'))
                 }}
               >
-               Forgot password?
+                Forgot password?
               </button>
             </div>
 
@@ -544,7 +585,7 @@ function LoginCard(p: LoginCardProps) {
             </div>
           </form>
         </TabsContent>
-  <TabsContent value="signup">
+<TabsContent value="signup">
           <form onSubmit={p.handleSignup} className="space-y-4">
             <div className="space-y-1.5">
               <Label className="text-[13px] font-medium text-white/70">Full name</Label>

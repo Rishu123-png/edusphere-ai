@@ -76,26 +76,65 @@ async function isValidModelBase(base: string): Promise<boolean> {
 
 async function resolveModelBase(): Promise<string> {
   if (loadedModelBase) return loadedModelBase
-  
+
   // Try local models first
   if (await isValidModelBase(LOCAL_MODEL_BASE)) {
     console.log('[EduSphere] Using local models from:', LOCAL_MODEL_BASE)
     loadedModelBase = LOCAL_MODEL_BASE
     return loadedModelBase
   }
-  
+
   console.log('[EduSphere] Local models not available, trying CDN fallback...')
-  
+
   // Fallback to CDN
   if (await isValidModelBase(CDN_MODEL_BASE)) {
     console.log('[EduSphere] Using CDN models from:', CDN_MODEL_BASE)
     loadedModelBase = CDN_MODEL_BASE
     return loadedModelBase
   }
-  
+
   throw new Error(
     'Face AI models could not load from local or CDN. Check your network connection and try again.'
   )
+}
+
+/**
+ * Best-effort wipe of cached model responses (indexedDB + HTTP cache).
+ * face-api.js internally uses fetch() which can serve stale/bad shards from
+ * the regular browser HTTP cache; clearing it fixes the
+ * "tensor should have X dimensions" corruption after a bad deploy.
+ */
+async function evictModelCache() {
+  try {
+    // Evict the cached model manifest + shards via the Cache API
+    if ('caches' in window) {
+      const keys = await caches.keys()
+      await Promise.all(
+        keys
+          .filter(k => /face|model|vite/i.test(k))
+          .map(k => caches.delete(k))
+      ).catch(() => {})
+      // Also try to delete the individual model URLs from the default cache
+      const cacheNames = await caches.keys()
+      await Promise.all(
+        cacheNames.map(async name => {
+          const cache = await caches.open(name).catch(() => null)
+          if (!cache) return
+          const modelPaths = [
+            'tiny_face_detector_model',
+            'face_landmark_68_tiny_model',
+            'face_recognition_model',
+            'ssd_mobilenetv1_model',
+          ]
+          for (const p of modelPaths) {
+            try { await cache.delete(`${LOCAL_MODEL_BASE}/${p}-weights_manifest.json`) } catch {}
+          }
+        })
+      ).catch(() => {})
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
 export async function loadFaceApiModels() {
@@ -108,43 +147,80 @@ export async function loadFaceApiModels() {
         throw new Error('Failed to import face-api.js library. Check your network connection.')
       }
 
-      const modelUrl = await resolveModelBase()
-      console.log('[EduSphere] Loading face AI models from:', modelUrl)
-
-      const modelsToLoad = [
-        { name: 'tinyFaceDetector', net: faceapi.nets.tinyFaceDetector },
-        { name: 'faceLandmark68TinyNet', net: faceapi.nets.faceLandmark68TinyNet },
-        { name: 'faceRecognitionNet', net: faceapi.nets.faceRecognitionNet },
-        { name: 'ssdMobilenetv1', net: faceapi.nets.ssdMobilenetv1 },
-      ]
-
-      for (const { name, net } of modelsToLoad) {
+      // Up to two attempts: a fresh load, and (if that fails with a tensor/parse
+      // error) one retry after evicting cached models and falling back to CDN.
+      let lastError: Error | null = null
+      for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          await net.loadFromUri(modelUrl)
-          console.log(`[EduSphere] ✓ ${name} loaded successfully`)
-        } catch (e: any) {
-          console.error(`[EduSphere]  ${name} failed to load:`, e.message)
-          // Clear any partially loaded state
-          faceApiPromise = null
-          loadedModelBase = null
+          const modelUrl = await resolveModelBase()
+          console.log(`[EduSphere] Loading face AI models from: ${modelUrl} (attempt ${attempt + 1})`)
 
-          const msg = String(e?.message || e || '')
-          if (msg.includes('Unexpected token') || msg.includes('<!doctype') || msg.includes('is not valid JSON')) {
-            throw new Error(
-              'Face AI models failed to load (server returned HTML instead of model files). The models will be loaded from CDN on next attempt.'
-            )
+          const modelsToLoad = [
+            { name: 'tinyFaceDetector', net: faceapi.nets.tinyFaceDetector },
+            { name: 'faceLandmark68TinyNet', net: faceapi.nets.faceLandmark68TinyNet },
+            { name: 'faceRecognitionNet', net: faceapi.nets.faceRecognitionNet },
+            { name: 'ssdMobilenetv1', net: faceapi.nets.ssdMobilenetv1 },
+          ]
+
+          for (const { name, net } of modelsToLoad) {
+            try {
+              await net.loadFromUri(modelUrl)
+              console.log(`[EduSphere] ✓ ${name} loaded successfully`)
+            } catch (e: any) {
+              console.error(`[EduSphere] ✗ ${name} failed to load:`, e?.message)
+              const msg = String(e?.message || e || '')
+              // Don't keep partial state around — reset so next click retries cleanly.
+              faceApiPromise = null
+              loadedModelBase = null
+
+              // If the local server returned HTML for a model file (SPA fallback)
+              // we throw a specific error so the UI can explain it.
+              if (msg.includes('Unexpected token') || msg.includes('<!doctype') || msg.includes('is not valid JSON')) {
+                // Force CDN next attempt
+                if (modelUrl === LOCAL_MODEL_BASE) {
+                  loadedModelBase = null
+                  await evictModelCache()
+                  lastError = new Error(
+                    'Local model files could not be read (server returned HTML). Retrying from CDN...'
+                  )
+                  break // re-run the loop — will try CDN now
+                }
+                throw new Error(
+                  'Face AI models failed to load. Check your network connection and try again.'
+                )
+              }
+              if (msg.includes('tensor') && msg.includes('should have')) {
+                // Tensor shape mismatch = model weights got corrupted mid-download
+                // or an outdated shard is cached. Clear caches and retry from CDN.
+                await evictModelCache()
+                // Force CDN on retry
+                loadedModelBase = null
+                lastError = new Error(
+                  'Face AI model corruption detected. Clearing cache and retrying from CDN...'
+                )
+                break
+              }
+              throw e instanceof Error ? e : new Error(msg || `Failed to load ${name}`)
+            }
           }
-          if (msg.includes('tensor') && msg.includes('should have')) {
-            throw new Error(
-              'Face AI model corruption detected. Clearing cache and retrying from CDN...'
-            )
+
+          // If we got all four nets loaded, we're done.
+          if (
+            faceapi.nets.tinyFaceDetector.params &&
+            faceapi.nets.faceLandmark68TinyNet.params &&
+            faceapi.nets.faceRecognitionNet.params &&
+            faceapi.nets.ssdMobilenetv1.params
+          ) {
+            console.log('[EduSphere] ✓ All face AI models loaded successfully')
+            return faceapi
           }
-          throw e instanceof Error ? e : new Error(msg || `Failed to load ${name}`)
+        } catch (e: any) {
+          lastError = e instanceof Error ? e : new Error(String(e))
+          // If we didn't exhaust attempts, loop again
+          continue
         }
       }
-
-      console.log('[EduSphere] ✓ All face AI models loaded successfully')
-      return faceapi
+      throw lastError || new Error('Could not load Face AI models.')
     })()
   }
   return faceApiPromise
@@ -154,6 +230,7 @@ export async function loadFaceApiModels() {
 export function resetFaceModels() {
   faceApiPromise = null
   loadedModelBase = null
+  void evictModelCache()
   console.log('[EduSphere] Face model cache cleared - will reload on next use')
 }
 

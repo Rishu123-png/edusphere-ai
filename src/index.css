@@ -574,11 +574,45 @@
 /* ================================================================
    LOGIN / ONBOARDING GLASS
    ================================================================ */
-.login-shell {
+/* Full-page auth shells need to scroll themselves because html/body/#root
+   are locked with overflow:hidden by the app-shell layout. Override any
+   Tailwind overflow-hidden utility on these containers. */
+.login-shell,
+.onboarding-shell {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100dvh !important;
+  height: -webkit-fill-available !important;
+  overflow-x: hidden !important;
   overflow-y: auto !important;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-y: contain;
-  padding-bottom: env(safe-area-inset-bottom);
+  -webkit-overflow-scrolling: touch !important;
+  overscroll-behavior-y: contain !important;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom)) !important;
+  /* Ensure scrolling works in every mobile browser */
+  touch-action: pan-y;
+}
+/* Inner wrapper on auth pages prevents min-height:100dvh flex sizing bugs */
+.login-shell > .login-inner,
+.onboarding-shell > .login-inner {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+/* On desktop, vertically center the split login layout when content is shorter
+   than viewport; on mobile content flows naturally so it can scroll. */
+@media (min-width: 768px) {
+  .login-shell > .login-inner {
+    min-height: 100%;
+    justify-content: center;
+  }
+}
+@media (min-width: 768px) {
+  .login-shell,
+  .onboarding-shell {
+    padding-bottom: 40px !important;
+  }
 }
 .login-card,
 .onboarding-card {
@@ -847,6 +881,19 @@
   0%, 100% { border-color: rgba(79,70,229,0.2); }
   50% { border-color: rgba(168,85,247,0.35); }
 }
+
+/* Smaller orbit variants for the desktop-sized neural E */
+@keyframes orbit-orb-sm {
+  from { transform: rotate(0deg) translateX(56px) rotate(0deg); }
+  to   { transform: rotate(360deg) translateX(56px) rotate(-360deg); }
+}
+@keyframes orbit-orb-sm-rev {
+  from { transform: rotate(180deg) translateX(46px) rotate(-180deg); }
+  to   { transform: rotate(-180deg) translateX(46px) rotate(180deg); }
+}
+.desktop-neural-e .orbit-node-1 { animation-name: orbit-orb-sm !important; }
+.desktop-neural-e .orbit-node-2 { animation-name: orbit-orb-sm-rev !important; }
+.desktop-neural-e .orbit-node-trail { animation-name: orbit-orb-sm, orbit-orb-trail !important; }
 .neon-border { animation: neon-border 4s ease-in-out infinite; }
 
 /* Student card hover effect */

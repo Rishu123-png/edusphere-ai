@@ -119,15 +119,26 @@ export interface MarksEntry {
   id: string
   schoolId: string
   studentId: string
+  studentName?: string
+  className?: string
+  section?: string
   subject: string
   examType: 'unit_test'|'assignment'|'project'|'practical'|'mid_term'|'final'|'internal'
   marksObtained: number
   maxMarks: number
+  percentage?: number
   grade?: string
   remarks?: string
+  /** Special status like 'absent' so the row is excluded from averages but still recorded */
+  status?: 'present'|'absent'|'ufm'|'medical'
   enteredBy: string
+  enteredByName?: string
+  enteredByRole?: UserRole | string
   date: string
+  /** 'draft' = only teacher sees, 'submitted' = admin can review, 'published' = parents/students see */
+  publishStatus?: 'draft'|'submitted'|'published'
   createdAt: number
+  updatedAt?: number
 }
 
 export interface NotificationItem {

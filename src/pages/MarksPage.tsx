@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   gradeFromMarks,
   gpaFromMarks,
@@ -37,9 +38,16 @@ import {
   UserCheck,
   BookOpen,
   Download,
+  History as HistoryIcon,
+  Pencil,
+  Trash2,
+  Search,
+  CalendarDays,
+  Eye,
+  PenLine,
 } from 'lucide-react'
 import { db } from '@/lib/firebase'
-import { ref, onValue, update, push, set } from 'firebase/database'
+import { ref, onValue, update, push, set, remove } from 'firebase/database'
 import { useSchool } from '@/contexts/SchoolContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { todayIST } from '@/lib/rtdb'
@@ -146,6 +154,20 @@ export default function MarksPage() {
   const [showWeights, setShowWeights] = useState(false)
   const [weights, setWeights] = useState(DEFAULT_EXAM_WEIGHTS)
   const [selectedStudent, setSelectedStudent] = useState<string | null>(null)
+
+  // Page-level tabs: Entry vs History
+  const [pageTab, setPageTab] = useState<'entry'|'history'>('entry')
+  const [histClass, setHistClass] = useState('')
+  const [histSubject, setHistSubject] = useState('All')
+  const [histExam, setHistExam] = useState<'all'|ExamType>('all')
+  const [histRange, setHistRange] = useState<'7'|'30'|'90'|'all'>('30')
+  const [histSearch, setHistSearch] = useState('')
+  const [editing, setEditing] = useState<MarksEntry | null>(null)
+  const [editMarks, setEditMarks] = useState<number|''>('')
+  const [editMax, setEditMax] = useState(100)
+  const [editRemarks, setEditRemarks] = useState('')
+  const [editStatus, setEditStatus] = useState<''|'absent'|'ufm'|'medical'>('')
+  const [deleting, setDeleting] = useState(false)
 
   const isTeacher = profile?.role === 'teacher'
   const isAdmin = profile?.role === 'school_admin' || profile?.role === 'super_admin'
@@ -544,6 +566,126 @@ export default function MarksPage() {
     } finally { setAiLoading(false) }
   }
 
+  /* ---------- history data ---------- */
+  useEffect(() => {
+    if (!histClass && classOptions.length) setHistClass(classOptions[0])
+  }, [classOptions, histClass])
+
+  const subjectOptions = useMemo(() => {
+    const s = new Set<string>(['All'])
+    DEFAULT_SUBJECTS.forEach(x => s.add(x))
+    teacherSubjects.forEach(x => s.add(x))
+    allStudents.forEach(() => {})
+    Object.values(savedMarksTree).forEach(recs => {
+      Object.values(recs || {}).forEach((r: any) => { if (r.subject) s.add(r.subject) })
+    })
+    return Array.from(s)
+  }, [savedMarksTree, teacherSubjects, allStudents])
+
+  const historyRecords = useMemo(() => {
+    const days = histRange === 'all' ? Infinity : Number(histRange)
+    const cutoff = days === Infinity ? 0 : Date.now() - days * 86400000
+    const list: MarksEntry[] = []
+    for (const [sid, recs] of Object.entries(savedMarksTree)) {
+      for (const r of Object.values(recs || {})) {
+        if (!r) continue
+        if (histClass) {
+          const ck = getClassKey({ className: r.className, section: r.section })
+          if (ck !== histClass) continue
+        }
+        if (histSubject !== 'All' && r.subject !== histSubject) continue
+        if (histExam !== 'all' && r.examType !== histExam) continue
+        if (histSearch) {
+          const q = histSearch.toLowerCase()
+          const match = (r.studentName||'').toLowerCase().includes(q) || sid.toLowerCase().includes(q)
+          if (!match) continue
+        }
+        const ts = Number(r.updatedAt || r.createdAt || 0)
+        if (ts && ts < cutoff) continue
+        // teacher only sees their assigned classes
+        if (isTeacher && teacherClasses.length) {
+          const ck = getClassKey({ className: r.className, section: r.section })
+          if (!teacherClasses.includes(ck)) continue
+        }
+        list.push({ ...r, studentId: r.studentId || sid })
+      }
+    }
+    list.sort((a,b)=>Number(b.updatedAt||b.createdAt||0) - Number(a.updatedAt||a.createdAt||0))
+    return list
+  }, [savedMarksTree, histClass, histSubject, histExam, histSearch, histRange, isTeacher, teacherClasses])
+
+  const histStats = useMemo(() => {
+    const total = historyRecords.length
+    const numeric = historyRecords.filter(r => !r.status || r.status === 'present').map(r => (r.marksObtained / (r.maxMarks||100))*100)
+    const avg = numeric.length ? Math.round(numeric.reduce((a,b)=>a+b,0)/numeric.length*10)/10 : 0
+    const pass = numeric.filter(p => p >= PASSING_PERCENT).length
+    const absent = historyRecords.filter(r => r.status === 'absent').length
+    return { total, avg, pass, absent }
+  }, [historyRecords])
+
+  const openEdit = (r: MarksEntry) => {
+    setEditing(r)
+    setEditMarks(r.status && r.status !== 'present' ? '' : r.marksObtained)
+    setEditMax(r.maxMarks || 100)
+    setEditRemarks(r.remarks || '')
+    setEditStatus((r.status === 'absent' || r.status === 'ufm' || r.status === 'medical') ? r.status : '')
+  }
+  const closeEdit = () => setEditing(null)
+
+  const saveEdit = async () => {
+    if (!editing) return
+    const sid = schoolId || profile?.schoolId
+    if (!sid) return
+    const valid = editStatus ? true : (typeof editMarks === 'number' && editMarks >= 0 && editMarks <= editMax)
+    if (!valid) { toast.error(`Marks must be 0–${editMax}`); return }
+    const pct = editStatus ? 0 : Math.round((Number(editMarks)/editMax)*1000)/10
+    const grade = editStatus ? 'AB' : gradeFromMarks(Number(editMarks), editMax)
+    await update(ref(db), {
+      [`schools/${sid}/marks/${editing.studentId}/${editing.id}`]: {
+        ...editing,
+        marksObtained: editStatus ? 0 : Number(editMarks),
+        maxMarks: editMax,
+        percentage: pct,
+        grade,
+        remarks: editRemarks,
+        status: editStatus || 'present',
+        updatedAt: Date.now(),
+      }
+    })
+    toast.success('Marks updated')
+    closeEdit()
+  }
+
+  const deleteRecord = async (r: MarksEntry) => {
+    if (!confirm(`Delete marks for ${r.studentName || r.studentId} (${r.subject} ${EXAM_LABELS[r.examType]})? This cannot be undone.`)) return
+    const sid = schoolId || profile?.schoolId
+    if (!sid) return
+    try {
+      setDeleting(true)
+      await remove(ref(db, `schools/${sid}/marks/${r.studentId}/${r.id}`))
+      toast.success('Record deleted')
+    } catch (e) {
+      toast.error('Delete failed')
+    } finally { setDeleting(false) }
+  }
+
+  const histExportCsv = () => {
+    const rows: (string|number)[][] = [['Date','Student','Roll','Class','Subject','Exam','Max','Marks','%','Grade','Status','By','Remarks']]
+    historyRecords.forEach(r => {
+      const pct: string|number = r.status && r.status !== 'present' ? '' : Math.round(((r.marksObtained||0)/(r.maxMarks||100))*1000)/10
+      const student = allStudents.find(s => s.id === r.studentId)
+      rows.push([
+        r.date, r.studentName || '', student?.rollNumber || '',
+        r.className&&r.section ? `${r.className}-${r.section}` : (r.className||''),
+        r.subject, EXAM_LABELS[r.examType], String(r.maxMarks||100),
+        r.status && r.status!=='present' ? 'AB' : String(r.marksObtained ?? ''),
+        pct, r.grade || '', r.status||'present',
+        r.enteredByName || '', r.remarks || '',
+      ])
+    })
+    downloadCsv(`marks-history-${todayIST()}.csv`, rows)
+  }
+
   /* ---------- render ---------- */
   return <div className="page-container space-y-4">
     <PageHeader
@@ -566,6 +708,24 @@ export default function MarksPage() {
         Assigned classes: <b className="text-white">{teacherClasses.join(', ')}</b>. Published marks sync to admin & parents automatically.
       </div>
     )}
+
+    {/* Page tabs: Entry / History */}
+    <div className="flex gap-2 p-1 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-md">
+      <button onClick={()=>setPageTab('entry')}
+        className={cn("flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-[12.5px] font-bold transition",
+          pageTab==='entry' ? "bg-gradient-to-r from-cyan-500/30 to-violet-500/30 text-white shadow" : "text-white/60 hover:text-white")}>
+        <PenLine size={14}/> Mark Entry
+      </button>
+      <button onClick={()=>setPageTab('history')}
+        className={cn("flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-[12.5px] font-bold transition",
+          pageTab==='history' ? "bg-gradient-to-r from-cyan-500/30 to-violet-500/30 text-white shadow" : "text-white/60 hover:text-white")}>
+        <HistoryIcon size={14}/> History
+        {historyRecords.length > 0 && <span className="ml-0.5 rounded-full bg-white/15 px-1.5 text-[10px]">{historyRecords.length}</span>}
+      </button>
+    </div>
+
+    {pageTab === 'entry' && <>
+
 
     {/* === CONTROLS === */}
     <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] backdrop-blur-md p-3 space-y-3">
@@ -608,7 +768,7 @@ export default function MarksPage() {
                 <span className="text-[11px] text-white/40">%</span>
               </div>
             ))}
-              </div>
+          </div>
           <div className="flex items-center justify-between text-[11px]">
             <span className={`font-bold ${Object.values(weights).reduce((a,b)=>a+b,0) === 100 ? 'text-emerald-400' : 'text-amber-400'}`}>
               Total: {Object.values(weights).reduce((a,b)=>a+b,0)}%
@@ -665,7 +825,7 @@ export default function MarksPage() {
         <div className="text-[10px] text-rose-200/70 mt-0.5">Below {PASSING_PERCENT+8}% threshold</div>
       </Card>
     </div>
-     
+
     <div className="grid lg:grid-cols-3 gap-3">
       {/* Distribution chart */}
       <Card className="rounded-[22px] border-white/[0.08] bg-white/[0.04] backdrop-blur-md p-4 text-white lg:col-span-2">
@@ -772,7 +932,7 @@ export default function MarksPage() {
                     className={cn("w-16 h-10 rounded-xl text-center font-bold text-[14px] bg-white/10 border-white/15 text-white",
                       isAtRisk && "border-rose-400/50 text-rose-200")}
                   />
-                   <button
+                  <button
                     onClick={()=>setMark(s.id, { status: r.status === 'absent' ? '' : 'absent' })}
                     className={cn("h-10 px-2 rounded-xl text-[10px] font-bold border transition",
                       r.status==='absent' ? 'bg-rose-500 text-white border-rose-400' : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10')}
@@ -939,11 +1099,198 @@ export default function MarksPage() {
                     </td>
                   </tr>
                 )
-               })}
+              })}
             </tbody>
           </table>
         </div>
       </Card>
     )}
+    </>} {/* end pageTab==='entry' */}
+
+    {pageTab === 'history' && <>
+      {/* History filters */}
+      <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] backdrop-blur-md p-3 space-y-3">
+        <div className="flex gap-2 flex-wrap">
+          <select value={histClass} onChange={e=>setHistClass(e.target.value)}
+            className="h-11 rounded-full px-4 bg-white/10 border border-white/15 text-[13px] font-semibold text-white outline-none">
+            <option value="" className="bg-[#0c1125]">All Classes</option>
+            {classOptions.map(o => <option key={o} value={o} className="bg-[#0c1125]">{o}</option>)}
+          </select>
+          <select value={histSubject} onChange={e=>setHistSubject(e.target.value)}
+            className="h-11 rounded-full px-4 bg-white/10 border border-white/15 text-[13px] font-semibold text-white outline-none">
+            {subjectOptions.map(s => <option key={s} value={s} className="bg-[#0c1125]">{s}</option>)}
+          </select>
+          <select value={histExam} onChange={e=>setHistExam(e.target.value as any)}
+            className="h-11 rounded-full px-4 bg-white/10 border border-white/15 text-[13px] font-semibold text-white outline-none">
+            <option value="all" className="bg-[#0c1125]">All Exams</option>
+            {EXAM_OPTIONS.map(e => <option key={e} value={e} className="bg-[#0c1125]">{EXAM_LABELS[e]}</option>)}
+          </select>
+          <select value={histRange} onChange={e=>setHistRange(e.target.value as any)}
+            className="h-11 rounded-full px-4 bg-white/10 border border-white/15 text-[13px] font-semibold text-white outline-none">
+            <option value="7" className="bg-[#0c1125]">Last 7 days</option>
+            <option value="30" className="bg-[#0c1125]">Last 30 days</option>
+            <option value="90" className="bg-[#0c1125]">Last 90 days</option>
+            <option value="all" className="bg-[#0c1125]">All time</option>
+          </select>
+        </div>
+        <div className="flex gap-2 items-center flex-wrap">
+          <div className="flex items-center gap-2 h-11 flex-1 min-w-[200px] rounded-full px-4 bg-white/10 border border-white/15">
+            <Search size={15} className="text-white/50"/>
+            <input value={histSearch} onChange={e=>setHistSearch(e.target.value)} placeholder="Search student name…"
+              className="flex-1 bg-transparent text-white text-[13px] outline-none placeholder:text-white/40"/>
+          </div>
+          <Button variant="outline" size="sm" className="h-11 rounded-full border-white/10 bg-white/5 text-white" onClick={histExportCsv}>
+            <Download size={14} className="mr-1"/> CSV
+          </Button>
+        </div>
+      </div>
+
+      {/* History stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        <Card className="p-4 rounded-[22px] border-cyan-400/20 bg-cyan-500/10 backdrop-blur-md text-white">
+          <div className="text-[11px] font-bold text-cyan-300 uppercase">Records</div>
+          <div className="text-[24px] font-black text-cyan-300 mt-1">{histStats.total}</div>
+        </Card>
+        <Card className="p-4 rounded-[22px] border-emerald-400/20 bg-emerald-500/10 backdrop-blur-md text-white">
+          <div className="text-[11px] font-bold text-emerald-300 uppercase">Avg %</div>
+          <div className="text-[24px] font-black text-emerald-300 mt-1">{histStats.avg || '—'}%</div>
+        </Card>
+        <Card className="p-4 rounded-[22px] border-violet-400/20 bg-violet-500/10 backdrop-blur-md text-white">
+          <div className="text-[11px] font-bold text-violet-300 uppercase">Pass</div>
+          <div className="text-[24px] font-black text-violet-300 mt-1">{histStats.pass}</div>
+        </Card>
+        <Card className="p-4 rounded-[22px] border-rose-400/20 bg-rose-500/10 backdrop-blur-md text-white">
+          <div className="text-[11px] font-bold text-rose-300 uppercase">Absent</div>
+          <div className="text-[24px] font-black text-rose-300 mt-1">{histStats.absent}</div>
+        </Card>
+      </div>
+
+      {/* Records list */}
+      <Card className="rounded-[24px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-md overflow-hidden">
+        <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+          <CardTitle className="text-[14px] text-white flex items-center gap-2"><CalendarDays size={15} className="text-cyan-300"/> Saved Marks History</CardTitle>
+          <span className="text-[11px] text-white/50">{historyRecords.length} record(s)</span>
+        </div>
+        <div className="max-h-[65vh] overflow-y-auto scrollbar-thin">
+          {historyRecords.length === 0 ? (
+            <div className="p-10 text-center text-white/50 text-sm">No saved marks match your filters yet. Publish some marks from the Entry tab to see them here.</div>
+          ) : historyRecords.map((r) => {
+            const student = allStudents.find(s => s.id === r.studentId)
+            const name = r.studentName || student?.name || r.studentId
+            const pct = r.status && r.status !== 'present' ? 0 : Math.round(((r.marksObtained||0)/(r.maxMarks||100))*1000)/10
+            const grade = r.status && r.status !== 'present' ? 'AB' : (r.grade || gradeFromMarks(r.marksObtained||0, r.maxMarks||100))
+            return (
+              <div key={`${r.studentId}-${r.id}`} className="flex items-center gap-3 p-3 border-b border-white/5 hover:bg-white/[0.03] transition">
+                <div className="w-10 h-10 min-w-[40px] rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 grid place-items-center text-white font-bold text-[13px] overflow-hidden">
+                  {student?.photoUrl ? <img src={student.photoUrl} alt="" className="absolute inset-0 w-full h-full object-cover"/> : name?.[0] || 'S'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-[13px] text-white truncate">{name}</span>
+                    {r.publishStatus === 'draft' && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 font-bold">DRAFT</span>}
+                    {r.publishStatus === 'submitted' && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30 font-bold">SUBMITTED</span>}
+                    {(!r.publishStatus || r.publishStatus === 'published') && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 font-bold">PUBLISHED</span>}
+                  </div>
+                  <div className="text-[10.5px] text-white/50 truncate flex items-center gap-1.5 flex-wrap mt-0.5">
+                    <span>{r.className&&r.section?`${r.className}-${r.section}`:(r.className||'')}</span>•
+                    <span className="text-cyan-300">{r.subject}</span>•
+                    <span>{EXAM_LABELS[r.examType]}</span>•
+                    <span>{r.date}</span>
+                    {r.remarks && <>•<span className="text-white/70 italic">"{r.remarks}"</span></>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <div className="text-right">
+                    <div className={cn("text-[15px] font-black",
+                      r.status && r.status!=='present' ? 'text-rose-300' :
+                      pct >= 60 ? 'text-emerald-300' : pct >= 40 ? 'text-amber-300' : 'text-rose-300')}>
+                      {r.status && r.status !== 'present' ? 'AB' : `${r.marksObtained}/${r.maxMarks||100}`}
+                    </div>
+                    <div className="flex items-center gap-1 justify-end">
+                      <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded-full border", gradeColorClasses(grade))}>{grade}</span>
+                      {!r.status || r.status==='present' ? <span className="text-[10px] text-white/50">{pct}%</span> : null}
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <button onClick={()=>openEdit(r)} title="Edit"
+                      className="h-8 w-8 grid place-items-center rounded-lg bg-white/5 border border-white/10 text-cyan-300 hover:bg-cyan-500/20">
+                      <Pencil size={12}/>
+                    </button>
+                    <button onClick={()=>deleteRecord(r)} disabled={deleting} title="Delete"
+                      className="h-8 w-8 grid place-items-center rounded-lg bg-white/5 border border-white/10 text-rose-300 hover:bg-rose-500/20 disabled:opacity-40">
+                      <Trash2 size={12}/>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </Card>
+    </>}
+
+    {/* Edit dialog */}
+    <Dialog open={!!editing} onOpenChange={(o)=>!o && closeEdit()}>
+      <DialogContent className="rounded-[26px] bg-[#0c1125] border-white/10 text-white max-w-md p-0 overflow-hidden">
+        <DialogHeader className="p-5 pb-0">
+          <DialogTitle className="text-white flex items-center gap-2"><Pencil size={16} className="text-cyan-300"/> Edit Mark Record</DialogTitle>
+        </DialogHeader>
+        <div className="p-5 space-y-3">
+          {editing && (
+            <>
+              <div className="rounded-2xl bg-white/5 border border-white/10 p-3 space-y-1">
+                <div className="text-[13px] font-bold text-white">{editing.studentName || 'Student'}</div>
+                <div className="text-[11px] text-white/50">{editing.className}-{editing.section} • {editing.subject} • {EXAM_LABELS[editing.examType]} • {editing.date}</div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[11px] font-bold text-white/60">Marks obtained</label>
+                  <input type="number" min={0} max={editMax} value={editStatus ? '' : editMarks} disabled={!!editStatus}
+                    onChange={e=>setEditMarks(parseMarkInput(e.target.value))}
+                    className="mt-1 w-full h-11 rounded-xl bg-white/10 border border-white/15 px-3 text-white font-bold outline-none"/>
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-white/60">Out of (max)</label>
+                  <input type="number" min={1} max={200} value={editMax} disabled={!!editStatus}
+                    onChange={e=>setEditMax(Number(e.target.value)||100)}
+                    className="mt-1 w-full h-11 rounded-xl bg-white/10 border border-white/15 px-3 text-white font-bold outline-none"/>
+                </div>
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-white/60">Status</label>
+                <div className="mt-1 flex gap-1.5">
+                  {([
+                    {v:'',label:'Present'},
+                    {v:'absent',label:'Absent (AB)'},
+                    {v:'medical',label:'Medical'},
+                    {v:'ufm',label:'UFM'},
+                  ] as const).map(o=>(
+                    <button key={o.v} onClick={()=>setEditStatus(o.v as any)}
+                      className={cn("flex-1 h-9 rounded-xl text-[11px] font-bold border transition",
+                        editStatus===o.v ? "bg-gradient-to-r from-cyan-500/30 to-violet-500/30 border-white/30 text-white" : "bg-white/5 border-white/10 text-white/60")}>
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-white/60">Remarks</label>
+                <input value={editRemarks} onChange={e=>setEditRemarks(e.target.value)} placeholder="e.g. Excellent performance"
+                  className="mt-1 w-full h-11 rounded-xl bg-white/10 border border-white/15 px-3 text-white outline-none placeholder:text-white/30"/>
+              </div>
+              {typeof editMarks === 'number' && !editStatus && (
+                <div className="flex items-center gap-2 rounded-xl bg-cyan-500/10 border border-cyan-400/20 px-3 py-2 text-[11px] text-cyan-200">
+                  <Eye size={13}/> Preview: {editMarks}/{editMax} ({Math.round((editMarks/editMax)*1000)/10}%) • Grade {gradeFromMarks(editMarks, editMax)}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        <div className="p-5 pt-0 flex gap-2">
+          <Button variant="outline" className="flex-1 rounded-full h-11 border-white/10 bg-white/5 text-white hover:bg-white/10" onClick={closeEdit}>Cancel</Button>
+          <Button variant="gradient" className="flex-1 rounded-full h-11 font-bold" onClick={saveEdit}>Save changes</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   </div>
 }

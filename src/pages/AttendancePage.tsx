@@ -11,7 +11,6 @@ import { useSchool } from '@/contexts/SchoolContext'
 import { todayIST } from '@/lib/rtdb'
 import QRScanner from '@/components/QRScanner'
 import PageHeader from '@/components/mobile/PageHeader'
-import ModuleArchitectureBanner from '@/components/ModuleArchitectureBanner'
 import { Camera, QrCode, Users, X, ShieldCheck, SwitchCamera, ScanFace, AlertTriangle, Clock, Wifi, WifiOff, UserPlus, Grid, Volume2, History as HistoryIcon, CalendarDays, Search, Download } from 'lucide-react'
 import { get } from 'firebase/database'
 import {
@@ -422,6 +421,17 @@ const resetAiSession = () => {
     const sid = schoolId || profile?.schoolId || 'global'
     let present = 0
 
+    // Safety: on manual save, require the teacher to have actively marked
+    // every student (green Present / amber Late / red Absent). Don't silently
+    // default unmarked students to "present" — that caused fake 100% days.
+    if (method === 'manual') {
+      const unmarked = students.filter(s => !['present','late','absent'].includes(marks[s.id]))
+      if (unmarked.length) {
+        toast.error(`${unmarked.length} student(s) unmarked. Tap Present/Late/Absent for every row before saving.`)
+        return
+      }
+    }
+
     if (isOfflineMode) {
       const offlineRecs = students.map(s => ({
         id: `${s.id}_${date}`,
@@ -430,7 +440,7 @@ const resetAiSession = () => {
         studentId: s.id,
         className: s.className,
         section: s.section,
-        status: (marks[s.id] || (method === 'manual' ? 'present' : 'absent')) as any,
+        status: (marks[s.id] || 'absent') as any,
         markedBy: profile?.uid || 'system',
         method,
         timestamp: Date.now()
@@ -443,7 +453,9 @@ const resetAiSession = () => {
     const now = Date.now()
     const updates: Record<string, unknown> = {}
     for (const student of students) {
-      const status = marks[student.id] || (method === 'manual' ? 'present' : 'absent')
+      // For non-manual methods (AI/QR) fall back to "absent" for anyone not
+      // marked present/late; for manual we already enforced every row above.
+      const status = marks[student.id] || (method === 'manual' ? 'absent' : 'absent')
       if (status === 'present' || status === 'late') present++
       updates[`schools/${sid}/attendance/${date}/${student.id}`] = {
         studentId: student.id,
@@ -460,6 +472,7 @@ const resetAiSession = () => {
 
     await update(ref(db), updates)
     toast.success(`Attendance saved to Firebase • Present/Late ${present}/${students.length}`)
+    setMarks({})
   }
 
   const resizeOverlayCanvas = () => {
@@ -613,7 +626,7 @@ const resetAiSession = () => {
           const alreadyMarked = detectedIdsRef.current.has(best.id) || marksRef.current[best.id] === 'present' || marksRef.current[best.id] === 'late'
           const inCooldown = Date.now() - (lastMarkAtRef.current.get(best.id) || 0) < AI_MARK_COOLDOWN_MS
 
-if (alreadyMarked || inCooldown) {
+          if (alreadyMarked || inCooldown) {
             matchedByFace.set(index, { id: best.id, name: best.name, confidence: best.confidence, isLate, status: 'cooldown' })
             updateAiCheck('cooldown', 'pass')
             continue
@@ -846,7 +859,8 @@ const handleQrScan = async (scannedText: string) => {
   const sendParentAlert = async (student: any) => {
     const sid = schoolId || profile?.schoolId || 'global'
     const phone = student.guardianPhone || 'No Phone'
-/* BUG FIX: the previous copy baked in a hardcoded "Attendance 74%" for
+
+    /* BUG FIX: the previous copy baked in a hardcoded "Attendance 74%" for
        every student. Compute the real rate from saved attendance records. */
     let attendancePct = 0
     try {
@@ -890,6 +904,7 @@ const handleQrScan = async (scannedText: string) => {
   const totalSeats = 40
   const occupiedSeats = presentCount + lateCount
   const emptySeats = Math.max(0, totalSeats - occupiedSeats)
+
   // ============ HISTORY TAB DATA ============
   useEffect(() => {
     if (!histClass && classOptions.length) setHistClass(classOptions[0])
@@ -985,67 +1000,65 @@ const handleQrScan = async (scannedText: string) => {
 
   return <div className="space-y-4">
     <PageHeader title="AI Attendance Vision" subtitle={`Smart Biometrics • QR • Real-Time Occupancy • ${todayIST()}`} />
-    
-    <ModuleArchitectureBanner />
 
-    {/* Top Actions & Offline Mode Toggle Bar */}
-    <div className="flex items-center justify-between gap-3 flex-wrap bg-white dark:bg-zinc-900 p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 shadow-xs">
+    {/* Top Actions & Class Selector Bar */}
+    <div className="flex items-center justify-between gap-3 flex-wrap rounded-2xl border border-white/[0.08] bg-white/[0.04] p-3 backdrop-blur-md">
       <div className="flex items-center gap-2">
-        <span className={`px-3 py-1 rounded-full text-[11px] font-bold flex items-center gap-1.5 ${isOfflineMode ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30' : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'}`}>
+        <span className={`px-3 py-1 rounded-full text-[11px] font-bold flex items-center gap-1.5 ${isOfflineMode ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30' : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'}`}>
           {isOfflineMode ? <WifiOff size={13}/> : <Wifi size={13}/>}
           {isOfflineMode ? 'Offline Mode (Local Storage)' : 'Cloud Sync Active'}
         </span>
-        <Button variant="ghost" size="sm" className="h-8 rounded-full text-xs font-semibold" onClick={() => setIsOfflineMode(!isOfflineMode)}>
+        <Button variant="ghost" size="sm" className="h-8 rounded-full text-xs font-semibold text-white/70 hover:bg-white/10 hover:text-white" onClick={() => setIsOfflineMode(!isOfflineMode)}>
           {isOfflineMode ? 'Switch to Online Mode' : 'Simulate Offline Mode'}
         </Button>
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-[12px] font-bold text-muted-foreground">Class:</span>
-        <select value={classSel} onChange={e=>setClassSel(e.target.value)} className="h-10 rounded-full px-4 bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-[13px] font-bold outline-none">
+        <span className="text-[12px] font-bold text-white/60">Class:</span>
+        <select value={classSel} onChange={e=>{setClassSel(e.target.value); setMarks({})}} className="h-10 rounded-full px-4 bg-white/10 border border-white/15 text-[13px] font-bold text-white outline-none focus:border-cyan-400/50">
           {!classOptions.length && <option value="">No classes yet</option>}
-          {classOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+          {classOptions.map(opt => <option key={opt} value={opt} className="bg-[#0c1125]">{opt}</option>)}
         </select>
       </div>
     </div>
 
     {/* Main Counter Banner */}
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-      <Card className="p-4 rounded-[22px] bg-slate-50 dark:bg-zinc-800/80 border-slate-200 dark:border-zinc-700">
-        <div className="text-[11px] font-bold text-slate-500 uppercase">Enrolled Students</div>
-        <div className="text-[24px] font-black text-foreground mt-1">{students.length}</div>
-        <div className="text-[10px] text-muted-foreground mt-0.5">Class {classSel || 'All'}</div>
+      <Card className="p-4 rounded-[22px] border-white/[0.08] bg-white/[0.04] backdrop-blur-md text-white">
+        <div className="text-[11px] font-bold text-white/50 uppercase">Enrolled Students</div>
+        <div className="text-[24px] font-black mt-1">{students.length}</div>
+        <div className="text-[10px] text-white/40 mt-0.5">Class {classSel || 'All'}</div>
       </Card>
-      <Card className="p-4 rounded-[22px] bg-emerald-50 dark:bg-emerald-950/25 border-emerald-200/60 dark:border-emerald-900/40">
-        <div className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 uppercase">Present Today</div>
-        <div className="text-[24px] font-black text-emerald-600 dark:text-emerald-400 mt-1">{presentCount}</div>
-        <div className="text-[10px] text-emerald-600/80 mt-0.5">Updates every second</div>
+      <Card className="p-4 rounded-[22px] border-emerald-400/20 bg-emerald-400/10 backdrop-blur-md text-white">
+        <div className="text-[11px] font-bold text-emerald-300 uppercase">Present Today</div>
+        <div className="text-[24px] font-black text-emerald-300 mt-1">{presentCount}</div>
+        <div className="text-[10px] text-emerald-300/70 mt-0.5">Updates every second</div>
       </Card>
-      <Card className="p-4 rounded-[22px] bg-amber-50 dark:bg-amber-950/25 border-amber-200/60 dark:border-amber-900/40">
-        <div className="text-[11px] font-bold text-amber-700 dark:text-amber-300 uppercase">Late Entry</div>
-        <div className="text-[24px] font-black text-amber-600 dark:text-amber-400 mt-1">{lateCount}</div>
-        <div className="text-[10px] text-amber-600/80 mt-0.5">Post-attendance arrivals</div>
+      <Card className="p-4 rounded-[22px] border-amber-400/20 bg-amber-400/10 backdrop-blur-md text-white">
+        <div className="text-[11px] font-bold text-amber-300 uppercase">Late Entry</div>
+        <div className="text-[24px] font-black text-amber-300 mt-1">{lateCount}</div>
+        <div className="text-[10px] text-amber-300/70 mt-0.5">Post-attendance arrivals</div>
       </Card>
-      <Card className="p-4 rounded-[22px] bg-rose-50 dark:bg-rose-950/25 border-rose-200/60 dark:border-rose-900/40">
-        <div className="text-[11px] font-bold text-rose-700 dark:text-rose-300 uppercase">Absent Today</div>
-        <div className="text-[24px] font-black text-rose-600 dark:text-rose-400 mt-1">{absentCount}</div>
-        <div className="text-[10px] text-rose-600/80 mt-0.5">Auto-queued parent alerts</div>
+      <Card className="p-4 rounded-[22px] border-rose-400/20 bg-rose-400/10 backdrop-blur-md text-white">
+        <div className="text-[11px] font-bold text-rose-300 uppercase">Absent Today</div>
+        <div className="text-[24px] font-black text-rose-300 mt-1">{absentCount}</div>
+        <div className="text-[10px] text-rose-300/70 mt-0.5">Auto-queued parent alerts</div>
       </Card>
     </div>
 <Tabs value={tab} onValueChange={setTab} className="w-full">
-      <TabsList className="h-12 max-w-full overflow-x-auto scrollbar-hide rounded-full bg-slate-100 dark:bg-zinc-800 p-1 flex gap-1">
-        <TabsTrigger value="manual" className="rounded-full px-4 font-bold data-[state=active]:bg-zinc-900 data-[state=active]:text-white dark:data-[state=active]:bg-white dark:data-[state=active]:text-zinc-900">
+      <TabsList className="h-12 max-w-full overflow-x-auto scrollbar-hide rounded-full bg-white/[0.06] border border-white/[0.08] p-1 flex gap-1">
+        <TabsTrigger value="manual" className="rounded-full px-4 font-bold text-white/60 data-[state=active]:bg-white/15 data-[state=active]:text-white data-[state=active]:shadow">
           <Users size={15} className="mr-1.5 inline"/> Manual & Roster
         </TabsTrigger>
-        <TabsTrigger value="ai" className="rounded-full px-4 font-bold data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-500 data-[state=active]:to-cyan-500 data-[state=active]:text-white shadow-sm">
+        <TabsTrigger value="ai" className="rounded-full px-4 font-bold text-white/60 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-500 data-[state=active]:to-cyan-500 data-[state=active]:text-white shadow-sm">
           <ScanFace size={15} className="mr-1.5 inline"/> AI Smart Camera
         </TabsTrigger>
-        <TabsTrigger value="qr" className="rounded-full px-4 font-bold data-[state=active]:bg-zinc-900 data-[state=active]:text-white dark:data-[state=active]:bg-white dark:data-[state=active]:text-zinc-900">
+        <TabsTrigger value="qr" className="rounded-full px-4 font-bold text-white/60 data-[state=active]:bg-white/15 data-[state=active]:text-white data-[state=active]:shadow">
           <QrCode size={15} className="mr-1.5 inline"/> QR Scanner
         </TabsTrigger>
-        <TabsTrigger value="heatmap" className="rounded-full px-4 font-bold data-[state=active]:bg-zinc-900 data-[state=active]:text-white dark:data-[state=active]:bg-white dark:data-[state=active]:text-zinc-900">
+        <TabsTrigger value="heatmap" className="rounded-full px-4 font-bold text-white/60 data-[state=active]:bg-white/15 data-[state=active]:text-white data-[state=active]:shadow">
           <Grid size={15} className="mr-1.5 inline"/> Classroom Occupancy & Heatmap
         </TabsTrigger>
-        <TabsTrigger value="history" className="rounded-full px-4 font-bold data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-indigo-500 data-[state=active]:text-white shadow-sm">
+        <TabsTrigger value="history" className="rounded-full px-4 font-bold text-white/60 data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-indigo-500 data-[state=active]:text-white shadow-sm">
           <HistoryIcon size={15} className="mr-1.5 inline"/> History
         </TabsTrigger>
       </TabsList>
@@ -1054,7 +1067,7 @@ const handleQrScan = async (scannedText: string) => {
       <TabsContent value="manual" className="mt-4 space-y-3.5">
         <div className="space-y-2.5">
           {students.map(s=>(
-            <Card key={s.id} className="rounded-[22px] p-0 overflow-hidden border border-slate-150 dark:border-zinc-800 shadow-xs">
+            <Card key={s.id} className="rounded-[22px] p-0 overflow-hidden border border-white/[0.08] bg-white/[0.04] backdrop-blur-md shadow-lg">
               <div className="flex items-center justify-between p-3.5 gap-3">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-11 h-11 min-w-[44px] min-h-[44px] max-w-[44px] max-h-[44px] rounded-2xl relative bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold shrink-0 overflow-hidden shadow-sm">
@@ -1065,22 +1078,26 @@ const handleQrScan = async (scannedText: string) => {
                     )}
 </div>
                   <div className="min-w-0">
-                    <div className="font-extrabold text-[14px] leading-tight truncate text-foreground">{s.name}</div>
-                    <div className="text-[11px] text-muted-foreground mt-0.5 truncate">Roll #{s.rollNumber} • {s.className}-{s.section} • Face: {isValidDescriptor(s.faceDescriptor) ? 'Ready' : 'No'}</div>
+                    <div className="font-extrabold text-[14px] leading-tight truncate text-white">{s.name}</div>
+                    <div className="text-[11px] text-white/50 mt-0.5 truncate">Roll #{s.rollNumber} • {s.className}-{s.section} • Face: {isValidDescriptor(s.faceDescriptor) ? 'Ready' : 'No'}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <div className="flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 rounded-full p-1">
-                    <button onClick={()=>setMarks({...marks, [s.id]: 'present'})} className={`px-3 h-8 rounded-full text-[12px] font-bold transition ${ (marks[s.id]||'present')==='present' ? 'bg-emerald-500 text-white shadow' : 'text-muted-foreground'}`}>Present</button>
-                    <button onClick={()=>setMarks({...marks, [s.id]: 'late'})} className={`px-3 h-8 rounded-full text-[12px] font-bold transition ${ marks[s.id]==='late' ? 'bg-amber-500 text-white shadow' : 'text-muted-foreground'}`}>Late</button>
-                    <button onClick={()=>setMarks({...marks, [s.id]: 'absent'})} className={`px-3 h-8 rounded-full text-[12px] font-bold transition ${ marks[s.id]==='absent' ? 'bg-rose-500 text-white shadow' : 'text-muted-foreground'}`}>Absent</button>
+                  <div className="flex items-center gap-1 bg-white/10 rounded-full p-1">
+                    {/* NO default-to-present: a student is unmarked (grey) until
+                        the teacher taps. The SAVE button treats totally-unmarked
+                        rosters as "nothing selected" instead of silently marking
+                        everyone present. */}
+                    <button onClick={()=>setMarks({...marks, [s.id]: 'present'})} className={`px-3 h-8 rounded-full text-[12px] font-bold transition ${ marks[s.id]==='present' ? 'bg-emerald-500 text-white shadow' : 'text-white/60 hover:text-white'}`}>Present</button>
+                    <button onClick={()=>setMarks({...marks, [s.id]: 'late'})} className={`px-3 h-8 rounded-full text-[12px] font-bold transition ${ marks[s.id]==='late' ? 'bg-amber-500 text-white shadow' : 'text-white/60 hover:text-white'}`}>Late</button>
+                    <button onClick={()=>setMarks({...marks, [s.id]: 'absent'})} className={`px-3 h-8 rounded-full text-[12px] font-bold transition ${ marks[s.id]==='absent' ? 'bg-rose-500 text-white shadow' : 'text-white/60 hover:text-white'}`}>Absent</button>
                   </div>
                   {marks[s.id] === 'absent' && (
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => sendParentAlert(s)}
-                      className="rounded-full h-8 text-[11px] text-rose-600 border-rose-300 hover:bg-rose-50"
+                      className="rounded-full h-8 text-[11px] text-rose-300 border-rose-400/40 bg-rose-500/10 hover:bg-rose-500/20"
                       title="Dispatch SMS / WhatsApp Alert to Parent"
                     >
                       Alert Parent
@@ -1090,7 +1107,7 @@ const handleQrScan = async (scannedText: string) => {
               </div>
             </Card>
           ))}
-          {!students.length && <Card className="p-10 text-center text-muted-foreground text-sm rounded-[24px]">No students in {classSel || 'selected class'}. Add students from the Students page.</Card>}
+          {!students.length && <Card className="p-10 text-center text-white/50 text-sm rounded-[24px] border-white/10 bg-white/[0.03]">No students in {classSel || 'selected class'}. Add students from the Students page.</Card>}
         </div>
         <div className="sticky bottom-[88px] md:bottom-6 z-20 pt-3">
           <Button onClick={()=>submit('manual')} variant="success" size="lg" className="w-full rounded-full h-14 font-extrabold text-[16px] shadow-[0_10px_30px_rgba(16,185,129,0.3)]" disabled={!students.length}>
@@ -1253,7 +1270,7 @@ const handleQrScan = async (scannedText: string) => {
                     key={idx}
                     className={`relative p-2.5 rounded-xl border flex flex-col items-center justify-center text-center transition hover:scale-105 shadow-xs ${!student ? 'bg-slate-200/50 dark:bg-zinc-800/40 border-dashed border-slate-300 dark:border-zinc-700 text-slate-400' : status === 'present' ? 'bg-emerald-500 text-white border-emerald-600 font-bold' : status === 'late' ? 'bg-amber-500 text-white border-amber-600 font-bold' : 'bg-rose-500/20 text-rose-600 border-rose-300'}`}
                   >
-                   <span className="text-[9px] font-mono opacity-80">Desk #{idx + 1}</span>
+<span className="text-[9px] font-mono opacity-80">Desk #{idx + 1}</span>
                     <span className="text-[11px] font-extrabold truncate w-full mt-0.5">
                       {student ? student.name.split(' ')[0] : 'Empty'}
                     </span>
@@ -1306,7 +1323,7 @@ const handleQrScan = async (scannedText: string) => {
                 <option value="90">Last 90 days</option>
               </select>
             </div>
-             <div>
+            <div>
               <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1"><Search size={12}/> Search Student</label>
               <input
                 value={histSearch}
@@ -1446,7 +1463,8 @@ const handleQrScan = async (scannedText: string) => {
             </Button>
           </div>
         </div>
-{/* Clean camera card — ONLY face boxes + name pills float on the video
+
+        {/* Clean camera card — ONLY face boxes + name pills float on the video
             so the teacher can always see the student being captured. All the
             status panels live BELOW the camera now (mockup design). */}
         <div className="shrink-0 px-3 pt-2.5">
@@ -1670,7 +1688,7 @@ const handleQrScan = async (scannedText: string) => {
               className="mt-1 w-full h-11 rounded-xl px-3.5 bg-black/50 border border-white/20 text-white text-sm outline-none focus:border-cyan-400"
             />
           </div>
-         <div className="flex justify-end gap-2 pt-2">
+<div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" className="rounded-full bg-transparent border-white/20 text-white" onClick={() => {
               setQuickRegisterModalOpen(false)
               setQuickRegisterForm({ name: '', rollNumber: '' })

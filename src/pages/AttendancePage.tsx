@@ -1045,23 +1045,33 @@ const handleQrScan = async (scannedText: string) => {
       </Card>
     </div>
 <Tabs value={tab} onValueChange={setTab} className="w-full">
-      <TabsList className="h-12 max-w-full overflow-x-auto scrollbar-hide rounded-full bg-white/[0.06] border border-white/[0.08] p-1 flex gap-1">
-        <TabsTrigger value="manual" className="rounded-full px-4 font-bold text-white/60 data-[state=active]:bg-white/15 data-[state=active]:text-white data-[state=active]:shadow">
-          <Users size={15} className="mr-1.5 inline"/> Manual & Roster
-        </TabsTrigger>
-        <TabsTrigger value="ai" className="rounded-full px-4 font-bold text-white/60 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-500 data-[state=active]:to-cyan-500 data-[state=active]:text-white shadow-sm">
-          <ScanFace size={15} className="mr-1.5 inline"/> AI Smart Camera
-        </TabsTrigger>
-        <TabsTrigger value="qr" className="rounded-full px-4 font-bold text-white/60 data-[state=active]:bg-white/15 data-[state=active]:text-white data-[state=active]:shadow">
-          <QrCode size={15} className="mr-1.5 inline"/> QR Scanner
-        </TabsTrigger>
-        <TabsTrigger value="heatmap" className="rounded-full px-4 font-bold text-white/60 data-[state=active]:bg-white/15 data-[state=active]:text-white data-[state=active]:shadow">
-          <Grid size={15} className="mr-1.5 inline"/> Classroom Occupancy & Heatmap
-        </TabsTrigger>
-        <TabsTrigger value="history" className="rounded-full px-4 font-bold text-white/60 data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-indigo-500 data-[state=active]:text-white shadow-sm">
-          <HistoryIcon size={15} className="mr-1.5 inline"/> History
-        </TabsTrigger>
-      </TabsList>
+      {/* Mode selector — big tap-friendly button grid (no horizontal scroll!) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+        {([
+          { key: 'manual', label: 'Manual & Roster', icon: Users, color: 'from-indigo-500 to-violet-500' },
+          { key: 'ai', label: 'AI Smart Camera', icon: ScanFace, color: 'from-emerald-500 to-cyan-500' },
+          { key: 'qr', label: 'QR Scanner', icon: QrCode, color: 'from-blue-500 to-indigo-500' },
+          { key: 'heatmap', label: 'Occupancy & Heatmap', icon: Grid, color: 'from-fuchsia-500 to-pink-500' },
+          { key: 'history', label: 'History', icon: HistoryIcon, color: 'from-violet-500 to-indigo-500' },
+        ] as const).map(({ key, label, icon: Icon, color }) => {
+          const active = tab === key
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setTab(key)}
+              className={`relative flex flex-col items-center justify-center gap-1.5 rounded-2xl px-3 py-3 min-h-[74px] text-[12px] font-bold transition active:scale-[0.97] ${
+                active
+                  ? `bg-gradient-to-br ${color} text-white shadow-lg`
+                  : 'bg-white/[0.05] border border-white/[0.1] text-white/70 hover:bg-white/[0.1] hover:text-white'
+              }`}
+            >
+              <Icon size={20} className={active ? 'text-white' : 'text-white/70'} />
+              <span className="leading-tight text-center">{label}</span>
+            </button>
+          )
+        })}
+      </div>
 
       {/* TAB 1: MANUAL & ROSTER */}
       <TabsContent value="manual" className="mt-4 space-y-3.5">

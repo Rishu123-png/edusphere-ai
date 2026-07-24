@@ -227,23 +227,37 @@ export default function StudentsPage(){
   const generateFaceId = async ()=>{
     if(!form.photoUrl){ toast.error('Update/select a clear student photo first'); return }
     setGeneratingFaceId(true)
-    try {
-      const source = form.localPhotoDataUrl || form.photoUrl
-      const faceDescriptor = await createFaceDescriptorFromImageUrl(source)
-      setForm((prev:any)=>({...prev, faceDescriptor, faceEmbedding: faceDescriptor}))
-      toast.success('AI Face ID & 128-D Embedding vector generated. Save the student to keep it.')
-    } catch(e:any) {
-      const errorMsg = friendlyFaceError(e)
-      // If tensor error, reset models and retry once
-      if (errorMsg.includes('tensor') || errorMsg.includes('corruption')) {
-        toast.info('Resetting AI models... Please try again.')
-        resetFaceModels()
+    const source = form.localPhotoDataUrl || form.photoUrl
+    // Try up to two times so that a one-off cache corruption self-heals
+    // without forcing the user to tap the button again.
+    let lastErr: any = null
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const faceDescriptor = await createFaceDescriptorFromImageUrl(source)
+        setForm((prev:any)=>({...prev, faceDescriptor, faceEmbedding: faceDescriptor}))
+        toast.success('AI Face ID & 128-D Embedding vector generated. Save the student to keep it.')
+        setGeneratingFaceId(false)
+        return
+      } catch(e:any) {
+        lastErr = e
+        const msg = String(e?.message || e || '')
+        const isCacheError = /tensor|corruption|Unexpected token|<!doctype|HTML instead/i.test(msg)
+        if (isCacheError && attempt === 0) {
+          // Don't alarm the user with a red error — just silently clear
+          // caches and retry; the face-recognition module will flip to CDN.
+          toast.info('AI model cache was stale — refreshing…')
+          resetFaceModels()
+          // wait briefly for any network/cache cleanup to settle
+          await new Promise(r => window.setTimeout(r, 400))
+          continue
+        }
+        break
       }
-      setForm((prev:any)=>({...prev, faceDescriptor: null, faceEmbedding: null}))
-      toast.error(errorMsg)
-    } finally {
-      setGeneratingFaceId(false)
     }
+    const errorMsg = friendlyFaceError(lastErr)
+    setForm((prev:any)=>({...prev, faceDescriptor: null, faceEmbedding: null}))
+    toast.error(errorMsg)
+    setGeneratingFaceId(false)
   }
 
   const applySelectedPhoto = async (dataUrl: string) => {
@@ -442,6 +456,7 @@ export default function StudentsPage(){
         </div>
       }/>
 
+       
         {/* Add Student Dialog Trigger — Floating Action Button (mobile) */}
       {canManage && (
         <Dialog open={open} onOpenChange={(o)=>{ setOpen(o); if(!o){ setEditing(null); setForm(emptyForm) }}}>
@@ -644,7 +659,7 @@ export default function StudentsPage(){
           transition={{ delay: 0.2 }}
           className="card-premium p-4"
         >
-          <div className="flex items-center justify-between mb-3">
+       <div className="flex items-center justify-between mb-3">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{background: 'rgba(245,158,11,0.12)'}}>
               <Brain size={20} className="text-brand-warning"/>
             </div>
@@ -713,8 +728,7 @@ export default function StudentsPage(){
           </button>
         </div>
       </motion.div>
-
-      {/* ===== STUDENT CARDS ===== */}
+{/* ===== STUDENT CARDS ===== */}
       <div className="grid gap-3 md:hidden">
         <AnimatePresence mode="popLayout">
           {filtered.map((s:any, i: number)=>(

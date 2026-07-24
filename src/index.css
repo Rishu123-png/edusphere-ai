@@ -575,9 +575,10 @@
    LOGIN / ONBOARDING GLASS
    ================================================================ */
 /* Full-page auth shells. They are rendered outside Layout so they
-   must size to 100dvh and provide their own scroll. No position:fixed
-   here — Framer Motion / anime.js wrappers apply CSS transforms which
-   trap fixed positioning and hide all content. */
+   must size to at least 100dvh; scrolling happens on html/body/#root
+   (which are released via the html.auth-page-open rule below).
+   Do NOT put overflow:auto on these — nested scroll containers on
+   mobile Safari trap the gesture. */
 .login-shell,
 .onboarding-shell {
   position: relative;
@@ -585,45 +586,46 @@
   min-height: 100dvh;
   min-height: -webkit-fill-available;
   overflow-x: hidden;
-  overflow-y: auto !important;
-  -webkit-overflow-scrolling: touch !important;
-  overscroll-behavior-y: contain !important;
+  overflow-y: visible;
+  padding-bottom: calc(40px + env(safe-area-inset-bottom));
   touch-action: pan-y;
-  padding-bottom: calc(20px + env(safe-area-inset-bottom));
-  /* When an auth page mounts it becomes the #root scroll surface;
-     app-shell locks the root scroll so we temporarily release it. */
 }
 /* Inner wrapper that centers content vertically on desktop while
-   still letting content grow (and scroll) on mobile. */
+   still letting content grow naturally on mobile. */
 .login-shell > .login-inner,
 .onboarding-shell > .login-inner {
   position: relative;
   width: 100%;
-  min-height: calc(100dvh - 20px - env(safe-area-inset-bottom));
+  min-height: calc(100dvh - 40px - env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
+  align-items: center;
 }
 @media (min-width: 768px) {
   .login-shell > .login-inner {
     justify-content: center;
-    padding-top: 24px;
-    padding-bottom: 24px;
+    padding-top: 32px;
+    padding-bottom: 32px;
   }
   .onboarding-shell > .login-inner {
     justify-content: flex-start;
-    padding-top: 24px;
-    padding-bottom: 40px;
+    padding-top: 32px;
+    padding-bottom: 48px;
   }
 }
-/* Release #root/body overflow lock while auth pages are visible —
-   targeted via a body class set from the page components. */
-body.auth-page-open,
-body.auth-page-open html,
-body.auth-page-open > #root {
+/* Release #root/body/html overflow lock while auth pages are visible —
+   targeted via an `auth-page-open` class that LoginPage/OnboardingPage
+   add to <html> on mount. */
+html.auth-page-open,
+html.auth-page-open body,
+html.auth-page-open #root {
   overflow-y: auto !important;
   overflow-x: hidden !important;
   height: auto !important;
+  min-height: 100dvh !important;
   max-height: none !important;
+  -webkit-overflow-scrolling: touch !important;
+  overscroll-behavior-y: contain !important;
 }
 @media (min-width: 768px) {
   .login-shell,
@@ -679,6 +681,7 @@ body.auth-page-open > #root {
 .onboarding-progress {
   filter: drop-shadow(0 16px 36px rgba(0,0,0,.25));
 }
+
 
 /* ================================================================
    ANIMATIONS

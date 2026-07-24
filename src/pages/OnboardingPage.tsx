@@ -47,6 +47,18 @@ export default function OnboardingPage(){
     }
   }, [])
 
+  // Release the global html/body/#root overflow lock while this auth
+  // screen is mounted so the page can scroll.
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.add('auth-page-open')
+    window.scrollTo(0, 0)
+    return () => {
+      root.classList.remove('auth-page-open')
+      document.body.classList.remove('auth-page-open')
+    }
+  }, [])
+
   const createSchool = async () => {
     if(!form.schoolName){ toast.error('School name required'); return }
     setLoading(true)
@@ -246,8 +258,9 @@ export default function OnboardingPage(){
   const emailVerified = !!user.emailVerified
 
   return (
-    <div className="onboarding-shell relative min-h-[100dvh] overflow-hidden bg-[#070a10] px-4 pb-8 pt-[max(1rem,env(safe-area-inset-top))] text-white">
+    <div className="onboarding-shell relative flex min-h-[100dvh] w-full flex-col items-center bg-[#070a10] px-4 pt-[max(1rem,env(safe-area-inset-top))] text-white">
       <AmbientBackground />
+      <div className="login-inner w-full">
       <div className="relative z-[1] mx-auto w-full max-w-[560px]">
         <header className="flex items-center justify-between px-1 py-2">
           <div className="flex items-center gap-2.5"><div className="brand-orbit grid h-10 w-10 place-items-center rounded-xl"><Sparkles size={19}/></div><div><div className="text-[15px] font-black">EduSphere <span className="text-gradient-ai">AI</span></div><div className="text-[8px] font-bold uppercase tracking-[.18em] text-slate-600">Secure school setup</div></div></div>
@@ -314,6 +327,7 @@ export default function OnboardingPage(){
           </div>
         </main>
       </div>
+      </div>{/* /.login-inner */}
     </div>
   )
 }

@@ -731,22 +731,22 @@ export default function MarksPage() {
     <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] backdrop-blur-md p-3 space-y-3">
       <div className="flex gap-2 flex-wrap">
         <select value={classSel} onChange={e=>setClassSel(e.target.value)}
-          className="h-11 rounded-full px-4 bg-white/10 border border-white/15 text-[13px] font-semibold text-white outline-none focus:border-cyan-400/50">
+          className="flex-1 min-w-[130px] h-11 rounded-full px-4 bg-white/10 border border-white/15 text-[13px] font-semibold text-white outline-none focus:border-cyan-400/50">
           {!classOptions.length && <option value="" className="bg-[#0c1125]">No classes</option>}
           {classOptions.map(o => <option key={o} value={o} className="bg-[#0c1125]">{o}</option>)}
         </select>
         <select value={subject} onChange={e=>setSubject(e.target.value)}
-          className="h-11 rounded-full px-4 bg-white/10 border border-white/15 text-[13px] font-semibold text-white outline-none focus:border-cyan-400/50">
+          className="flex-1 min-w-[130px] h-11 rounded-full px-4 bg-white/10 border border-white/15 text-[13px] font-semibold text-white outline-none focus:border-cyan-400/50">
           {teacherSubjects.map(s => <option key={s} value={s} className="bg-[#0c1125]">{s}</option>)}
           {isAdmin && DEFAULT_SUBJECTS.filter(s=>!teacherSubjects.includes(s)).map(s =>
             <option key={s} value={s} className="bg-[#0c1125]">{s}</option>)}
         </select>
         <select value={exam} onChange={e=>setExam(e.target.value as ExamType)}
-          className="h-11 rounded-full px-4 bg-white/10 border border-white/15 text-[13px] font-semibold text-white outline-none focus:border-cyan-400/50">
+          className="flex-1 min-w-[130px] h-11 rounded-full px-4 bg-white/10 border border-white/15 text-[13px] font-semibold text-white outline-none focus:border-cyan-400/50">
           {EXAM_OPTIONS.map(e => <option key={e} value={e} className="bg-[#0c1125]">{EXAM_LABELS[e]}</option>)}
         </select>
         <div className="flex items-center gap-2 h-11 rounded-full px-3 bg-white/10 border border-white/15">
-          <span className="text-[11px] text-white/50 font-bold">OUT OF</span>
+          <span className="text-[11px] text-white/50 font-bold whitespace-nowrap">OUT OF</span>
           <input type="number" min={10} max={200} value={maxMarks} onChange={e=>setMaxMarks(Number(e.target.value)||100)}
             className="w-14 bg-transparent text-white font-bold text-[13px] outline-none text-center"/>
         </div>
@@ -1110,29 +1110,29 @@ export default function MarksPage() {
     {pageTab === 'history' && <>
       {/* History filters */}
       <div className="rounded-2xl border border-white/[0.08] bg-white/[0.04] backdrop-blur-md p-3 space-y-3">
-        <div className="flex gap-2 flex-wrap">
-          <select value={histClass} onChange={e=>setHistClass(e.target.value)}
-            className="h-11 rounded-full px-4 bg-white/10 border border-white/15 text-[13px] font-semibold text-white outline-none">
-            <option value="" className="bg-[#0c1125]">All Classes</option>
-            {classOptions.map(o => <option key={o} value={o} className="bg-[#0c1125]">{o}</option>)}
-          </select>
-          <select value={histSubject} onChange={e=>setHistSubject(e.target.value)}
-            className="h-11 rounded-full px-4 bg-white/10 border border-white/15 text-[13px] font-semibold text-white outline-none">
-            {subjectOptions.map(s => <option key={s} value={s} className="bg-[#0c1125]">{s}</option>)}
-          </select>
-          <select value={histExam} onChange={e=>setHistExam(e.target.value as any)}
-            className="h-11 rounded-full px-4 bg-white/10 border border-white/15 text-[13px] font-semibold text-white outline-none">
-            <option value="all" className="bg-[#0c1125]">All Exams</option>
-            {EXAM_OPTIONS.map(e => <option key={e} value={e} className="bg-[#0c1125]">{EXAM_LABELS[e]}</option>)}
-          </select>
-          <select value={histRange} onChange={e=>setHistRange(e.target.value as any)}
-            className="h-11 rounded-full px-4 bg-white/10 border border-white/15 text-[13px] font-semibold text-white outline-none">
-            <option value="7" className="bg-[#0c1125]">Last 7 days</option>
-            <option value="30" className="bg-[#0c1125]">Last 30 days</option>
-            <option value="90" className="bg-[#0c1125]">Last 90 days</option>
-            <option value="all" className="bg-[#0c1125]">All time</option>
-          </select>
-        </div>
+      <div className="flex gap-2 flex-wrap">
+        <select value={histClass} onChange={e=>setHistClass(e.target.value)}
+          className="flex-1 min-w-[140px] h-11 rounded-full px-4 bg-white/10 border border-white/15 text-[13px] font-semibold text-white outline-none">
+          <option value="" className="bg-[#0c1125]">All Classes</option>
+          {classOptions.map(o => <option key={o} value={o} className="bg-[#0c1125]">{o}</option>)}
+        </select>
+        <select value={histSubject} onChange={e=>setHistSubject(e.target.value)}
+          className="flex-1 min-w-[140px] h-11 rounded-full px-4 bg-white/10 border border-white/15 text-[13px] font-semibold text-white outline-none">
+          {subjectOptions.map(s => <option key={s} value={s} className="bg-[#0c1125]">{s}</option>)}
+        </select>
+        <select value={histExam} onChange={e=>setHistExam(e.target.value as any)}
+          className="flex-1 min-w-[140px] h-11 rounded-full px-4 bg-white/10 border border-white/15 text-[13px] font-semibold text-white outline-none">
+          <option value="all" className="bg-[#0c1125]">All Exams</option>
+          {EXAM_OPTIONS.map(e => <option key={e} value={e} className="bg-[#0c1125]">{EXAM_LABELS[e]}</option>)}
+        </select>
+        <select value={histRange} onChange={e=>setHistRange(e.target.value as any)}
+          className="flex-1 min-w-[140px] h-11 rounded-full px-4 bg-white/10 border border-white/15 text-[13px] font-semibold text-white outline-none">
+          <option value="7" className="bg-[#0c1125]">Last 7 days</option>
+          <option value="30" className="bg-[#0c1125]">Last 30 days</option>
+          <option value="90" className="bg-[#0c1125]">Last 90 days</option>
+          <option value="all" className="bg-[#0c1125]">All time</option>
+        </select>
+      </div>
         <div className="flex gap-2 items-center flex-wrap">
           <div className="flex items-center gap-2 h-11 flex-1 min-w-[200px] rounded-full px-4 bg-white/10 border border-white/15">
             <Search size={15} className="text-white/50"/>
@@ -1181,8 +1181,8 @@ export default function MarksPage() {
             const grade = r.status && r.status !== 'present' ? 'AB' : (r.grade || gradeFromMarks(r.marksObtained||0, r.maxMarks||100))
             return (
               <div key={`${r.studentId}-${r.id}`} className="flex items-center gap-3 p-3 border-b border-white/5 hover:bg-white/[0.03] transition">
-                <div className="w-10 h-10 min-w-[40px] rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 grid place-items-center text-white font-bold text-[13px] overflow-hidden">
-                  {student?.photoUrl ? <img src={student.photoUrl} alt="" className="absolute inset-0 w-full h-full object-cover"/> : name?.[0] || 'S'}
+                <div className="w-10 h-10 min-w-[40px] rounded-2xl relative bg-gradient-to-br from-indigo-500 to-violet-500 grid place-items-center text-white font-bold text-[13px] overflow-hidden">
+                  {student?.photoUrl ? <img src={student.photoUrl} alt="" className="absolute inset-0 w-full h-full object-cover"/> : (name?.[0] || 'S')}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">

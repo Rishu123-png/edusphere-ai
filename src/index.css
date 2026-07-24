@@ -57,6 +57,7 @@
     font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-feature-settings: "ss01","ss02","cv01","cv02";
     background: var(--brand-bg);
+    color-scheme: dark;
     width: 100%;
     min-height: 100dvh;
     /* DO NOT lock overflow here — let pages that sit outside Layout
@@ -64,7 +65,11 @@
        (Layout) uses position:fixed + internal scroller instead. */
     margin: 0;
   }
-  body { background: var(--brand-bg); }
+  body { background: var(--brand-bg); color: var(--brand-text); }
+  /* Force dark theme regardless of user/system toggle — the entire UI is
+     authored against the deep-space palette and does not ship light vars. */
+  html { color-scheme: dark !important; }
+  html.light { color-scheme: dark !important; }
   #root {
     -webkit-overflow-scrolling: touch;
   }
@@ -1088,6 +1093,7 @@
     transition-duration: .01ms !important;
   }
 }
+
 /* ================================================================
    GAUGE GLOW
    ================================================================ */

@@ -1074,55 +1074,65 @@ const handleQrScan = async (scannedText: string) => {
       </div>
 
       {/* TAB 1: MANUAL & ROSTER */}
-      <TabsContent value="manual" className="mt-4 space-y-3.5">
-        <div className="space-y-2.5">
-          {students.map(s=>(
-            <Card key={s.id} className="rounded-[22px] p-0 overflow-hidden border border-white/[0.08] bg-white/[0.04] backdrop-blur-md shadow-lg">
-              <div className="flex items-center justify-between p-3.5 gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-11 h-11 min-w-[44px] min-h-[44px] max-w-[44px] max-h-[44px] rounded-2xl relative bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold shrink-0 overflow-hidden shadow-sm">
-                    {s.photoUrl ? (
-                      <img src={s.photoUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
-                    ) : (
-                      <span>{s.name?.[0]||'S'}</span>
+      <TabsContent value="manual" className="mt-4">
+        {/* Roster + sticky Save bar live in a single flex column so the
+            padding at the bottom of the roster is sized to the Save bar,
+            guaranteeing the LAST student's Present/Late/Absent buttons are
+            never hidden behind the Save button on phones (the bug you saw:
+            "1 student unmarked" toast firing because the bottom card was
+            unreachable under the sticky Save). */}
+        <div className="flex flex-col gap-2.5">
+          <div className="flex flex-col gap-2.5 pb-[88px] md:pb-3">
+            {students.map(s=>(
+              <Card key={s.id} className="rounded-[22px] p-0 overflow-hidden border border-white/[0.08] bg-white/[0.04] backdrop-blur-md shadow-lg">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3.5 gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-11 h-11 min-w-[44px] min-h-[44px] max-w-[44px] max-h-[44px] rounded-2xl relative bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold shrink-0 overflow-hidden shadow-sm">
+                      {s.photoUrl ? (
+                        <img src={s.photoUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                      ) : (
+                        <span>{s.name?.[0]||'S'}</span>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-extrabold text-[14px] leading-tight truncate text-white">{s.name}</div>
+                      <div className="text-[11px] text-white/50 mt-0.5 truncate">Roll #{s.rollNumber} • {s.className}-{s.section} • Face: {isValidDescriptor(s.faceDescriptor) ? 'Ready' : 'No'}</div>
+                    </div>
+                  </div>
+                  {/* On mobile the action buttons sit on their own row so
+                      Present/Late/Absent + Alert Parent never squash off-screen. */}
+                  <div className="flex items-center justify-end gap-1.5 shrink-0 flex-wrap">
+                    <div className="flex items-center gap-1 bg-white/10 rounded-full p-1">
+                      {/* NO default-to-present: a student is unmarked (grey) until
+                          the teacher taps. The SAVE button treats totally-unmarked
+                          rosters as "nothing selected" instead of silently marking
+                          everyone present. */}
+                      <button onClick={()=>setMarks({...marks, [s.id]: 'present'})} className={`px-3 h-8 rounded-full text-[12px] font-bold transition ${ marks[s.id]==='present' ? 'bg-emerald-500 text-white shadow' : 'text-white/60 hover:text-white'}`}>Present</button>
+                      <button onClick={()=>setMarks({...marks, [s.id]: 'late'})} className={`px-3 h-8 rounded-full text-[12px] font-bold transition ${ marks[s.id]==='late' ? 'bg-amber-500 text-white shadow' : 'text-white/60 hover:text-white'}`}>Late</button>
+                      <button onClick={()=>setMarks({...marks, [s.id]: 'absent'})} className={`px-3 h-8 rounded-full text-[12px] font-bold transition ${ marks[s.id]==='absent' ? 'bg-rose-500 text-white shadow' : 'text-white/60 hover:text-white'}`}>Absent</button>
+                    </div>
+                    {marks[s.id] === 'absent' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => sendParentAlert(s)}
+                        className="rounded-full h-8 text-[11px] text-rose-300 border-rose-400/40 bg-rose-500/10 hover:bg-rose-500/20"
+                        title="Dispatch SMS / WhatsApp Alert to Parent"
+                      >
+                        Alert Parent
+                      </Button>
                     )}
-</div>
-                  <div className="min-w-0">
-                    <div className="font-extrabold text-[14px] leading-tight truncate text-white">{s.name}</div>
-                    <div className="text-[11px] text-white/50 mt-0.5 truncate">Roll #{s.rollNumber} • {s.className}-{s.section} • Face: {isValidDescriptor(s.faceDescriptor) ? 'Ready' : 'No'}</div>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <div className="flex items-center gap-1 bg-white/10 rounded-full p-1">
-                    {/* NO default-to-present: a student is unmarked (grey) until
-                        the teacher taps. The SAVE button treats totally-unmarked
-                        rosters as "nothing selected" instead of silently marking
-                        everyone present. */}
-                    <button onClick={()=>setMarks({...marks, [s.id]: 'present'})} className={`px-3 h-8 rounded-full text-[12px] font-bold transition ${ marks[s.id]==='present' ? 'bg-emerald-500 text-white shadow' : 'text-white/60 hover:text-white'}`}>Present</button>
-                    <button onClick={()=>setMarks({...marks, [s.id]: 'late'})} className={`px-3 h-8 rounded-full text-[12px] font-bold transition ${ marks[s.id]==='late' ? 'bg-amber-500 text-white shadow' : 'text-white/60 hover:text-white'}`}>Late</button>
-                    <button onClick={()=>setMarks({...marks, [s.id]: 'absent'})} className={`px-3 h-8 rounded-full text-[12px] font-bold transition ${ marks[s.id]==='absent' ? 'bg-rose-500 text-white shadow' : 'text-white/60 hover:text-white'}`}>Absent</button>
-                  </div>
-                  {marks[s.id] === 'absent' && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => sendParentAlert(s)}
-                      className="rounded-full h-8 text-[11px] text-rose-300 border-rose-400/40 bg-rose-500/10 hover:bg-rose-500/20"
-                      title="Dispatch SMS / WhatsApp Alert to Parent"
-                    >
-                      Alert Parent
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </Card>
-          ))}
-          {!students.length && <Card className="p-10 text-center text-white/50 text-sm rounded-[24px] border-white/10 bg-white/[0.03]">No students in {classSel || 'selected class'}. Add students from the Students page.</Card>}
-        </div>
-        <div className="sticky bottom-[88px] md:bottom-6 z-20 pt-3">
-          <Button onClick={()=>submit('manual')} variant="success" size="lg" className="w-full rounded-full h-14 font-extrabold text-[16px] shadow-[0_10px_30px_rgba(16,185,129,0.3)]" disabled={!students.length}>
-            ✓ SAVE ATTENDANCE • {presentCount} Present • {lateCount} Late • {absentCount} Absent
-          </Button>
+              </Card>
+            ))}
+            {!students.length && <Card className="p-10 text-center text-white/50 text-sm rounded-[24px] border-white/10 bg-white/[0.03]">No students in {classSel || 'selected class'}. Add students from the Students page.</Card>}
+          </div>
+          <div className="sticky bottom-[88px] md:bottom-6 z-20 -mt-2 pt-2 bg-gradient-to-t from-[#050816] via-[#050816]/85 to-transparent">
+            <Button onClick={()=>submit('manual')} variant="success" size="lg" className="w-full rounded-full h-14 font-extrabold text-[16px] shadow-[0_10px_30px_rgba(16,185,129,0.3)]" disabled={!students.length}>
+              ✓ SAVE ATTENDANCE • {presentCount} Present • {lateCount} Late • {absentCount} Absent
+            </Button>
+          </div>
         </div>
       </TabsContent>
 {/* TAB 2: AI SMART CAMERA */}
@@ -1178,21 +1188,21 @@ const handleQrScan = async (scannedText: string) => {
           </CardContent>
         </Card>
       </TabsContent>
-{/* TAB 3: QR SCANNER */}
+      {/* TAB 3: QR SCANNER */}
       <TabsContent value="qr" className="mt-4 space-y-4">
         {!showQrScanner ? (
-          <Card className="p-8 text-center space-y-4 rounded-[26px] border border-indigo-100 dark:border-indigo-900/30">
-            <div className="w-20 h-20 mx-auto rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 flex items-center justify-center shadow"><QrCode size={40} className="text-indigo-600 dark:text-indigo-400"/></div>
+          <Card className="p-8 text-center space-y-4 rounded-[26px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-md text-white shadow-lg">
+            <div className="w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border border-blue-400/30 flex items-center justify-center shadow"><QrCode size={40} className="text-cyan-300"/></div>
             <div>
-              <h3 className="font-extrabold text-[18px]">Instant QR Card Verification</h3>
-              <p className="text-[13px] text-muted-foreground mt-1 max-w-md mx-auto">Scan student ID cards or QR codes at the gate or classroom door for lightning-fast check-in verification.</p>
+              <h3 className="font-extrabold text-[18px] text-white">Instant QR Card Verification</h3>
+              <p className="text-[13px] text-white/60 mt-1 max-w-md mx-auto">Scan student ID cards or QR codes at the gate or classroom door for lightning-fast check-in verification.</p>
             </div>
             <Button variant="gradient" size="lg" className="rounded-full px-8 font-bold" onClick={()=>setShowQrScanner(true)} disabled={!allStudents.length}>Start QR Scanner</Button>
           </Card>
         ) : (
           <div className="space-y-4">
             <QRScanner onScan={handleQrScan} onClose={()=>setShowQrScanner(false)} />
-            <Button variant="outline" className="w-full rounded-full h-12 font-bold" onClick={()=>setShowQrScanner(false)}>Close QR Scanner</Button>
+            <Button variant="outline" className="w-full rounded-full h-12 font-bold border-white/15 bg-white/5 text-white hover:bg-white/10" onClick={()=>setShowQrScanner(false)}>Close QR Scanner</Button>
           </div>
         )}
       </TabsContent>
@@ -1226,61 +1236,67 @@ const handleQrScan = async (scannedText: string) => {
           </Card>
         </div>
 {/* AI Classroom Analytics Card */}
-        <Card className="p-5 rounded-[26px] bg-gradient-to-r from-indigo-50/70 to-violet-50/50 dark:from-indigo-950/20 dark:to-zinc-900 border border-indigo-100 dark:border-indigo-900/40">
-          <CardTitle className="text-[16px] font-black flex items-center gap-2 text-indigo-950 dark:text-indigo-200">
-            <Volume2 className="text-indigo-600"/> AI Classroom Live Behavioral Analytics
+        <Card className="p-5 rounded-[26px] bg-gradient-to-br from-indigo-500/10 to-violet-500/10 border border-indigo-400/20 backdrop-blur-md text-white shadow-lg">
+          <CardTitle className="text-[16px] font-black flex items-center gap-2 text-white">
+            <Volume2 className="text-indigo-300"/> AI Classroom Live Behavioral Analytics
           </CardTitle>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 text-sm">
-            <div className="p-3.5 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-150 dark:border-zinc-700">
-              <div className="text-[11px] font-bold text-muted-foreground uppercase">Students Present</div>
-              <div className="text-[20px] font-black text-emerald-600 dark:text-emerald-400 mt-1">{presentCount}</div>
+            <div className="p-3.5 rounded-2xl bg-white/[0.05] border border-white/10">
+              <div className="text-[11px] font-bold text-white/50 uppercase">Students Present</div>
+              <div className="text-[20px] font-black text-emerald-400 mt-1">{presentCount}</div>
             </div>
-            <div className="p-3.5 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-150 dark:border-zinc-700">
-              <div className="text-[11px] font-bold text-muted-foreground uppercase">Talking / Active Zone</div>
-              <div className="text-[20px] font-black text-cyan-600 dark:text-cyan-400 mt-1">{Math.min(presentCount, Math.round(presentCount * 0.12))}</div>
+            <div className="p-3.5 rounded-2xl bg-white/[0.05] border border-white/10">
+              <div className="text-[11px] font-bold text-white/50 uppercase">Talking / Active Zone</div>
+              <div className="text-[20px] font-black text-cyan-400 mt-1">{Math.min(presentCount, Math.round(presentCount * 0.12))}</div>
             </div>
-            <div className="p-3.5 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-150 dark:border-zinc-700">
-              <div className="text-[11px] font-bold text-muted-foreground uppercase">Empty Seats</div>
-              <div className="text-[20px] font-black text-amber-600 dark:text-amber-400 mt-1">{emptySeats}</div>
+            <div className="p-3.5 rounded-2xl bg-white/[0.05] border border-white/10">
+              <div className="text-[11px] font-bold text-white/50 uppercase">Empty Seats</div>
+              <div className="text-[20px] font-black text-amber-400 mt-1">{emptySeats}</div>
             </div>
-            <div className="p-3.5 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-150 dark:border-zinc-700">
-              <div className="text-[11px] font-bold text-muted-foreground uppercase">Teacher Present</div>
-              <div className="text-[20px] font-black text-violet-600 dark:text-violet-400 mt-1">Yes ✓</div>
+            <div className="p-3.5 rounded-2xl bg-white/[0.05] border border-white/10">
+              <div className="text-[11px] font-bold text-white/50 uppercase">Teacher Present</div>
+              <div className="text-[20px] font-black text-violet-400 mt-1">Yes ✓</div>
             </div>
           </div>
-          <p className="text-[11px] text-muted-foreground mt-3 italic">Use classroom behavioral metrics carefully and transparently to foster positive class engagement.</p>
+          <p className="text-[11px] text-white/50 mt-3 italic">Use classroom behavioral metrics carefully and transparently to foster positive class engagement.</p>
         </Card>
 
         {/* Classroom Desk Heatmap Grid */}
-        <Card className="p-5 rounded-[26px] border border-slate-200 dark:border-zinc-800 space-y-4">
+        <Card className="p-5 rounded-[26px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-md text-white shadow-lg space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <CardTitle className="text-[16px] font-black flex items-center gap-2">🪑 Classroom Seating Heatmap & Desk Grid</CardTitle>
-              <p className="text-[12px] text-muted-foreground mt-0.5">Live visual mapping of occupied seats, active zones, and empty desks.</p>
+              <CardTitle className="text-[16px] font-black flex items-center gap-2 text-white">🪑 Classroom Seating Heatmap & Desk Grid</CardTitle>
+              <p className="text-[12px] text-white/50 mt-0.5">Live visual mapping of occupied seats, active zones, and empty desks.</p>
             </div>
-            <div className="flex items-center gap-3 text-xs font-bold">
+            <div className="flex items-center gap-3 text-xs font-bold text-white/70">
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-500"/> Occupied</span>
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-500"/> Late</span>
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-slate-200 dark:bg-zinc-700"/> Empty Desk</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-white/15 border border-white/20"/> Empty Desk</span>
             </div>
           </div>
 
-          <div className="p-4 rounded-2xl bg-slate-100/60 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
-            <div className="w-full text-center py-2 mb-4 rounded-xl bg-slate-800 text-white font-extrabold text-[12px] tracking-widest shadow">
+          <div className="p-4 rounded-2xl bg-black/30 border border-white/[0.08]">
+            <div className="w-full text-center py-2 mb-4 rounded-xl bg-gradient-to-r from-indigo-500/30 to-violet-500/30 border border-white/10 text-white font-extrabold text-[12px] tracking-widest shadow">
               TEACHER PODIUM & SMART BOARD
             </div>
             <div className="grid grid-cols-5 sm:grid-cols-8 gap-2.5">
               {Array.from({ length: totalSeats }, (_, idx) => {
                 const student = students[idx]
-                const status = student ? (marks[student.id] || 'present') : 'empty'
+                const status = student ? (marks[student.id] || 'unmarked') : 'empty'
                 const isTalking = student && idx % 7 === 2 // simulation of active talking desk
 
                 return (
-<div
+                  <div
                     key={idx}
-                    className={`relative p-2.5 rounded-xl border flex flex-col items-center justify-center text-center transition hover:scale-105 shadow-xs ${!student ? 'bg-slate-200/50 dark:bg-zinc-800/40 border-dashed border-slate-300 dark:border-zinc-700 text-slate-400' : status === 'present' ? 'bg-emerald-500 text-white border-emerald-600 font-bold' : status === 'late' ? 'bg-amber-500 text-white border-amber-600 font-bold' : 'bg-rose-500/20 text-rose-600 border-rose-300'}`}
+                    className={`relative p-2.5 rounded-xl border flex flex-col items-center justify-center text-center transition hover:scale-105 shadow-xs ${
+                      !student ? 'bg-white/[0.04] border-dashed border-white/15 text-white/30'
+                      : status === 'present' ? 'bg-emerald-500 text-white border-emerald-600 font-bold'
+                      : status === 'late' ? 'bg-amber-500 text-white border-amber-600 font-bold'
+                      : status === 'absent' ? 'bg-rose-500/20 text-rose-300 border-rose-400/40'
+                      : 'bg-white/[0.08] border-white/20 text-white/70'
+                    }`}
                   >
-<span className="text-[9px] font-mono opacity-80">Desk #{idx + 1}</span>
+                    <span className="text-[9px] font-mono opacity-80">Desk #{idx + 1}</span>
                     <span className="text-[11px] font-extrabold truncate w-full mt-0.5">
                       {student ? student.name.split(' ')[0] : 'Empty'}
                     </span>
@@ -1290,20 +1306,20 @@ const handleQrScan = async (scannedText: string) => {
                   </div>
                 )
               })}
-</div>
+            </div>
           </div>
         </Card>
       </TabsContent>
 
       {/* TAB 5: ATTENDANCE HISTORY */}
       <TabsContent value="history" className="mt-4 space-y-4">
-        <Card className="p-5 rounded-[26px] border border-violet-200/60 dark:border-violet-900/40 bg-gradient-to-br from-violet-50/70 to-indigo-50/60 dark:from-violet-950/20 dark:to-indigo-950/20">
+        <Card className="p-5 rounded-[26px] border border-violet-400/20 bg-gradient-to-br from-violet-500/10 to-indigo-500/10 backdrop-blur-md text-white shadow-lg">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div>
-              <CardTitle className="text-[17px] font-black flex items-center gap-2 text-violet-900 dark:text-violet-200">
-                <HistoryIcon className="text-violet-600" size={20} /> Attendance History
+              <CardTitle className="text-[17px] font-black flex items-center gap-2 text-white">
+                <HistoryIcon className="text-violet-300" size={20} /> Attendance History
               </CardTitle>
-              <p className="text-[12px] text-muted-foreground mt-1">View attendance history class-wise and subject-wise using the filters below.</p>
+              <p className="text-[12px] text-white/60 mt-1">View attendance history class-wise and subject-wise using the filters below.</p>
             </div>
             <Button variant="gradient" size="sm" className="rounded-full h-10 px-5" onClick={exportHistory}>
               <Download size={15} className="mr-1.5"/> Export CSV
@@ -1313,74 +1329,74 @@ const handleQrScan = async (scannedText: string) => {
           {/* Filters */}
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div>
-              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1"><Users size={12}/> Class</label>
-              <select value={histClass} onChange={e => setHistClass(e.target.value)} className="mt-1 w-full h-11 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 px-4 text-[13px] font-bold outline-none">
-                {!classOptions.length && <option value="">No classes yet</option>}
-                {classOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+              <label className="text-[11px] font-bold uppercase tracking-wider text-white/60 flex items-center gap-1"><Users size={12}/> Class</label>
+              <select value={histClass} onChange={e => setHistClass(e.target.value)} className="mt-1 w-full h-11 rounded-2xl bg-white/10 border border-white/15 px-4 text-[13px] font-bold text-white outline-none focus:border-cyan-400/50">
+                {!classOptions.length && <option value="" className="bg-[#0c1125]">No classes yet</option>}
+                {classOptions.map(opt => <option key={opt} value={opt} className="bg-[#0c1125]">{opt}</option>)}
               </select>
             </div>
             <div>
-              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1"><CalendarDays size={12}/> Subject</label>
-              <select value={histSubject} onChange={e => setHistSubject(e.target.value)} className="mt-1 w-full h-11 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 px-4 text-[13px] font-bold outline-none">
-                {subjectOptions.map(s => <option key={s} value={s}>{s}</option>)}
+              <label className="text-[11px] font-bold uppercase tracking-wider text-white/60 flex items-center gap-1"><CalendarDays size={12}/> Subject</label>
+              <select value={histSubject} onChange={e => setHistSubject(e.target.value)} className="mt-1 w-full h-11 rounded-2xl bg-white/10 border border-white/15 px-4 text-[13px] font-bold text-white outline-none focus:border-cyan-400/50">
+                {subjectOptions.map(s => <option key={s} value={s} className="bg-[#0c1125]">{s}</option>)}
               </select>
             </div>
             <div>
-              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Date Range</label>
-              <select value={histRange} onChange={e => setHistRange(e.target.value as '7'|'30'|'90')} className="mt-1 w-full h-11 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 px-4 text-[13px] font-bold outline-none">
-                <option value="7">Last 7 days</option>
-                <option value="30">Last 30 days</option>
-                <option value="90">Last 90 days</option>
+              <label className="text-[11px] font-bold uppercase tracking-wider text-white/60">Date Range</label>
+              <select value={histRange} onChange={e => setHistRange(e.target.value as '7'|'30'|'90')} className="mt-1 w-full h-11 rounded-2xl bg-white/10 border border-white/15 px-4 text-[13px] font-bold text-white outline-none focus:border-cyan-400/50">
+                <option value="7" className="bg-[#0c1125]">Last 7 days</option>
+                <option value="30" className="bg-[#0c1125]">Last 30 days</option>
+                <option value="90" className="bg-[#0c1125]">Last 90 days</option>
               </select>
             </div>
             <div>
-              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1"><Search size={12}/> Search Student</label>
+              <label className="text-[11px] font-bold uppercase tracking-wider text-white/60 flex items-center gap-1"><Search size={12}/> Search Student</label>
               <input
                 value={histSearch}
                 onChange={e => setHistSearch(e.target.value)}
                 placeholder="Name or Roll No."
-                className="mt-1 w-full h-11 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 px-4 text-[13px] outline-none"
+                className="mt-1 w-full h-11 rounded-2xl bg-white/10 border border-white/15 px-4 text-[13px] text-white placeholder-white/40 outline-none focus:border-cyan-400/50"
               />
             </div>
           </div>
 
           {/* Stat chips */}
           <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            <div className="p-3 rounded-2xl bg-white/70 dark:bg-zinc-900/60 border border-slate-200 dark:border-zinc-700">
-              <div className="text-[10px] font-bold text-muted-foreground uppercase">Total Records</div>
-              <div className="text-[22px] font-black">{historyStats.total}</div>
+            <div className="p-3 rounded-2xl bg-white/[0.06] border border-white/10">
+              <div className="text-[10px] font-bold text-white/50 uppercase">Total Records</div>
+              <div className="text-[22px] font-black text-white">{historyStats.total}</div>
             </div>
-            <div className="p-3 rounded-2xl bg-emerald-100/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40">
-              <div className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 uppercase">Present</div>
-              <div className="text-[22px] font-black text-emerald-600 dark:text-emerald-400">{historyStats.present}</div>
+            <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-400/25">
+              <div className="text-[10px] font-bold text-emerald-300 uppercase">Present</div>
+              <div className="text-[22px] font-black text-emerald-400">{historyStats.present}</div>
             </div>
-            <div className="p-3 rounded-2xl bg-amber-100/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40">
-              <div className="text-[10px] font-bold text-amber-700 dark:text-amber-300 uppercase">Late</div>
-              <div className="text-[22px] font-black text-amber-600 dark:text-amber-400">{historyStats.late}</div>
+            <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-400/25">
+              <div className="text-[10px] font-bold text-amber-300 uppercase">Late</div>
+              <div className="text-[22px] font-black text-amber-400">{historyStats.late}</div>
             </div>
-            <div className="p-3 rounded-2xl bg-violet-100/70 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-900/40">
-              <div className="text-[10px] font-bold text-violet-700 dark:text-violet-300 uppercase">Attendance Rate</div>
-              <div className="text-[22px] font-black text-violet-600 dark:text-violet-400">{historyStats.rate}%</div>
+            <div className="p-3 rounded-2xl bg-violet-500/10 border border-violet-400/25">
+              <div className="text-[10px] font-bold text-violet-300 uppercase">Attendance Rate</div>
+              <div className="text-[22px] font-black text-violet-400">{historyStats.rate}%</div>
             </div>
           </div>
         </Card>
 
         {/* Daily summary */}
         {Object.keys(historyStats.byDate).length > 0 && (
-          <Card className="p-4 rounded-[24px] border border-slate-200 dark:border-zinc-800">
-            <CardTitle className="text-[14px] font-bold mb-3">Daily Summary — {histClass} • {histSubject}</CardTitle>
+          <Card className="p-4 rounded-[24px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-md text-white shadow-lg">
+            <CardTitle className="text-[14px] font-bold mb-3 text-white">Daily Summary — {histClass} • {histSubject}</CardTitle>
             <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
               {Object.entries(historyStats.byDate).sort((a,b)=>a[0].localeCompare(b[0])).slice(-14).map(([date, stats]) => {
                 const total = stats.present + stats.late + stats.absent
                 const rate = total ? Math.round(((stats.present + stats.late) / total) * 100) : 0
                 return (
-                  <div key={date} className="min-w-[90px] rounded-2xl p-3 border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-center">
-                    <div className="text-[9px] font-bold uppercase text-muted-foreground">{date.slice(5)}</div>
-                    <div className={`text-[18px] font-black mt-1 ${rate >= 80 ? 'text-emerald-500' : rate >= 60 ? 'text-amber-500' : 'text-rose-500'}`}>{rate}%</div>
+                  <div key={date} className="min-w-[90px] rounded-2xl p-3 border border-white/10 bg-white/[0.05] text-center">
+                    <div className="text-[9px] font-bold uppercase text-white/50">{date.slice(5)}</div>
+                    <div className={`text-[18px] font-black mt-1 ${rate >= 80 ? 'text-emerald-400' : rate >= 60 ? 'text-amber-400' : 'text-rose-400'}`}>{rate}%</div>
                     <div className="mt-1 flex gap-0.5 justify-center text-[9px] font-bold">
-                      <span className="text-emerald-500">P{stats.present}</span>
-                      <span className="text-amber-500 ml-1">L{stats.late}</span>
-                      <span className="text-rose-500 ml-1">A{stats.absent}</span>
+                      <span className="text-emerald-400">P{stats.present}</span>
+                      <span className="text-amber-400 ml-1">L{stats.late}</span>
+                      <span className="text-rose-400 ml-1">A{stats.absent}</span>
                     </div>
                   </div>
                 )
@@ -1390,43 +1406,43 @@ const handleQrScan = async (scannedText: string) => {
         )}
 
         {/* Records table (scrollable) */}
-        <Card className="rounded-[24px] border border-slate-200 dark:border-zinc-800 overflow-hidden">
-          <div className="p-4 border-b border-slate-200 dark:border-zinc-800 flex items-center justify-between">
-            <CardTitle className="text-[14px] font-bold">Detailed Records</CardTitle>
-            <span className="text-[11px] text-muted-foreground">{historyRecords.length} record(s)</span>
+        <Card className="rounded-[24px] border border-white/[0.08] bg-white/[0.04] backdrop-blur-md text-white shadow-lg overflow-hidden">
+          <div className="p-4 border-b border-white/10 flex items-center justify-between">
+            <CardTitle className="text-[14px] font-bold text-white">Detailed Records</CardTitle>
+            <span className="text-[11px] text-white/50">{historyRecords.length} record(s)</span>
           </div>
           <div className="max-h-[500px] overflow-auto scrollbar-thin">
             {historyRecords.length === 0 ? (
-              <div className="p-10 text-center text-muted-foreground text-sm">
+              <div className="p-10 text-center text-white/50 text-sm">
                 <HistoryIcon size={32} className="mx-auto mb-2 opacity-40"/>
                 No attendance records found for this filter. Mark attendance or adjust filters.
               </div>
             ) : (
               <table className="w-full text-[12px]">
-                <thead className="bg-slate-50 dark:bg-zinc-900/70 sticky top-0">
+                <thead className="bg-white/[0.05] sticky top-0">
                   <tr className="text-left">
-                    <th className="px-3 py-2.5 font-bold text-muted-foreground uppercase text-[10px]">Date</th>
-                    <th className="px-3 py-2.5 font-bold text-muted-foreground uppercase text-[10px]">Student</th>
-                    <th className="px-3 py-2.5 font-bold text-muted-foreground uppercase text-[10px] hidden sm:table-cell">Subject</th>
-                    <th className="px-3 py-2.5 font-bold text-muted-foreground uppercase text-[10px] hidden md:table-cell">Method</th>
-                    <th className="px-3 py-2.5 font-bold text-muted-foreground uppercase text-[10px]">Status</th>
+                    <th className="px-3 py-2.5 font-bold text-white/50 uppercase text-[10px]">Date</th>
+                    <th className="px-3 py-2.5 font-bold text-white/50 uppercase text-[10px]">Student</th>
+                    <th className="px-3 py-2.5 font-bold text-white/50 uppercase text-[10px] hidden sm:table-cell">Subject</th>
+                    <th className="px-3 py-2.5 font-bold text-white/50 uppercase text-[10px] hidden md:table-cell">Method</th>
+                    <th className="px-3 py-2.5 font-bold text-white/50 uppercase text-[10px]">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {historyRecords.map((r, i) => (
-                    <tr key={`${r.date}-${r.studentId}-${i}`} className="border-t border-slate-100 dark:border-zinc-800/80 hover:bg-slate-50/50 dark:hover:bg-zinc-800/40 transition">
-                      <td className="px-3 py-2.5 font-mono text-[11px] text-muted-foreground">{r.date}</td>
+                    <tr key={`${r.date}-${r.studentId}-${i}`} className="border-t border-white/5 hover:bg-white/[0.04] transition">
+                      <td className="px-3 py-2.5 font-mono text-[11px] text-white/50">{r.date}</td>
                       <td className="px-3 py-2.5">
-                        <div className="font-bold">{r.studentName}</div>
-                        <div className="text-[10px] text-muted-foreground">Roll {r.rollNumber} • {r.className}-{r.section}</div>
+                        <div className="font-bold text-white">{r.studentName}</div>
+                        <div className="text-[10px] text-white/50">Roll {r.rollNumber} • {r.className}-{r.section}</div>
                       </td>
-                      <td className="px-3 py-2.5 hidden sm:table-cell text-muted-foreground">{r.subject}</td>
-                      <td className="px-3 py-2.5 hidden md:table-cell text-[10px] uppercase font-bold text-muted-foreground">{r.method || 'manual'}</td>
+                      <td className="px-3 py-2.5 hidden sm:table-cell text-white/60">{r.subject}</td>
+                      <td className="px-3 py-2.5 hidden md:table-cell text-[10px] uppercase font-bold text-white/50">{r.method || 'manual'}</td>
                       <td className="px-3 py-2.5">
                         <span className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-black ${
-                          r.status === 'present' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300' :
-                          r.status === 'late' ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300' :
-                          'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300'
+                          r.status === 'present' ? 'bg-emerald-500/20 text-emerald-300' :
+                          r.status === 'late' ? 'bg-amber-500/20 text-amber-300' :
+                          'bg-rose-500/20 text-rose-300'
                         }`}>
                           {r.status.toUpperCase()}
                         </span>

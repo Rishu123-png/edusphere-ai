@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Card, CardContent, CardTitle } from '@/components/ui/card'
+import { Card, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -21,7 +21,6 @@ import PageHeader from '@/components/mobile/PageHeader'
 import {
   Award,
   TrendingUp,
-  TrendingDown,
   FileDown,
   Sparkles,
   AlertTriangle,
@@ -92,7 +91,7 @@ type LocalMarkState = {
 }
 
 type MarksTree = Record<string, Record<string, MarksEntry>>
-type AttendanceMap = Record<string, any>
+type AttendanceMap = Record<string, Record<string, { status?: string } | undefined>>
 
 const EXAM_LABELS: Record<ExamType, string> = {
   unit_test: 'Unit Test',
@@ -171,8 +170,10 @@ export default function MarksPage() {
 
   const isTeacher = profile?.role === 'teacher'
   const isAdmin = profile?.role === 'school_admin' || profile?.role === 'super_admin'
+  const isStudentOrParent = profile?.role === 'student' || profile?.role === 'parent'
+  const canEdit = isTeacher || isAdmin
 
-  /* ---------- teacher scope ---------- */
+  /* ---------- teacher / student / parent scope ---------- */
   const teacherClasses = useMemo(() => {
     if (!isTeacher) return [] as string[]
     return Array.from(new Set([
@@ -217,10 +218,25 @@ export default function MarksPage() {
 
   /* ---------- visibility filter ---------- */
   const visibleStudents = useMemo(() => {
-    if (!isTeacher) return allStudents
-    if (!teacherClasses.length) return allStudents
-    return allStudents.filter(s => teacherClasses.includes(getClassKey(s)))
-  }, [allStudents, isTeacher, teacherClasses])
+    // Student/parent: only show the student's own record (matched by email or admissionNumber on the profile)
+    if (isStudentOrParent) {
+      const myEmail = (profile?.email || '').toLowerCase().trim()
+      const profileAny = profile as unknown as Record<string, unknown> | null
+      const myAdm = String(profileAny?.admissionNumber || '').trim()
+      return allStudents.filter(s => {
+        if (s.id === profile?.uid) return true
+        const sAny = s as Record<string, unknown>
+        const semail = String(sAny.email || '').toLowerCase().trim()
+        if (myEmail && semail === myEmail) return true
+        if (myAdm && (s.admissionNumber === myAdm)) return true
+        return false
+      })
+    }
+    if (isTeacher && teacherClasses.length) {
+      return allStudents.filter(s => teacherClasses.includes(getClassKey(s)))
+    }
+    return allStudents
+  }, [allStudents, isTeacher, teacherClasses, isStudentOrParent, profile])
 
   const classOptions = useMemo(
     () => Array.from(new Set(visibleStudents.map(getClassKey).filter(Boolean))).sort(),
@@ -367,14 +383,18 @@ export default function MarksPage() {
   }
 
   const clearAll = () => {
-    if (!confirm('Clear all marks for this class/subject/exam?')) return
+    if (!canEdit) { toast.error('You do not have permission to edit marks'); return }
+    if (!window.confirm('Clear all marks for this class/subject/exam?')) return
     setMarksMap({})
     toast.info('Cleared local marks — press Publish to clear server values if needed.')
   }
 
   const applyGrace = () => {
-    const pts = Number(prompt('Add grace marks (1–10)?', '3'))
-    if (!Number.isFinite(pts) || pts <= 0) return
+    if (!canEdit) { toast.error('You do not have permission to edit marks'); return }
+    const raw = window.prompt('Add grace marks (1–10)?', '3')
+    if (raw === null) return
+    const pts = Number(raw)
+    if (!Number.isFinite(pts) || pts <= 0) { toast.error('Enter a valid positive number'); return }
     setMarksMap(prev => {
       const next = { ...prev }
       students.forEach(s => {
@@ -414,20 +434,22 @@ export default function MarksPage() {
       if (r.status) return true
       return typeof r.obtained === 'number'
     })
+    if (!canEdit) { toast.error('You do not have permission to save marks'); return }
     if (!ready.length) { toast.error('Enter marks for at least one student'); return }
     if (isTeacher && teacherClasses.length && !teacherClasses.includes(classSel)) {
       toast.error('You can only enter marks for your assigned classes'); return
     }
+    const safeMax = Math.max(5, Math.min(300, Math.round(maxMarks) || 80))
+    if (safeMax !== maxMarks) setMaxMarks(safeMax)
     const outOfRange = ready.find(s => {
       const r = marksMap[s.id]!
-      return !r.status && (typeof r.obtained==='number' && (r.obtained<0 || r.obtained>maxMarks))
+      return !r.status && (typeof r.obtained==='number' && (r.obtained<0 || r.obtained>safeMax))
     })
-    if (outOfRange) { toast.error(`${outOfRange.name}'s marks must be between 0 and ${maxMarks}`); return }
+    if (outOfRange) { toast.error(`${outOfRange.name}'s marks must be between 0 and ${safeMax}`); return }
 
-    const updates: Record<string, any> = {}
+    const updates: Record<string, unknown> = {}
     const date = todayIST()
     const now = Date.now()
-    let published = 0
 
     for (const st of ready) {
       const r = marksMap[st.id]!
@@ -436,22 +458,23 @@ export default function MarksPage() {
         .filter(([,m]) => m.subject===subject && m.examType===exam)
         .sort(([,a],[,b])=>Number(b.updatedAt||b.createdAt||0)-Number(a.updatedAt||a.createdAt||0))[0]
       const id = found?.[0] || generateId('mark_')
-      const pct = r.status ? 0 : Math.round((Number(r.obtained)/maxMarks)*1000)/10
-      const grade = r.status ? 'AB' : gradeFromMarks(Number(r.obtained), maxMarks)
+      const obtainedNum = r.status ? 0 : Number(r.obtained)
+      const pct = r.status ? 0 : Math.round((obtainedNum/safeMax)*1000)/10
+      const grade = r.status ? 'AB' : gradeFromMarks(obtainedNum, safeMax)
       const record: MarksEntry = {
         id, schoolId: sid, studentId: st.id, studentName: st.name || '',
         className: st.className||'', section: st.section||'',
         subject, examType: exam,
-        marksObtained: r.status ? 0 : Number(r.obtained),
-        maxMarks, percentage: pct, grade,
-        remarks: r.remarks, status: r.status || 'present',
+        marksObtained: obtainedNum,
+        maxMarks: safeMax, percentage: pct, grade,
+        remarks: (r.remarks || '').slice(0, 500),
+        status: r.status || 'present',
         enteredBy: profile?.uid||'', enteredByName: profile?.displayName||profile?.name||profile?.email||'',
         enteredByRole: profile?.role||'',
         date, publishStatus,
         createdAt: found?.[1]?.createdAt || now, updatedAt: now,
       }
       updates[`schools/${sid}/marks/${st.id}/${id}`] = record
-      if (publishStatus === 'published') published++
     }
 
     try {
@@ -472,24 +495,31 @@ export default function MarksPage() {
 
   const sendParentWhatsApp = (st: StudentRow) => {
     const phone = (st.guardianPhone||'').replace(/\D/g,'')
-    if (!phone) { toast.error(`No guardian phone for ${st.name}`); return }
+    if (!phone || phone.length < 7) { toast.error(`Invalid guardian phone for ${st.name || 'student'}`); return }
     const r = marksMap[st.id]
-    const pct = r && typeof r.obtained==='number' ? Math.round((r.obtained/maxMarks)*100) : 0
-    const grade = r?.status ? 'Absent' : gradeFromMarks(pct,100)
-    const text = `Dear ${st.guardianName||'Parent'},%0A%0A` +
-      `${st.name}'s marks for *${subject}* (${EXAM_LABELS[exam]}, ${classSel}):%0A` +
-      `Marks: ${r?.status ? 'ABSENT' : `${r?.obtained}/${maxMarks} (${pct}%)`}%0A` +
-      `Grade: ${grade}%0A` +
-      (r?.remarks ? `Teacher remark: ${r.remarks}%0A` : '') +
-      `%0A— EduSphere AI`
-    window.open(`https://wa.me/${phone}?text=${text}`, '_blank')
+    const obtained = r && !r.status && typeof r.obtained==='number' ? r.obtained : null
+    const pct = obtained != null ? Math.round((obtained/maxMarks)*100) : 0
+    const grade = r?.status ? 'Absent (AB)' : gradeFromMarks(pct,100)
+    const lines = [
+      `Dear ${st.guardianName||'Parent'},`,
+      '',
+      `${st.name}'s marks for ${subject} (${EXAM_LABELS[exam]}, ${classSel}):`,
+      `Marks: ${r?.status ? 'ABSENT' : `${obtained ?? '—'}/${maxMarks} (${pct}%)`}`,
+      `Grade: ${grade}`,
+      r?.remarks ? `Teacher remark: ${r.remarks}` : '',
+      '',
+      '— EduSphere AI',
+    ].filter(Boolean).join('\n')
+    const url = `https://wa.me/${phone}?text=${encodeURIComponent(lines)}`
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 
   const bulkWhatsApp = () => {
     const targets = numericMarks.filter(m => m.percent < PASSING_PERCENT + 5)
     if (!targets.length) { toast.info('No at-risk students to notify'); return }
-    if (!confirm(`Send WhatsApp to ${targets.length} at-risk parents? This will open ${targets.length} tabs.`)) return
-    targets.forEach((m,i) => setTimeout(()=>sendParentWhatsApp(m.student), i*350))
+    if (targets.length > 10) { toast.error('Too many at-risk students — notify individually or reduce the list first.'); return }
+    if (!window.confirm(`Send WhatsApp to ${targets.length} at-risk parents? This will open ${targets.length} tabs.`)) return
+    targets.forEach((m,i) => window.setTimeout(()=>sendParentWhatsApp(m.student), i*350))
   }
 
   const exportCsv = () => {
@@ -575,12 +605,11 @@ export default function MarksPage() {
     const s = new Set<string>(['All'])
     DEFAULT_SUBJECTS.forEach(x => s.add(x))
     teacherSubjects.forEach(x => s.add(x))
-    allStudents.forEach(() => {})
     Object.values(savedMarksTree).forEach(recs => {
-      Object.values(recs || {}).forEach((r: any) => { if (r.subject) s.add(r.subject) })
+      Object.values(recs || {}).forEach((r) => { if (r && r.subject) s.add(String(r.subject)) })
     })
-    return Array.from(s)
-  }, [savedMarksTree, teacherSubjects, allStudents])
+    return Array.from(s).sort()
+  }, [savedMarksTree, teacherSubjects])
 
   const historyRecords = useMemo(() => {
     const days = histRange === 'all' ? Infinity : Number(histRange)
@@ -633,39 +662,55 @@ export default function MarksPage() {
   const closeEdit = () => setEditing(null)
 
   const saveEdit = async () => {
+    if (!canEdit) { toast.error('You do not have permission to edit marks'); return }
     if (!editing) return
     const sid = schoolId || profile?.schoolId
     if (!sid) return
-    const valid = editStatus ? true : (typeof editMarks === 'number' && editMarks >= 0 && editMarks <= editMax)
-    if (!valid) { toast.error(`Marks must be 0–${editMax}`); return }
-    const pct = editStatus ? 0 : Math.round((Number(editMarks)/editMax)*1000)/10
-    const grade = editStatus ? 'AB' : gradeFromMarks(Number(editMarks), editMax)
-    await update(ref(db), {
-      [`schools/${sid}/marks/${editing.studentId}/${editing.id}`]: {
-        ...editing,
-        marksObtained: editStatus ? 0 : Number(editMarks),
-        maxMarks: editMax,
-        percentage: pct,
-        grade,
-        remarks: editRemarks,
-        status: editStatus || 'present',
-        updatedAt: Date.now(),
-      }
-    })
-    toast.success('Marks updated')
-    closeEdit()
+    if (isTeacher && teacherClasses.length) {
+      const ck = getClassKey({ className: editing.className, section: editing.section })
+      if (ck && !teacherClasses.includes(ck)) { toast.error('You can only edit marks for your assigned classes'); return }
+    }
+    const safeEditMax = Math.max(5, Math.min(300, Math.round(editMax) || 100))
+    const valid = editStatus ? true : (typeof editMarks === 'number' && editMarks >= 0 && editMarks <= safeEditMax)
+    if (!valid) { toast.error(`Marks must be 0–${safeEditMax}`); return }
+    const obtainedNum = editStatus ? 0 : Number(editMarks)
+    const pct = editStatus ? 0 : Math.round((obtainedNum/safeEditMax)*1000)/10
+    const grade = editStatus ? 'AB' : gradeFromMarks(obtainedNum, safeEditMax)
+    try {
+      await update(ref(db), {
+        [`schools/${sid}/marks/${editing.studentId}/${editing.id}`]: {
+          ...editing,
+          marksObtained: obtainedNum,
+          maxMarks: safeEditMax,
+          percentage: pct,
+          grade,
+          remarks: (editRemarks || '').slice(0, 500),
+          status: editStatus || 'present',
+          updatedAt: Date.now(),
+        }
+      })
+      toast.success('Marks updated')
+      closeEdit()
+    } catch {
+      toast.error('Update failed — check your connection.')
+    }
   }
 
   const deleteRecord = async (r: MarksEntry) => {
-    if (!confirm(`Delete marks for ${r.studentName || r.studentId} (${r.subject} ${EXAM_LABELS[r.examType]})? This cannot be undone.`)) return
+    if (!canEdit) { toast.error('You do not have permission to delete marks'); return }
+    if (isTeacher && teacherClasses.length) {
+      const ck = getClassKey({ className: r.className, section: r.section })
+      if (ck && !teacherClasses.includes(ck)) { toast.error('You can only delete marks for your assigned classes'); return }
+    }
+    if (!window.confirm(`Delete marks for ${r.studentName || r.studentId} (${r.subject} ${EXAM_LABELS[r.examType]})? This cannot be undone.`)) return
     const sid = schoolId || profile?.schoolId
     if (!sid) return
     try {
       setDeleting(true)
       await remove(ref(db, `schools/${sid}/marks/${r.studentId}/${r.id}`))
       toast.success('Record deleted')
-    } catch (e) {
-      toast.error('Delete failed')
+    } catch {
+      toast.error('Delete failed — check your connection.')
     } finally { setDeleting(false) }
   }
 
@@ -690,15 +735,17 @@ export default function MarksPage() {
   return <div className="page-container space-y-4">
     <PageHeader
       title="Marks & Analytics"
-      subtitle={`Smart grading • AI insights • Weighted CGPA • Report cards`}
+      subtitle={canEdit ? 'Smart grading • AI insights • Weighted CGPA • Report cards' : 'View marks • AI insights • Report cards'}
       action={<div className="flex gap-2">
         <Button variant="outline" size="sm" className="rounded-full h-10 border-white/15 bg-white/5 text-white hover:bg-white/10" onClick={exportCsv}>
           <FileDown size={14} className="mr-1"/> CSV
         </Button>
-        <Button variant="gradient" size="sm" className="rounded-full h-10 px-5" onClick={()=>save('published')} disabled={saving||publishing}>
-          {publishing ? <Lock className="mr-1 animate-pulse" size={14}/> : <Send size={14} className="mr-1"/>}
-          {publishing ? 'Publishing…' : 'Publish'}
-        </Button>
+        {canEdit && (
+          <Button variant="gradient" size="sm" className="rounded-full h-10 px-5" onClick={()=>save('published')} disabled={saving||publishing}>
+            {publishing ? <Lock className="mr-1 animate-pulse" size={14}/> : <Send size={14} className="mr-1"/>}
+            {publishing ? 'Publishing…' : 'Publish'}
+          </Button>
+        )}
       </div>}
     />
 
@@ -747,7 +794,9 @@ export default function MarksPage() {
         </select>
         <div className="flex items-center gap-2 h-11 rounded-full px-3 bg-white/10 border border-white/15">
           <span className="text-[11px] text-white/50 font-bold whitespace-nowrap">OUT OF</span>
-          <input type="number" min={10} max={200} value={maxMarks} onChange={e=>setMaxMarks(Number(e.target.value)||100)}
+          <input type="number" min={10} max={200} value={maxMarks}
+            onChange={e=>{ const v = Number(e.target.value); setMaxMarks(Number.isFinite(v) && v > 0 ? v : 80) }}
+            onBlur={()=>setMaxMarks(Math.max(10, Math.min(200, Math.round(maxMarks)||80)))}
             className="w-14 bg-transparent text-white font-bold text-[13px] outline-none text-center"/>
         </div>
         <Button variant="ghost" size="sm" className="h-11 rounded-full text-white/70 hover:bg-white/10" onClick={()=>setShowWeights(v=>!v)}>
@@ -783,16 +832,16 @@ export default function MarksPage() {
       {/* Bulk actions */}
       <div className="flex gap-2 flex-wrap">
         <Button size="sm" variant="outline" className="rounded-full h-9 text-[12px] border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
-          onClick={markAllAbsent} disabled={!unmarked.length}>
+          onClick={markAllAbsent} disabled={!canEdit || !unmarked.length}>
           <X size={13} className="mr-1"/> Mark {unmarked.length} unmarked Absent
         </Button>
-        <Button size="sm" variant="outline" className="rounded-full h-9 text-[12px] border-white/10 bg-white/5 text-white/80 hover:bg-white/10" onClick={applyGrace}>
+        <Button size="sm" variant="outline" className="rounded-full h-9 text-[12px] border-white/10 bg-white/5 text-white/80 hover:bg-white/10" onClick={applyGrace} disabled={!canEdit}>
           <Sparkles size={13} className="mr-1"/> Grace marks
         </Button>
-        <Button size="sm" variant="outline" className="rounded-full h-9 text-[12px] border-white/10 bg-white/5 text-white/80 hover:bg-white/10" onClick={clearAll}>
+        <Button size="sm" variant="outline" className="rounded-full h-9 text-[12px] border-white/10 bg-white/5 text-white/80 hover:bg-white/10" onClick={clearAll} disabled={!canEdit}>
           <X size={13} className="mr-1"/> Clear
         </Button>
-        <Button size="sm" variant="outline" className="rounded-full h-9 text-[12px] border-rose-400/30 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20"
+        <Button size="sm" variant="outline" className="rounded-full h-9 text-[12px] border-emerald-400/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20"
           onClick={bulkWhatsApp}>
           <Send size={13} className="mr-1"/> WhatsApp at-risk
         </Button>
@@ -872,7 +921,7 @@ export default function MarksPage() {
       </div>
 
       <div className="divide-y divide-white/5 max-h-[600px] overflow-y-auto scrollbar-thin">
-        {students.map((s, idx) => {
+        {students.map((s) => {
           const r = marksMap[s.id] || { obtained: '' as const, status: '' as SpecialStatus, remarks: '' }
           const hasMark = typeof r.obtained === 'number'
           const pct: number = hasMark && !r.status && typeof r.obtained === 'number'
@@ -926,20 +975,24 @@ export default function MarksPage() {
                 <div className="flex items-center gap-1.5 shrink-0">
                   <Input
                     type="number" min={0} max={maxMarks}
-                    disabled={!!r.status}
+                    disabled={!canEdit || !!r.status}
+                    readOnly={!canEdit}
                     value={r.status ? '' : (r.obtained ?? '')}
                     onChange={e=>setMark(s.id, { obtained: parseMarkInput(e.target.value), status: '' })}
                     className={cn("w-16 h-10 rounded-xl text-center font-bold text-[14px] bg-white/10 border-white/15 text-white",
-                      isAtRisk && "border-rose-400/50 text-rose-200")}
+                      isAtRisk && "border-rose-400/50 text-rose-200", !canEdit && "opacity-80")}
                   />
-                  <button
-                    onClick={()=>setMark(s.id, { status: r.status === 'absent' ? '' : 'absent' })}
-                    className={cn("h-10 px-2 rounded-xl text-[10px] font-bold border transition",
-                      r.status==='absent' ? 'bg-rose-500 text-white border-rose-400' : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10')}
-                    title="Mark absent">AB</button>
+                  {canEdit ? (
+                    <button
+                      onClick={()=>setMark(s.id, { status: r.status === 'absent' ? '' : 'absent' })}
+                      className={cn("h-10 px-2 rounded-xl text-[10px] font-bold border transition",
+                        r.status==='absent' ? 'bg-rose-500 text-white border-rose-400' : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10')}
+                      title="Mark absent">AB</button>
+                  ) : null}
                   <button
                     onClick={()=>setSelectedStudent(isExpanded?null:s.id)}
-                    className="h-10 w-10 grid place-items-center rounded-xl bg-white/5 border border-white/10 text-white/70 hover:bg-white/10">
+                    className="h-10 w-10 grid place-items-center rounded-xl bg-white/5 border border-white/10 text-white/70 hover:bg-white/10"
+                    aria-label="Toggle details">
                     <ChevronRight size={16} className={cn("transition", isExpanded && "rotate-90")}/>
                   </button>
                 </div>
@@ -947,17 +1000,20 @@ export default function MarksPage() {
 
               {isExpanded && (
                 <div className="mt-3 ml-[52px] space-y-2 animate-fade-in">
-                  <div className="flex flex-wrap gap-1.5">
-                    {REMARK_PRESETS.map(rp=>(
-                      <button key={rp} onClick={()=>setMark(s.id, { remarks: rp })}
-                        className={cn("px-2.5 py-1 rounded-full text-[10.5px] border",
-                          r.remarks===rp ? "bg-cyan-500/20 border-cyan-400/40 text-cyan-200" : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10")}>
-                        {rp}
-                      </button>
-                    ))}
-                  </div>
+                  {canEdit && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {REMARK_PRESETS.map(rp=>(
+                        <button key={rp} onClick={()=>setMark(s.id, { remarks: rp })}
+                          className={cn("px-2.5 py-1 rounded-full text-[10.5px] border",
+                            r.remarks===rp ? "bg-cyan-500/20 border-cyan-400/40 text-cyan-200" : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10")}>
+                          {rp}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <Input placeholder="Custom remark…" value={r.remarks||''}
-                    onChange={e=>setMark(s.id, { remarks: e.target.value })}
+                    onChange={e=>canEdit && setMark(s.id, { remarks: e.target.value })}
+                    readOnly={!canEdit}
                     className="h-9 rounded-xl bg-white/5 border-white/10 text-white text-[12px]"/>
                   <div className="flex items-center gap-2 flex-wrap pt-1">
                     <Button size="sm" variant="outline" className="h-8 rounded-full text-[11px] border-white/10 bg-white/5 text-white/80"
@@ -986,19 +1042,21 @@ export default function MarksPage() {
         )}
       </div>
 
-      <div className="p-4 flex items-center gap-2 flex-wrap border-t border-white/10 bg-black/20">
-        <Button variant="outline" className="rounded-full h-11 border-white/10 bg-white/5 text-white hover:bg-white/10"
-          onClick={()=>save('draft')} disabled={saving||publishing}>
-          <Clock size={15} className="mr-1"/> {saving?'Saving…':'Save draft'}
-        </Button>
-        <Button variant="outline" className="rounded-full h-11 border-white/10 bg-white/5 text-white hover:bg-white/10"
-          onClick={()=>save('submitted')} disabled={saving||publishing}>
-          <CheckCircle2 size={15} className="mr-1"/> Submit to admin
-        </Button>
-        <Button variant="gradient" className="rounded-full h-11 font-bold ml-auto" onClick={()=>save('published')} disabled={saving||publishing}>
-          <Send size={15} className="mr-1"/> {publishing?'Publishing…':'Publish to parents'}
-        </Button>
-      </div>
+      {canEdit && (
+        <div className="p-4 flex items-center gap-2 flex-wrap border-t border-white/10 bg-black/20">
+          <Button variant="outline" className="rounded-full h-11 border-white/10 bg-white/5 text-white hover:bg-white/10"
+            onClick={()=>save('draft')} disabled={saving||publishing}>
+            <Clock size={15} className="mr-1"/> {saving?'Saving…':'Save draft'}
+          </Button>
+          <Button variant="outline" className="rounded-full h-11 border-white/10 bg-white/5 text-white hover:bg-white/10"
+            onClick={()=>save('submitted')} disabled={saving||publishing}>
+            <CheckCircle2 size={15} className="mr-1"/> Submit to admin
+          </Button>
+          <Button variant="gradient" className="rounded-full h-11 font-bold ml-auto" onClick={()=>save('published')} disabled={saving||publishing}>
+            <Send size={15} className="mr-1"/> {publishing?'Publishing…':'Publish to parents'}
+          </Button>
+        </div>
+      )}
     </Card>
 
     {/* === BOTTOM CARDS: TOPPERS + AT RISK + CGPA TABLE === */}
@@ -1211,16 +1269,18 @@ export default function MarksPage() {
                       {!r.status || r.status==='present' ? <span className="text-[10px] text-white/50">{pct}%</span> : null}
                     </div>
                   </div>
-                  <div className="flex flex-col gap-1">
-                    <button onClick={()=>openEdit(r)} title="Edit"
-                      className="h-8 w-8 grid place-items-center rounded-lg bg-white/5 border border-white/10 text-cyan-300 hover:bg-cyan-500/20">
-                      <Pencil size={12}/>
-                    </button>
-                    <button onClick={()=>deleteRecord(r)} disabled={deleting} title="Delete"
-                      className="h-8 w-8 grid place-items-center rounded-lg bg-white/5 border border-white/10 text-rose-300 hover:bg-rose-500/20 disabled:opacity-40">
-                      <Trash2 size={12}/>
-                    </button>
-                  </div>
+                  {canEdit && (
+                    <div className="flex flex-col gap-1">
+                      <button onClick={()=>openEdit(r)} title="Edit"
+                        className="h-8 w-8 grid place-items-center rounded-lg bg-white/5 border border-white/10 text-cyan-300 hover:bg-cyan-500/20">
+                        <Pencil size={12}/>
+                      </button>
+                      <button onClick={()=>deleteRecord(r)} disabled={deleting} title="Delete"
+                        className="h-8 w-8 grid place-items-center rounded-lg bg-white/5 border border-white/10 text-rose-300 hover:bg-rose-500/20 disabled:opacity-40">
+                        <Trash2 size={12}/>
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             )
@@ -1251,8 +1311,9 @@ export default function MarksPage() {
                 </div>
                 <div>
                   <label className="text-[11px] font-bold text-white/60">Out of (max)</label>
-                  <input type="number" min={1} max={200} value={editMax} disabled={!!editStatus}
-                    onChange={e=>setEditMax(Number(e.target.value)||100)}
+                  <input type="number" min={5} max={300} value={editMax} disabled={!!editStatus}
+                    onChange={e=>{ const v = Number(e.target.value); setEditMax(Number.isFinite(v) && v > 0 ? v : 100) }}
+                    onBlur={()=>setEditMax(Math.max(5, Math.min(300, Math.round(editMax)||100)))}
                     className="mt-1 w-full h-11 rounded-xl bg-white/10 border border-white/15 px-3 text-white font-bold outline-none"/>
                 </div>
               </div>

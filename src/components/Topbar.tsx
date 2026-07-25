@@ -1,3 +1,4 @@
+
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from './ui/button'
 import { Menu, Bell, Sparkles } from 'lucide-react'
@@ -5,6 +6,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import MobileDrawer from './mobile/MobileDrawer'
 import QuickSearch from './QuickSearch'
+import PendingSyncBanner from './PendingSyncBanner'
 
 export default function Topbar() {
   const { profile, logout } = useAuth()
@@ -57,6 +59,7 @@ export default function Topbar() {
         </div>
       </header>
       <MobileDrawer open={mobileOpen} onOpenChange={setMobileOpen} />
+      <PendingSyncBanner />
     </>
   )
 }

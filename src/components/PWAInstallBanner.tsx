@@ -52,7 +52,7 @@ export default function PWAInstallBanner() {
   if (!visible && !showIosHint) return null
 
   return (
-    <div className="fixed left-3 right-3 z-[65]" style={{ bottom: 'calc(100px + env(safe-area-inset-bottom))' }}>
+    <div className="fixed left-3 right-3 z-[65] md:bottom-24" style={{ bottom: 'calc(180px + env(safe-area-inset-bottom))' }}>
       <div className="mx-auto max-w-md rounded-[20px] bg-[#0c1125]/90 backdrop-blur-xl border border-cyan-400/30 shadow-2xl p-3 flex items-center gap-3">
         <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-cyan-400 to-indigo-600 flex items-center justify-center shrink-0">
           <Smartphone size={20} className="text-white" />

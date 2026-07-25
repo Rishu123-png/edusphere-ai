@@ -6,6 +6,8 @@ import AmbientBackground from './mobile/AmbientBackground'
 import InteractiveCanvas from './mobile/InteractiveCanvas'
 import FloatingAIAssistant from './mobile/FloatingAIAssistant'
 import { AnimePageTransition } from './AnimeWrapper'
+import PendingSyncBanner from './PendingSyncBanner'
+import PWAInstallBanner from './PWAInstallBanner'
 
 export default function Layout() {
   return (
@@ -15,6 +17,7 @@ export default function Layout() {
       <Sidebar />
       <div className="relative z-[1] flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden">
         <Topbar />
+        <PendingSyncBanner />
         <main className="mobile-main w-full max-w-7xl mx-auto flex-1">
           <AnimePageTransition>
             <div className="space-y-6 w-full">
@@ -24,6 +27,7 @@ export default function Layout() {
         </main>
       </div>
       <FloatingAIAssistant />
+      <PWAInstallBanner />
       <BottomNav />
     </div>
   )

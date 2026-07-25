@@ -1,9 +1,10 @@
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from './ui/button'
-import { Menu, Bell, Search, Sparkles } from 'lucide-react'
+import { Menu, Bell, Sparkles } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import MobileDrawer from './mobile/MobileDrawer'
+import QuickSearch from './QuickSearch'
 
 export default function Topbar() {
   const { profile, logout } = useAuth()
@@ -31,13 +32,16 @@ export default function Topbar() {
 
         <div className="flex items-center gap-1.5">
           <div className="hidden md:flex items-center gap-2 pl-2 border-l border-white/10 ml-1">
-            <Button variant="ghost" size="icon" className="rounded-full relative text-white/70 hover:text-white">
-              <Bell size={18}/>
-              <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full" />
-            </Button>
-            <Button variant="ghost" size="icon" className="rounded-full text-white/70 hover:text-white">
-              <Search size={18}/>
-            </Button>
+            <QuickSearch />
+            <Link to="/notifications" aria-label="Notifications">
+              <Button variant="ghost" size="icon" className="rounded-full relative text-white/70 hover:text-white">
+                <Bell size={18}/>
+                <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full" />
+              </Button>
+            </Link>
+          </div>
+          <div className="flex md:hidden items-center gap-1.5">
+            <QuickSearch />
           </div>
           <div className="text-right hidden lg:block mr-1 ml-2">
             <div className="text-[13px] font-semibold leading-none">{profile?.displayName}</div>

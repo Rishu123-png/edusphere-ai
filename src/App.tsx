@@ -139,7 +139,7 @@ export default function App(){
           <Route path="/attendance" element={<RequireAuth allow={['super_admin','school_admin','teacher']}><PageSuspense><AttendancePage/></PageSuspense></RequireAuth>}/>
           <Route path="/marks" element={<RequireAuth allow={['super_admin','school_admin','teacher','student','parent']}><PageSuspense><MarksPage/></PageSuspense></RequireAuth>}/>
           <Route path="/ai" element={<PageSuspense><AIPage/></PageSuspense>}/>
-          <Route path="/schedule" element={<RequireAuth allow={['super_admin','school_admin','teacher']}><PageSuspense><SchedulePage/></PageSuspense></RequireAuth>}/>
+          <Route path="/schedule" element={<PageSuspense><SchedulePage/></PageSuspense>}/>
           <Route path="/notifications" element={<PageSuspense><NotificationsPage/></PageSuspense>}/>
           <Route path="/whatsapp" element={<RequireAuth allow={['super_admin','school_admin','teacher']}><PageSuspense><WhatsAppPage/></PageSuspense></RequireAuth>}/>
           <Route path="/reports" element={<RequireAuth allow={['super_admin','school_admin','teacher']}><PageSuspense><ReportsPage/></PageSuspense></RequireAuth>}/>

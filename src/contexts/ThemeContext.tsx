@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
 
-type Theme = 'light' | 'dark' | 'system'
+type Theme = 'light' | 'dark'
 type ResolvedTheme = 'light' | 'dark'
 
 const ThemeContext = createContext<{
@@ -10,30 +10,29 @@ const ThemeContext = createContext<{
   toggle: () => void
 } | null>(null)
 
-function getSystemTheme(): ResolvedTheme {
-  if (typeof window === 'undefined' || !window.matchMedia) return 'light'
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-}
-
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  // EduSphere AI ships with a single premium deep-space dark theme. The
-  // ThemeContext is kept for API compatibility (other components call
-  // useTheme()), but user-selectable Light/System themes are disabled
-  // because most screens use hard-coded deep-space glass styles that are
-  // not designed for light backgrounds. This prevents the white-on-white
-  // / dark-on-dark breakage users saw when flipping to Light mode.
-  const theme: Theme = 'dark'
-  const resolvedTheme: ResolvedTheme = 'dark'
+  // Default theme is deep-space dark. A plain high-contrast light mode is
+  // available for teachers who grade for hours and want bright backgrounds.
+  // The light mode intentionally uses plain opaque surfaces (no glass) so
+  // there is no white-on-white or transparency bleed.
+  const [theme, setThemeState] = useState<Theme>(() => {
+    if (typeof window === 'undefined') return 'dark'
+    try {
+      const stored = localStorage.getItem('edusphere-theme') as Theme | null
+      return stored === 'light' ? 'light' : 'dark'
+    } catch { return 'dark' }
+  })
+  const resolvedTheme: ResolvedTheme = theme
 
   useEffect(() => {
     try {
       if (typeof document === 'undefined') return
       const root = document.documentElement
-      root.classList.remove('light')
-      root.classList.add('dark')
-      root.style.colorScheme = 'dark'
-      try { localStorage.setItem('edusphere-theme', 'dark') } catch { /* private mode */ }
-      const themeColor = '#0b0f1a'
+      root.classList.remove('light','dark')
+      root.classList.add(resolvedTheme)
+      root.style.colorScheme = resolvedTheme
+      try { localStorage.setItem('edusphere-theme', resolvedTheme) } catch { /* private mode */ }
+      const themeColor = resolvedTheme === 'dark' ? '#0b0f1a' : '#ffffff'
       document.querySelectorAll('meta[name="theme-color"]').forEach(meta => {
         meta.setAttribute('content', themeColor)
       })
@@ -41,14 +40,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // ignore
     }
-  }, [])
+  }, [resolvedTheme])
 
-  const setTheme = useCallback((_t: Theme) => {
-    // no-op: dark only
-  }, [])
-  const toggle = useCallback(() => {
-    // no-op: dark only
-  }, [])
+  const setTheme = useCallback((t: Theme) => { setThemeState(t === 'light' ? 'light' : 'dark') }, [])
+  const toggle = useCallback(() => { setThemeState(prev => prev === 'dark' ? 'light' : 'dark') }, [])
 
   return (
     <ThemeContext.Provider value={{ theme, resolvedTheme, setTheme, toggle }}>

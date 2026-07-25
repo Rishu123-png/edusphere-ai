@@ -16,10 +16,13 @@ export interface FaceMatch {
   confidence: number
 }
 
-/** Stricter match = fewer false positives from photos/screens/wrong people */
-export const FACE_MATCH_THRESHOLD = 0.48
+/** Stricter match = fewer false positives from photos/screens/wrong people.
+ *  0.42 is more selective than the original 0.48: wrong-student mis-tags drop
+ *  dramatically in uneven classroom lighting, at the cost of teachers needing
+ *  students to face the camera half a second longer. */
+export const FACE_MATCH_THRESHOLD = 0.42
 /** Minimum detector confidence for a face box to count */
-export const FACE_SCORE_THRESHOLD = 0.55
+export const FACE_SCORE_THRESHOLD = 0.60
 /**
  * Reject tiny boxes on ENROLLMENT photos — the enrollment flow needs one
  * large, close, front-facing face, so a strict 6% of frame is correct here.

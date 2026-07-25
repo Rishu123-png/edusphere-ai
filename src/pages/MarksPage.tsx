@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Card, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -269,6 +269,12 @@ export default function MarksPage() {
   }, [attendanceAll])
 
   /* ---------- prefill from Firebase ---------- */
+  // lastCompositeRef remembers the last (school|class|subject|exam) combo for
+  // which we loaded data so the draft-restore only fires ONCE per switch — it
+  // must NOT re-fire on every live Firebase update, otherwise it overwrites
+  // what the teacher is typing right now with stale draft/seed data.
+  const lastCompositeRef = useRef<string>('')
+
   useEffect(() => {
     const next: Record<string, LocalMarkState> = {}
     for (const st of students) {
@@ -283,14 +289,21 @@ export default function MarksPage() {
       }
     }
     setMarksMap(next)
+  // Seeds the map whenever the students/savedMarks/subject/exam change. Draft
+  // restore is done in a separate effect below to avoid overwriting typing.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [students, savedMarksTree, subject, exam])
 
-    // Restore draft if present (after initial load from server) — only for drafts
-    // newer than 15 minutes and matching current class/subject/exam.
-    if (students.length && schoolId) {
-      const key = `${schoolId}|${classSel || ''}|${subject}|${exam}`
-      const d = loadDraft(key)
-      if (d && Date.now() - d.savedAt < 15*60*1000 && d.entries) {
-        const draftNext = { ...next }
+  // One-time draft restore when switching class/subject/exam or first landing.
+  useEffect(() => {
+    if (!students.length || !schoolId) return
+    const key = `${schoolId}|${classSel || ''}|${subject}|${exam}`
+    if (lastCompositeRef.current === key) return
+    lastCompositeRef.current = key
+    const d = loadDraft(key)
+    if (d && Date.now() - d.savedAt < 15*60*1000 && d.entries) {
+      setMarksMap(prev => {
+        const draftNext = { ...prev }
         let restored = 0
         for (const sid of Object.keys(d.entries)) {
           if (students.find(s=>s.id===sid)) {
@@ -299,14 +312,14 @@ export default function MarksPage() {
           }
         }
         if (restored > 0) {
-          setMarksMap(draftNext)
           toast.info(`Restored ${restored} unsaved mark(s) from your last session.`)
         }
-      }
-      if (d && typeof d.maxMarks === 'string' && Number(d.maxMarks)) setMaxMarks(Number(d.maxMarks))
+        return draftNext
+      })
     }
+    if (d && typeof d.maxMarks === 'string' && Number(d.maxMarks)) setMaxMarks(Number(d.maxMarks))
     pruneDrafts()
-  }, [students, savedMarksTree, subject, exam])
+  }, [students, schoolId, classSel, subject, exam])
 
   // Auto-save draft to localStorage every 4 seconds while typing
   useEffect(() => {

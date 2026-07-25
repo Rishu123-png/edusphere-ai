@@ -1078,10 +1078,14 @@ const handleQrScan = async (scannedText: string) => {
         {/* Bulk action shortcuts */}
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <button onClick={() => {
+            const prev = { ...marks }
             const all: Record<string,string> = {}
             students.forEach(s => { all[s.id] = 'present' })
             setMarks({...marks, ...all})
-            toast.success(`Marked all ${students.length} present — tap exceptions before saving.`)
+            toast.success(`Marked all ${students.length} present — tap exceptions before saving.`, {
+              duration: 5000,
+              action: { label: 'Undo', onClick: () => setMarks(prev) }
+            })
           }}
             className="rounded-full px-3 py-1.5 text-[11px] font-semibold bg-emerald-500/15 border border-emerald-400/30 text-emerald-200">
             Mark all present
@@ -1089,15 +1093,19 @@ const handleQrScan = async (scannedText: string) => {
           <button onClick={() => {
             const unmarked = students.filter(s => !['present','late','absent'].includes(marks[s.id]))
             if (!unmarked.length) { toast.info('Every student is already marked.'); return }
+            const prev = { ...marks }
             const upd = {...marks}
             unmarked.forEach(s => { upd[s.id] = 'absent' })
             setMarks(upd)
-            toast.success(`Marked ${unmarked.length} unmarked student(s) absent.`)
+            toast.success(`Marked ${unmarked.length} unmarked student(s) absent.`, {
+              duration: 5000,
+              action: { label: 'Undo', onClick: () => setMarks(prev) }
+            })
           }}
             className="rounded-full px-3 py-1.5 text-[11px] font-semibold bg-rose-500/15 border border-rose-400/30 text-rose-200">
             Mark remaining absent
           </button>
-          <button onClick={() => { if(confirm('Clear all marks for today?')) setMarks({}) }}
+          <button onClick={() => { if(confirm('Clear all marks for today?')) { const prev={...marks}; setMarks({}); toast.success('Roster cleared.',{duration:4000,action:{label:'Undo',onClick:()=>setMarks(prev)}}); } }}
             className="rounded-full px-3 py-1.5 text-[11px] font-semibold bg-white/5 border border-white/10 text-white/70">
             Reset
           </button>

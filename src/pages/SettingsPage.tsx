@@ -320,9 +320,9 @@ export default function SettingsPage(){
               <>
                 <div className="flex items-center gap-2">
                   <select value={idClassSel} onChange={e=>setIdClassSel(e.target.value)}
-                    className="flex-1 h-10 rounded-full bg-white/15 border border-white/20 px-3 text-[12px] text-white outline-none">
-                    {classOptions.map(c => <option key={c} value={c} className="bg-slate-900 text-white">{c}</option>)}
-                    <option value="" className="bg-slate-900 text-white">All classes</option>
+                    className="flex-1 h-10 rounded-full bg-white/15 border border-white/20 dark:bg-white/15 bg-slate-100 text-slate-900 dark:text-white px-3 text-[12px] outline-none">
+                    {classOptions.map(c => <option key={c} value={c}>{c}</option>)}
+                    <option value="">All classes</option>
                   </select>
                   <Button size="sm" variant="outline" className="rounded-full h-10 bg-white/10 border-white/20 text-white" onClick={downloadIdCards}>
                     <IdCard size={14} className="mr-1"/> ID cards

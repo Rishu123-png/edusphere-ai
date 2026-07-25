@@ -214,9 +214,11 @@ export default function SettingsPage(){
             <p className="mt-2 text-[13px] text-white/85 leading-relaxed">Theme switching, glass surfaces, safer role-aware data access and cleaner contact cards are now tuned for small screens.</p>
           </div>
           <ul className="space-y-2 text-[12px] text-white/90">
-            <li>• Better contrast in light mode and dark mode.</li>
-            <li>• Theme toggle now stays visible on mobile top bar.</li>
+            <li>• Deep-space dark theme with richer glass surfaces and contrast.</li>
+            <li>• Theme is locked to a single consistent look across every device.</li>
             <li>• School admin contact no longer needs broad user-list reads.</li>
+            <li>• Tighter teacher, student and parent permissions across marks.</li>
+            <li>• Hardened Firebase rules and one-tap feature brochure (below).</li>
           </ul>
           <Button variant="gradient" size="sm" className="mt-3 rounded-full"
             onClick={() => {

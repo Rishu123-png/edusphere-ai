@@ -60,16 +60,45 @@
     color-scheme: dark;
     width: 100%;
     min-height: 100dvh;
-    /* DO NOT lock overflow here — let pages that sit outside Layout
-       (Login/Onboarding) scroll the document naturally. The app-shell
-       (Layout) uses position:fixed + internal scroller instead. */
     margin: 0;
   }
   body { background: var(--brand-bg); color: var(--brand-text); }
-  /* Force dark theme regardless of user/system toggle — the entire UI is
-     authored against the deep-space palette and does not ship light vars. */
-  html { color-scheme: dark !important; }
-  html.light { color-scheme: dark !important; }
+  /* Light mode: plain high-contrast colors for long grading sessions. */
+  html.light {
+    color-scheme: light !important;
+    --brand-bg: #f6f7fb;
+    --brand-text: #0f172a;
+    --brand-muted: #64748b;
+  }
+  html.light body { background: #f6f7fb; color: #0f172a; }
+  html.light .app-shell, html.light .mobile-main { background: #f6f7fb; }
+  html.light .card-premium,
+  html.light .kpi-card,
+  html.light [class*="bg-white/"],
+  html.light .bg-\[\\\#0c1125\]\/90,
+  html.light .bg-\[\\\#050816\]\/85 {
+    background: #ffffff !important;
+    border-color: #e2e8f0 !important;
+    color: #0f172a !important;
+    backdrop-filter: none !important;
+    box-shadow: 0 2px 10px rgba(15,23,42,.05) !important;
+  }
+  html.light .text-white { color: #0f172a !important; }
+  html.light .text-white\/90, html.light .text-white\/85 { color: #1e293b !important; }
+  html.light .text-white\/70 { color: #475569 !important; }
+  html.light .text-white\/60 { color: #64748b !important; }
+  html.light .text-white\/50, html.light .text-white\/40, html.light .text-white\/30 { color: #94a3b8 !important; }
+  html.light .border-white\/10, html.light .border-white\/\[0\.06\], html.light .border-white\/\[0\.08\] { border-color: #e2e8f0 !important; }
+  html.light .bg-white\/5, html.light .bg-white\/\[0\.04\] { background: #f1f5f9 !important; }
+  html.light .bg-white\/10 { background: #e2e8f0 !important; }
+  html.light .bg-\[\\\#050816\], html.light .bg-\[\\\#0c1125\], html.light .bg-\[\\\#0b0f1a\] { background: #ffffff !important; }
+  html.light input, html.light textarea, html.light select { background: #ffffff; color:#0f172a; border-color:#cbd5e1; }
+  html.light .mobile-topbar { background: rgba(255,255,255,0.95) !important; border-color:#e2e8f0 !important; }
+  html.light .mobile-topbar .text-white, html.light .mobile-topbar .text-white\/80 { color:#0f172a !important; }
+  html.light .mobile-drawer, html.light .sidebar-nav { background:#ffffff !important; color:#0f172a; }
+  html.light .bottom-nav { background: rgba(255,255,255,0.95) !important; border-color:#e2e8f0 !important; }
+  html.light .bottom-nav button, html.light .bottom-nav a { color:#64748b; }
+  html.light .bottom-nav .active { color:#4f46e5; }
   #root {
     -webkit-overflow-scrolling: touch;
   }

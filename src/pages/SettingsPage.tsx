@@ -5,11 +5,12 @@ import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSchool } from '@/contexts/SchoolContext'
 import PageHeader from '@/components/mobile/PageHeader'
-import { Moon, School, Bell, User, Palette, ShieldCheck, Mail, Phone, Sparkles } from 'lucide-react'
+import { Moon, School, Bell, User, Palette, ShieldCheck, Mail, Phone, Sparkles, FileDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { getFriendlyError } from '@/lib/errors'
 import { db } from '@/lib/firebase'
 import { ref, get } from 'firebase/database'
+import { generateFeatureBrochure } from '@/lib/brochurePdf'
 
 export default function SettingsPage(){
   const { theme, setTheme, resolvedTheme, toggle } = useTheme()
@@ -217,6 +218,18 @@ export default function SettingsPage(){
             <li>• Theme toggle now stays visible on mobile top bar.</li>
             <li>• School admin contact no longer needs broad user-list reads.</li>
           </ul>
+          <Button variant="gradient" size="sm" className="mt-3 rounded-full"
+            onClick={() => {
+              try {
+                const safeName = (school?.name || 'EduSphere-AI').replace(/[^\w\-]+/g, '_')
+                generateFeatureBrochure(`${safeName}-EduSphere-Features.pdf`)
+                toast.success('Feature brochure downloaded — share it with your principal!')
+              } catch {
+                toast.error('Could not generate PDF right now. Try again.')
+              }
+            }}>
+            <FileDown size={14} className="mr-2" /> Download feature brochure (PDF)
+          </Button>
         </CardContent>
       </Card>
     </div>

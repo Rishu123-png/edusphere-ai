@@ -17,7 +17,6 @@ export default function Layout() {
       <Sidebar />
       <div className="relative z-[1] flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden">
         <Topbar />
-        <PendingSyncBanner />
         <main className="mobile-main w-full max-w-7xl mx-auto flex-1">
           <AnimePageTransition>
             <div className="space-y-6 w-full">

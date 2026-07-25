@@ -63,6 +63,7 @@ import {
   CartesianGrid,
 } from 'recharts'
 import { askAssistant } from '@/lib/gemini'
+import { saveDraft, loadDraft, clearDraft, pruneDrafts } from '@/lib/marksDraft'
 
 const DEFAULT_SUBJECTS = [
   'Mathematics', 'Science', 'English', 'Social Science', 'Hindi',
@@ -282,7 +283,40 @@ export default function MarksPage() {
       }
     }
     setMarksMap(next)
+
+    // Restore draft if present (after initial load from server) — only for drafts
+    // newer than 15 minutes and matching current class/subject/exam.
+    if (students.length && schoolId) {
+      const key = `${schoolId}|${classSel || ''}|${subject}|${exam}`
+      const d = loadDraft(key)
+      if (d && Date.now() - d.savedAt < 15*60*1000 && d.entries) {
+        const draftNext = { ...next }
+        let restored = 0
+        for (const sid of Object.keys(d.entries)) {
+          if (students.find(s=>s.id===sid)) {
+            draftNext[sid] = { ...(draftNext[sid] || {obtained:'',status:'',remarks:''}), ...d.entries[sid] }
+            restored++
+          }
+        }
+        if (restored > 0) {
+          setMarksMap(draftNext)
+          toast.info(`Restored ${restored} unsaved mark(s) from your last session.`)
+        }
+      }
+      if (d && typeof d.maxMarks === 'string' && Number(d.maxMarks)) setMaxMarks(Number(d.maxMarks))
+    }
+    pruneDrafts()
   }, [students, savedMarksTree, subject, exam])
+
+  // Auto-save draft to localStorage every 4 seconds while typing
+  useEffect(() => {
+    if (!schoolId || !classSel) return
+    const t = window.setTimeout(() => {
+      const key = `${schoolId}|${classSel}|${subject}|${exam}`
+      saveDraft(key, { entries: marksMap, maxMarks: String(maxMarks), savedAt: Date.now() })
+    }, 1500)
+    return () => window.clearTimeout(t)
+  }, [marksMap, maxMarks, schoolId, classSel, subject, exam])
 
   /* ---------- stats ---------- */
   const numericMarks = useMemo(() => {
@@ -447,6 +481,19 @@ export default function MarksPage() {
     })
     if (outOfRange) { toast.error(`${outOfRange.name}'s marks must be between 0 and ${safeMax}`); return }
 
+    // Low-mark confirmation before publishing (warn teacher before sending fail marks to parents)
+    if (publishStatus === 'published') {
+      const veryLow = ready.filter(s => {
+        const r = marksMap[s.id]!
+        if (r.status) return false
+        const pct = (Number(r.obtained)/safeMax)*100
+        return pct < 33
+      })
+      if (veryLow.length > 0 && !window.confirm(`${veryLow.length} student(s) are below 33%. Publish anyway?`)) {
+        return
+      }
+    }
+
     const updates: Record<string, unknown> = {}
     const date = todayIST()
     const now = Date.now()
@@ -485,6 +532,8 @@ export default function MarksPage() {
         ? `✓ Published ${ready.length} marks — visible to parents`
         : `Saved ${ready.length} marks (draft)`)
       navigator.vibrate?.(50)
+      // Clear the draft for this class/subject/exam after a successful save
+      if (schoolId && classSel) clearDraft(`${schoolId}|${classSel}|${subject}|${exam}`)
     } catch (e) {
       console.error(e)
       toast.error('Save failed — check your connection.')
@@ -1044,6 +1093,20 @@ export default function MarksPage() {
 
       {canEdit && (
         <div className="p-4 flex items-center gap-2 flex-wrap border-t border-white/10 bg-black/20">
+          <Button variant="outline" className="rounded-full h-11 border-white/10 bg-white/5 text-white hover:bg-white/10"
+            onClick={() => {
+              const unmarked = students.filter(s => {
+                const r = marksMap[s.id]
+                return !r || (typeof r.obtained!=='number' && !r.status)
+              })
+              if (!unmarked.length) { toast.info('Every student already has a mark.'); return }
+              const upd = { ...marksMap }
+              unmarked.forEach(s => { upd[s.id] = { ...(upd[s.id] || {obtained:'',remarks:''}), status: 'absent' as const } })
+              setMarksMap(upd)
+              toast.success(`Marked ${unmarked.length} remaining student(s) AB (absent).`)
+            }}>
+            Mark remaining AB
+          </Button>
           <Button variant="outline" className="rounded-full h-11 border-white/10 bg-white/5 text-white hover:bg-white/10"
             onClick={()=>save('draft')} disabled={saving||publishing}>
             <Clock size={15} className="mr-1"/> {saving?'Saving…':'Save draft'}

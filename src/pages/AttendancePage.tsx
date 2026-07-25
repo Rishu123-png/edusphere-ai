@@ -1075,6 +1075,33 @@ const handleQrScan = async (scannedText: string) => {
 
       {/* TAB 1: MANUAL & ROSTER */}
       <TabsContent value="manual" className="mt-4">
+        {/* Bulk action shortcuts */}
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <button onClick={() => {
+            const all: Record<string,string> = {}
+            students.forEach(s => { all[s.id] = 'present' })
+            setMarks({...marks, ...all})
+            toast.success(`Marked all ${students.length} present — tap exceptions before saving.`)
+          }}
+            className="rounded-full px-3 py-1.5 text-[11px] font-semibold bg-emerald-500/15 border border-emerald-400/30 text-emerald-200">
+            Mark all present
+          </button>
+          <button onClick={() => {
+            const unmarked = students.filter(s => !['present','late','absent'].includes(marks[s.id]))
+            if (!unmarked.length) { toast.info('Every student is already marked.'); return }
+            const upd = {...marks}
+            unmarked.forEach(s => { upd[s.id] = 'absent' })
+            setMarks(upd)
+            toast.success(`Marked ${unmarked.length} unmarked student(s) absent.`)
+          }}
+            className="rounded-full px-3 py-1.5 text-[11px] font-semibold bg-rose-500/15 border border-rose-400/30 text-rose-200">
+            Mark remaining absent
+          </button>
+          <button onClick={() => { if(confirm('Clear all marks for today?')) setMarks({}) }}
+            className="rounded-full px-3 py-1.5 text-[11px] font-semibold bg-white/5 border border-white/10 text-white/70">
+            Reset
+          </button>
+        </div>
         {/* Roster + sticky Save bar live in a single flex column so the
             padding at the bottom of the roster is sized to the Save bar,
             guaranteeing the LAST student's Present/Late/Absent buttons are

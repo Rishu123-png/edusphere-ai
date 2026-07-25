@@ -1,5 +1,6 @@
 
 import ModuleArchitectureBanner from '@/components/ModuleArchitectureBanner'
+import BirthdayBanner from '@/components/BirthdayBanner'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSchool } from '@/contexts/SchoolContext'
@@ -165,6 +166,9 @@ export default function DashboardPage(){
 
   return (
     <div className="page-container space-y-6">
+      {/* Birthday banner — only shows if a student has a birthday today */}
+      <BirthdayBanner students={students} />
+
       {/* anime.js spring entrance */}
       <AnimeEntrance delay={70}>
         {/* ===== HERO SECTION ===== */}

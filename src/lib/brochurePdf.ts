@@ -2,29 +2,29 @@
 import jsPDF from 'jspdf'
 
 // ===========================================================================
-// EDUSPHERE AI  —  15-PAGE PREMIUM FEATURE BROCHURE
+// EDUSPHERE AI  -  15-PAGE PREMIUM FEATURE BROCHURE
 // Crafted by Rishu Jaswar. All diagrams drawn with vector primitives (no
 // raster assets) so the PDF stays crisp and prints beautifully at any size.
 // ===========================================================================
 
 type RGB = [number,number,number]
 const C = {
-  bg:        [9,11,27]     as RGB,
-  panel:     [17,22,46]    as RGB,
-  panel2:    [24,30,60]    as RGB,
-  panel3:    [31,38,72]    as RGB,
-  indigo:    [79,70,229]   as RGB,
-  violet:    [124,58,237]  as RGB,
-  fuchsia:   [168,85,247]  as RGB,
+  bg:        [11,14,32]    as RGB,
+  panel:     [22,28,56]    as RGB,
+  panel2:    [30,37,70]    as RGB,
+  panel3:    [38,46,84]    as RGB,
+  indigo:    [99,102,241]  as RGB,
+  violet:    [139,92,246]  as RGB,
+  fuchsia:   [217,70,239]  as RGB,
   cyan:      [34,211,238]  as RGB,
   emerald:   [16,185,129]  as RGB,
   amber:     [245,158,11]  as RGB,
   rose:      [244,63,94]   as RGB,
-  gold:      [252,211,77]  as RGB,
+  gold:      [250,204,21]   as RGB,
   white:     [255,255,255] as RGB,
-  white90:   [230,235,250] as RGB,
-  white70:   [185,195,220] as RGB,
-  white50:   [135,145,175] as RGB,
+  white90:   [240,244,255] as RGB,
+  white70:   [215,223,245] as RGB,
+  white50:   [165,176,210] as RGB,
   white20:   [255,255,255] as RGB,
 }
 
@@ -64,8 +64,8 @@ function bullet(doc:jsPDF,t:string,x:number,y:number,maxW:number,color=C.cyan,si
 }
 function pageBg(doc:jsPDF){
   fill(doc,C.bg); doc.rect(0,0,W,H,'F')
-  op(doc,0.35); fill(doc,C.fuchsia); el(doc,175,25,60,30); fill(doc,C.cyan); el(doc,25,275,55,28); fill(doc,C.indigo); el(doc,105,148,75,45); op(doc,1)
-  op(doc,0.05); doc.setDrawColor(255,255,255); doc.setLineWidth(0.1)
+  op(doc,0.40); fill(doc,C.fuchsia); el(doc,175,25,60,30); fill(doc,C.cyan); el(doc,25,275,55,28); fill(doc,C.indigo); el(doc,105,148,75,45); op(doc,1)
+  op(doc,0.035); doc.setDrawColor(255,255,255); doc.setLineWidth(0.1)
   for (let x=0;x<=W;x+=10) doc.line(x,0,x,H)
   for (let y=0;y<=H;y+=10) doc.line(0,y,W,y)
   op(doc,1)
@@ -74,7 +74,7 @@ function header(doc:jsPDF,n:string,eyebrow:string,title:string){
   op(doc,0.5); fill(doc,C.cyan); doc.rect(20,18,30,0.8,'F'); op(doc,1)
   txt(doc,eyebrow.toUpperCase(),20,26,8.5,C.cyan,true)
   txt(doc,title,20,39,20,C.white,true)
-  txt(doc,`EduSphere AI  •  Feature Brochure  •  ${n}`,190,287,7.5,C.white50,false,{align:'right'})
+  txt(doc,`EduSphere AI  *  Feature Brochure  *  ${n}`,190,287,7.5,C.white50,false,{align:'right'})
   txt(doc,'Crafted by Rishu Jaswar',190,292,7,C.gold,true,{align:'right'})
 }
 function h2(doc:jsPDF,t:string,x:number,y:number,color=C.cyan){ txt(doc,t,x,y,12,color,true) }
@@ -196,18 +196,18 @@ function p1_cover(doc:jsPDF){
   })
   txt(doc,'Crafted & designed by',105,242,8,C.white50,false,{align:'center'})
   txt(doc,'Rishu Jaswar',105,252,15,C.gold,true,{align:'center'})
-  txt(doc,'Feature Brochure  •  v2.1',105,282,8,C.white50,false,{align:'center'})
+  txt(doc,'Feature Brochure  |  v2.2',105,282,8,C.white50,false,{align:'center'})
 }
 
 function p2_welcome(doc:jsPDF){
   pageBg(doc); header(doc,'02','Welcome','The Vision')
-  wrap(doc,'EduSphere AI is a modern school management platform designed and built by Rishu Jaswar to bring every part of a school — attendance, marks, reports, parents, students and teachers — into one beautiful, easy-to-use, mobile-first experience powered by artificial intelligence.',20,52,170,11.5,6)
+  wrap(doc,'EduSphere AI is a modern school management platform designed and built by Rishu Jaswar to bring every part of a school - attendance, marks, reports, parents, students and teachers - into one beautiful, easy-to-use, mobile-first experience powered by artificial intelligence.',20,52,170,11.5,6)
   h2(doc,'Built for every person in your school',20,78)
   const roles=[
-    {name:'Principal',color:C.violet,desc:'See the whole school at a glance, approve marks, view reports and push announcements to every classroom.',icon:'♛'},
-    {name:'Teachers',color:C.cyan,desc:'Mark attendance, enter marks, send WhatsApp to parents, and get AI teaching tips — all from a phone.',icon:'✎'},
-    {name:'Students',color:C.emerald,desc:'View personal marks and attendance, ask the AI tutor for help with topics, and see upcoming exams.',icon:'●'},
-    {name:'Parents',color:C.amber,desc:'Get marks and absences on WhatsApp, open a dedicated parent portal, and follow their child\'s progress easily.',icon:'♥'},
+    {name:'Principal',color:C.violet,desc:'See the whole school at a glance, approve marks, view reports and push announcements to every classroom.',icon:'P'},
+    {name:'Teachers',color:C.cyan,desc:'Mark attendance, enter marks, send WhatsApp to parents, and get AI teaching tips - all from a phone.',icon:'T'},
+    {name:'Students',color:C.emerald,desc:'View personal marks and attendance, ask the AI tutor for help with topics, and see upcoming exams.',icon:'S'},
+    {name:'Parents',color:C.amber,desc:'Get marks and absences on WhatsApp, open a dedicated parent portal, and follow their child\'s progress easily.',icon:'F'},
   ]
   roles.forEach((r,i)=>{
     const col=i%2,row=Math.floor(i/2),x=20+col*85,y=88+row*38,w=80,h=34
@@ -220,11 +220,11 @@ function p2_welcome(doc:jsPDF){
   card(doc,20,170,170,70,C.violet)
   h2(doc,'Design philosophy',28,182,C.violet)
   const phil=[
-    'Mobile-first — works beautifully on Android Chrome; installable like a native app.',
-    'Deep-space glass theme — easy on the eyes during long staff hours and evening grading.',
-    'AI that helps, never confuses — the mascot is friendly, context-aware and explains everything.',
-    'Role-locked security — every user sees only what they are allowed to see.',
-    'Works on weak internet — attendance queues offline and syncs automatically.',
+    'Mobile-first - works beautifully on Android Chrome; installable like a native app.',
+    'Deep-space glass theme - easy on the eyes during long staff hours and evening grading.',
+    'AI that helps, never confuses - the mascot is friendly, context-aware and explains everything.',
+    'Role-locked security - every user sees only what they are allowed to see.',
+    'Works on weak internet - attendance queues offline and syncs automatically.',
     'Beautiful print-ready PDF report cards in one tap.',
   ]
   phil.forEach((t,i)=>{ const col=i%2,row=Math.floor(i/2); bullet(doc,t,28+col*82,192+row*11,78,col?C.fuchsia:C.cyan,8.8,5) })
@@ -253,8 +253,8 @@ function p3_dashboard(doc:jsPDF){
   bars.forEach((b,i)=>{fill(doc,b.c); rect(doc,30+i*7.5,155-b.v*0.2,5,b.v*0.2)})
   // ai tip
   fill(doc,C.fuchsia,0.2); rr(doc,28,165,50,24,3)
-  txt(doc,'✨ AI tip',31,172,6,C.fuchsia,true)
-  txt(doc,'3 students below 75% — send WhatsApp?',31,179,6,C.white70)
+  txt(doc,'[AI] AI tip',31,172,6,C.fuchsia,true)
+  txt(doc,'3 students below 75% - send WhatsApp?',31,179,6,C.white70)
   fill(doc,C.fuchsia); rr(doc,31,183,22,5,2); txt(doc,'Send now',42,186.5,5.5,C.white,true,{align:'center'})
   // home indicator
   fill(doc,C.white50,0.4); rr(doc,45,208,14,1.5,0.7)
@@ -269,10 +269,10 @@ function p3_dashboard(doc:jsPDF){
     {t:'Quick shortcuts',d:'One-tap buttons for Take Attendance, Enter Marks, Open AI, Reports.',c:C.cyan},
     {t:'Unread notifications',d:'A red dot on the bell shows items needing your attention.',c:C.rose},
   ]
-  items.forEach((it,i)=>bullet(doc,it.t+' — '+it.d,92,82+i*16,88,it.c,8.6,7))
+  items.forEach((it,i)=>bullet(doc,it.t+' - '+it.d,92,82+i*16,88,it.c,8.6,7))
   // bottom strip
   fill(doc,C.panel2,0.8); rr(doc,20,230,170,30,8)
-  txt(doc,'💡 Designed so a teacher can see everything they need within 5 seconds of opening the app.',26,243,9,C.white70,false)
+  txt(doc,'[i] Designed so a teacher can see everything they need within 5 seconds of opening the app.',26,243,9,C.white70,false)
   txt(doc,'Every tile reacts to your role. Principals see school-wide numbers; students see only their own.',26,252,8.2,C.white50,false)
 }
 
@@ -284,9 +284,9 @@ function p4_students(doc:jsPDF){
   // avatar
   fill(doc,C.violet); doc.circle(45,83,11,'F'); txt(doc,'A',45,87,14,C.white,true,{align:'center'})
   txt(doc,'Aarav Sharma',45,102,11,C.white,true,{align:'center'})
-  txt(doc,'Roll 12  •  Class 10-A2',45,110,7.5,C.white50,false,{align:'center'})
+  txt(doc,'Roll 12  *  Class 10-A2',45,110,7.5,C.white50,false,{align:'center'})
   chip(doc,'Active',38,117,C.emerald)
-  const info=[['Admission','DS-2041'],['Guardian','Mr. R. Sharma'],['Phone','+91 98••••123'],['Blood','O+'],['House','Blue']]
+  const info=[['Admission','DS-2041'],['Guardian','Mr. R. Sharma'],['Phone','+91 98****123'],['Blood','O+'],['House','Blue']]
   info.forEach(([k,v],i)=>{
     txt(doc,k,28,130+i*9,7,C.white50); txt(doc,v,55,130+i*9,8,C.white)
   })
@@ -304,12 +304,12 @@ function p4_students(doc:jsPDF){
     {t:'Class colour bands',d:'Students are grouped by class-section and colour-coded for quick scanning.',c:C.cyan},
     {t:'CSV export',d:'Pull a class list for the office anytime.',c:C.violet},
   ]
-  items.forEach((it,i)=>bullet(doc,it.t+' — '+it.d,105,78+i*12,85,it.c,8.4,5.3))
+  items.forEach((it,i)=>bullet(doc,it.t+' - '+it.d,105,78+i*12,85,it.c,8.4,5.3))
   // feature ribbon
   fill(doc,C.emerald,0.15); rr(doc,20,200,170,40,10)
-  fill(doc,C.emerald); doc.circle(32,218,4,'F'); txt(doc,'⚡',32,220,8,C.white,true,{align:'center'})
+  fill(doc,C.emerald); doc.circle(32,218,4,'F'); txt(doc,'[!]',32,220,8,C.white,true,{align:'center'})
   txt(doc,'Bulk face capture mode',42,214,10,C.emerald,true)
-  wrap(doc,'Capture every student\'s photo in minutes using the phone camera. The AI auto-crops faces, stores them, and links them to attendance — perfect for onboarding a new class at the start of the year.',42,222,140,8.5,4.2)
+  wrap(doc,'Capture every student\'s photo in minutes using the phone camera. The AI auto-crops faces, stores them, and links them to attendance - perfect for onboarding a new class at the start of the year.',42,222,140,8.5,4.2)
   txt(doc,'Crafted by Rishu Jaswar',175,254,7.5,C.gold,true,{align:'right'})
 }
 
@@ -337,13 +337,13 @@ function p5_teachers(doc:jsPDF){
     {t:'Email invite link',d:'Generate a one-click invite that pre-fills school code; works with Gmail app.',c:C.amber},
     {t:'Remove / promote',d:'Revoke access or promote a teacher to school admin.',c:C.rose},
   ]
-  items.forEach((it,i)=>bullet(doc,it.t+' — '+it.d,110,78+i*12,80,it.c,8.3,5.2))
-    // security strip
+  items.forEach((it,i)=>bullet(doc,it.t+' - '+it.d,110,78+i*12,80,it.c,8.3,5.2))
+  // security strip
   fill(doc,C.cyan,0.15); rr(doc,20,155,80,55,10)
-  txt(doc,'🔒 Role-locked by design',28,170,10,C.cyan,true)
+  txt(doc,'[Lock] Role-locked by design',28,170,10,C.cyan,true)
   wrap(doc,'A teacher can only enter marks and attendance for the classes and subjects assigned to them. Even if they try to access another class, the app blocks it before sending anything to the server.',28,178,68,8.3,4.2)
   fill(doc,C.gold,0.15); rr(doc,105,155,85,55,10)
-  txt(doc,'★ Smart defaults',113,170,10,C.gold,true)
+  txt(doc,'[*] Smart defaults',113,170,10,C.gold,true)
   wrap(doc,'First-time teachers get CBSE exam weightings pre-filled, a friendly onboarding coach, and the AI greets them on every screen with context-aware tips.',113,178,70,8.3,4.2)
   // lower row of feature cards
   const fcs=[
@@ -377,7 +377,7 @@ function p6_attendance(doc:jsPDF){
       phoneFrame(doc,xx,yy,42,80,C.amber)
       cameraViewfinder(doc,xx+4,yy+10,34,68)
       qrBlock(doc,xx+13,yy+30,16)
-      fill(doc,C.amber,0.85); rr(doc,xx+6,yy+70,30,6,2); txt(doc,'Scanning…',xx+21,yy+74,6,C.white,true,{align:'center'})
+      fill(doc,C.amber,0.85); rr(doc,xx+6,yy+70,30,6,2); txt(doc,'Scanning...',xx+21,yy+74,6,C.white,true,{align:'center'})
     }},
     {label:'AI Face Camera',x:118,color:C.emerald,draw:(xx:number,yy:number)=>{
       phoneFrame(doc,xx,yy,42,80,C.emerald)
@@ -387,7 +387,7 @@ function p6_attendance(doc:jsPDF){
       doc.setDrawColor(C.emerald[0],C.emerald[1],C.emerald[2]); doc.setLineWidth(0.6)
       const pts=[[18,30],[24,30],[17,36],[25,36],[21,40]]
       pts.forEach(p=>doc.circle(xx+p[0],yy+p[1],0.6,'F'))
-      fill(doc,C.emerald,0.85); rr(doc,xx+6,yy+70,30,6,2); txt(doc,'✓ Aarav S.',xx+21,yy+74,6,C.white,true,{align:'center'})
+      fill(doc,C.emerald,0.85); rr(doc,xx+6,yy+70,30,6,2); txt(doc,'OK Aarav S.',xx+21,yy+74,6,C.white,true,{align:'center'})
     }},
     {label:'Offline mode',x:166,color:C.violet,draw:(xx:number,yy:number)=>{
       phoneFrame(doc,xx,yy,42,80,C.violet)
@@ -396,14 +396,14 @@ function p6_attendance(doc:jsPDF){
       txt(doc,'Will sync when internet returns.',xx+21,yy+28,5.8,C.white50,false,{align:'center'})
       fill(doc,C.violet,0.3); rr(doc,xx+8,yy+42,26,20,2)
       txt(doc,'12 marked',xx+21,yy+50,7,C.cyan,true,{align:'center'})
-      txt(doc,'↻ Sync later',xx+21,yy+57,6,C.white50,false,{align:'center'})
+      txt(doc,'[R] Sync later',xx+21,yy+57,6,C.white50,false,{align:'center'})
     }},
   ]
-  modes.forEach(m=>{
+modes.forEach(m=>{
     m.draw(m.x,65)
     txt(doc,m.label,m.x+21,150,9,m.color,true,{align:'center'})
   })
-// features under the phones
+  // features under the phones
   h2(doc,'Every attendance feature you expect',20,165)
   const f=[
     'One-tap Present / Absent / Late / Half-day / Leave status',
@@ -417,12 +417,12 @@ function p6_attendance(doc:jsPDF){
   ]
   f.forEach((t,i)=>{ const col=i%2,row=Math.floor(i/2); bullet(doc,t,20+col*85,176+row*11,80,col?C.fuchsia:C.cyan,8.6,4.8) })
   fill(doc,C.rose,0.15); rr(doc,20,240,170,22,8)
-  txt(doc,'🔔 Absentee parent alerts',28,249,9,C.rose,true)
-  wrap(doc,'After saving attendance, send a polite pre-filled WhatsApp message to every absentee\'s guardian with one tap — no typing required.',28,255,160,8,3.5)
+  txt(doc,'[!] Absentee parent alerts',28,249,9,C.rose,true)
+  wrap(doc,'After saving attendance, send a polite pre-filled WhatsApp message to every absentee\'s guardian with one tap - no typing required.',28,255,160,8,3.5)
 }
 
 function p7_attendance_more(doc:jsPDF){
-  pageBg(doc); header(doc,'07','Attendance Deep-dive','Heatmap • History • QR')
+  pageBg(doc); header(doc,'07','Attendance Deep-dive','Heatmap * History * QR')
   // heatmap diagram
   h2(doc,'Attendance Heatmap',20,52)
   wrap(doc,'A colour-coded calendar shows every student\'s attendance history at a glance. Dark green means present, red means absent, amber late, grey not marked.',20,60,110,9,4.5)
@@ -439,7 +439,7 @@ function p7_attendance_more(doc:jsPDF){
     }
   }
   // legend
-  const lg=[{c:C.emerald,l:'Present'},{c:C.amber,l:'Late'},{c:C.rose,l:'Absent'},{c:C.panel3,l:'—'}]
+  const lg=[{c:C.emerald,l:'Present'},{c:C.amber,l:'Late'},{c:C.rose,l:'Absent'},{c:C.panel3,l:'-'}]
   lg.forEach((l,i)=>{fill(doc,l.c); rect(doc,hx+40+i*22,158,4,3); txt(doc,l.l,hx+46+i*22,162,6,C.white50)})
   // QR section right
   card(doc,120,52,70,80,C.amber)
@@ -461,7 +461,7 @@ function p7_attendance_more(doc:jsPDF){
     fill(doc,col,0.8); rr(doc,124,yy-1.5,18,5,1.2); txt(doc,r%2===0?'Present':'Absent',133,yy+2,5.5,C.white,true,{align:'center'})
     txt(doc,['Manual','QR','AI Cam','Manual','QR'][r],160,yy+2,6.5,C.white70)
   }
-  fill(doc,C.amber,0.2); rr(doc,28,245,60,7,2); txt(doc,'⇣ Export CSV',58,250,6,C.amber,true,{align:'center'})
+fill(doc,C.amber,0.2); rr(doc,28,245,60,7,2); txt(doc,'[v] Export CSV',58,250,6,C.amber,true,{align:'center'})
   fill(doc,C.rose,0.2); rr(doc,92,245,45,7,2); txt(doc,'WhatsApp all',114.5,250,6,C.rose,true,{align:'center'})
   wrap(doc,'Every record shows the method used (Manual / QR / AI Camera) so principals can trust the data.',145,252,45,7,3)
 }
@@ -472,7 +472,7 @@ function p8_marks(doc:jsPDF){
   // UI phone left
   phoneFrame(doc,22,65,65,130,C.amber)
   // class/subject
-  fill(doc,C.amber,0.2); rr(doc,26,74,57,9,3); txt(doc,'10-A2  •  Math  •  Mid-term',55,80,6.5,C.amber,true,{align:'center'})
+  fill(doc,C.amber,0.2); rr(doc,26,74,57,9,3); txt(doc,'10-A2  *  Math  *  Mid-term',55,80,6.5,C.amber,true,{align:'center'})
   // KPI row
   const k2=[['32/36','Entered',C.cyan],['68%','Avg',C.emerald],['92','High',C.violet],['4','At risk',C.rose]]
   k2.forEach((k,i)=>{const col=i%2,row=Math.floor(i/2); fill(doc,k[2] as RGB,0.18); rr(doc,27+col*28,85+row*14,26,12,2); txt(doc,k[0] as string,40+col*28,92+row*14,7,k[2] as RGB,true,{align:'center'})})
@@ -496,25 +496,25 @@ function p8_marks(doc:jsPDF){
   h2(doc,'Smart grade book',95,68)
   const items=[
     {t:'Pick class, subject, exam',d:'Unit Test, Assignment, Project, Practical, Mid-Term, Final, Internal.',c:C.cyan},
-    {t:'Max-marks field',d:'Editable out-of (default 80), with bounds validation (5–300).',c:C.amber},
+    {t:'Max-marks field',d:'Editable out-of (default 80), with bounds validation (5-300).',c:C.amber},
     {t:'Live KPIs',d:'Entered count, class average, pass %, median, highest and lowest.',c:C.emerald},
     {t:'Grade distribution chart',d:'Recharts bar chart coloured by CBSE grade bands, updates as you type.',c:C.violet},
     {t:'Toppers & At-risk cards',d:'Top 5 performers with gold/silver/bronze medals; students below 41% listed with WhatsApp.',c:C.gold},
     {t:'Absent (AB) toggle',d:'One tap marks a student absent; excluded from averages, noted as AB in reports.',c:C.rose},
     {t:'Grace marks & bulk-absent',d:'Add grace points across the class; mark remaining unmarked students absent in one tap.',c:C.amber},
-    {t:'Weighted CGPA',d:'CBSE weightings (UT 10%, Mid 30%, Final 40%…) combine into a live weighted percent.',c:C.cyan},
+    {t:'Weighted CGPA',d:'CBSE weightings (UT 10%, Mid 30%, Final 40%...) combine into a live weighted percent.',c:C.cyan},
     {t:'AI final prediction',d:'Linear regression on past marks + attendance predicts the final exam score with a confidence bar.',c:C.fuchsia},
-    {t:'Publish workflow',d:'Save draft → Submit to admin → Publish to parents, each step sends a notification.',c:C.emerald},
+    {t:'Publish workflow',d:'Save draft -> Submit to admin -> Publish to parents, each step sends a notification.',c:C.emerald},
   ]
-  items.forEach((it,i)=>bullet(doc,it.t+' — '+it.d,95,78+i*12,95,it.c,8.4,5))
+  items.forEach((it,i)=>bullet(doc,it.t+' - '+it.d,95,78+i*12,95,it.c,8.4,5))
 }
 
 function p9_marks_entry(doc:jsPDF){
-  pageBg(doc); header(doc,'09','Deep Grade Book','Entry • History • AI Insights')
+  pageBg(doc); header(doc,'09','Deep Grade Book','Entry * History * AI Insights')
   // left: AI insight card + remark chips
   card(doc,22,52,80,115,C.fuchsia)
-  txt(doc,'✨ AI Class Insight',30,65,11,C.fuchsia,true)
-  const lines=['• Class avg 68% — steady this week.','• Weak band: B2/C1 (35% of class).','• Review algebra fundamentals.','• Toppers: Priya, Aarav, Isha.','• 4 at-risk students — nudge parents.','• Add 10 MCQ revision in next class.']
+  txt(doc,'[AI] AI Class Insight',30,65,11,C.fuchsia,true)
+  const lines=['* Class avg 68% - steady this week.','* Weak band: B2/C1 (35% of class).','* Review algebra fundamentals.','* Toppers: Priya, Aarav, Isha.','* 4 at-risk students - nudge parents.','* Add 10 MCQ revision in next class.']
   lines.forEach((l,i)=>wrap(doc,l,30,76+i*11,68,8.2,4,C.white70))
   // remark chips
   txt(doc,'Remark presets',30,148,8,C.cyan,true)
@@ -523,7 +523,7 @@ function p9_marks_entry(doc:jsPDF){
     const col=i%3,row=Math.floor(i/3)
     fill(doc,C.cyan,0.15); rr(doc,30+col*24,152+row*9,22,6,2); txt(doc,c,41+col*24,156+row*9,5.5,C.cyan,true,{align:'center'})
   })
-// history table diagram
+  // history table diagram
   card(doc,108,52,82,115,C.cyan)
   txt(doc,'Marks History',116,65,11,C.cyan,true)
   const cols=['Date','Name','Sub','Marks','Gr']
@@ -537,12 +537,12 @@ function p9_marks_entry(doc:jsPDF){
     txt(doc,['92/100','85/100','67/80','44/80','88/100','AB'][i],165,yy+2,5.8,C.white)
     fill(doc,gc,0.8); rr(doc,180,yy-1.5,6,5,1); txt(doc,grd,183,yy+2,4.5,C.white,true,{align:'center'})
   }
-  fill(doc,C.cyan,0.2); rr(doc,115,150,28,7,2); txt(doc,'✎ Edit',129,155,6,C.cyan,true,{align:'center'})
-  fill(doc,C.rose,0.2); rr(doc,145,150,28,7,2); txt(doc,'🗑 Delete',159,155,6,C.rose,true,{align:'center'})
-  fill(doc,C.emerald,0.2); rr(doc,165,145,22,12,2); txt(doc,'⇣ CSV',176,153,6,C.emerald,true,{align:'center'})
+  fill(doc,C.cyan,0.2); rr(doc,115,150,28,7,2); txt(doc,'[E] Edit',129,155,6,C.cyan,true,{align:'center'})
+  fill(doc,C.rose,0.2); rr(doc,145,150,28,7,2); txt(doc,'[X] Delete',159,155,6,C.rose,true,{align:'center'})
+  fill(doc,C.emerald,0.2); rr(doc,165,145,22,12,2); txt(doc,'[v] CSV',176,153,6,C.emerald,true,{align:'center'})
   // bottom row
   fill(doc,C.emerald,0.15); rr(doc,22,175,80,45,10)
-  txt(doc,'🏆 Top Performers',30,187,10,C.gold,true)
+  txt(doc,'[Top] Top Performers',30,187,10,C.gold,true)
   const medalColors:RGB[]=[C.gold,[200,205,220],C.amber]
   for(let i=0;i<3;i++){
     fill(doc,medalColors[i] as RGB); doc.circle(38+i*20,203,5,'F')
@@ -550,13 +550,13 @@ function p9_marks_entry(doc:jsPDF){
     txt(doc,['Priya','Aarav','Isha'][i],38+i*20,213,6,C.white,true,{align:'center'})
   }
   fill(doc,C.rose,0.15); rr(doc,108,175,82,45,10)
-  txt(doc,'⚠ At-risk students',116,187,10,C.rose,true)
+  txt(doc,'[!] At-risk students',116,187,10,C.rose,true)
   wrap(doc,'Four students are below the passing threshold. Tap the WhatsApp icon beside any name to instantly open a pre-written message to their guardian. The AI can even draft a personalised message.',116,197,70,8,4)
 }
 
 function p10_pdf_whatsapp(doc:jsPDF){
   pageBg(doc); header(doc,'10','Sharing Results','Report Cards & WhatsApp')
-  wrap(doc,'Once marks are entered, EduSphere can print a full report card or send a WhatsApp to parents in one tap — no separate software needed.',20,50,170,10,5.2)
+  wrap(doc,'Once marks are entered, EduSphere can print a full report card or send a WhatsApp to parents in one tap - no separate software needed.',20,50,170,10,5.2)
   // PDF doc diagram
   card(doc,22,63,85,150,C.violet)
   // PDF sheet
@@ -580,7 +580,7 @@ function p10_pdf_whatsapp(doc:jsPDF){
     txt(doc,r[0] as string,33,yy,5.3,[20,25,50]); txt(doc,String(r[1]),56,yy,5.3,[20,25,50],false,{align:'center'}); txt(doc,String(r[2]),66,yy,5.3,[20,25,50],false,{align:'center'})
     txt(doc,r[3] as string,78,yy,5.3,C.cyan,true,{align:'center'})
   })
-// totals
+  // totals
   fill(doc,[220,225,245]); rect(doc,32,155,65,7,'F')
   txt(doc,'TOTAL:  400 / 373  (93.2%)   Grade A+   GPA 10',64.5,160,6,[20,25,50],true,{align:'center'})
   // signatures
@@ -596,17 +596,17 @@ function p10_pdf_whatsapp(doc:jsPDF){
   whatsappBubble(doc,120,100,65,'Dear Parent,')
   whatsappBubble(doc,120,118,65,'Aarav scored 87/100 (A2) in Math Mid-term. Great work!')
   whatsappBubble(doc,120,140,65,'Teacher remark: Excellent performance.')
-  whatsappBubble(doc,120,162,65,'— EduSphere AI')
+  whatsappBubble(doc,120,162,65,'- EduSphere AI')
   // bulk whatsapp card
   fill(doc,C.emerald,0.15); rr(doc,118,182,65,28,6)
-  txt(doc,'📱 Bulk to at-risk parents',124,193,8.5,C.emerald,true)
-  wrap(doc,'Opens a pre-written message to every at-risk student\'s guardian — rate-limited for mobile browsers.',124,200,55,7.2,3.5)
+  txt(doc,'[>] Bulk to at-risk parents',124,193,8.5,C.emerald,true)
+  wrap(doc,'Opens a pre-written message to every at-risk student\'s guardian - rate-limited for mobile browsers.',124,200,55,7.2,3.5)
   // lower explanations
   fill(doc,C.amber,0.15); rr(doc,22,220,85,42,10)
-  txt(doc,'📄 What\'s in the PDF?',30,232,10,C.amber,true)
+  txt(doc,'[i] What\'s in the PDF?',30,232,10,C.amber,true)
   wrap(doc,'School header, student info, subject table, totals, grading scale, teacher remarks and three signature lines (Class Teacher / Principal / Parent).',30,240,72,8,4)
   fill(doc,C.cyan,0.15); rr(doc,113,220,77,42,10)
-  txt(doc,'🔗 Deep-link safety',121,232,10,C.cyan,true)
+  txt(doc,'[>] Deep-link safety',121,232,10,C.cyan,true)
   wrap(doc,'Links open with noopener/noreferrer; phone numbers are validated (at least 7 digits) before opening WhatsApp.',121,240,65,8,4)
 }
 
@@ -635,10 +635,10 @@ function p11_ai(doc:jsPDF){
     fill(doc,l.c); doc.circle(tx,ty,1.2,'F')
     txt(doc,l.t,l.x<70?l.x:l.x,l.y+3,7,l.c,true)
   })
-// capabilities grid below
+  // capabilities grid below
   h2(doc,'Eight things the AI can do for you',20,180)
   const caps=[
-    {t:'Chat',d:'Ask anything — "summarize today\'s attendance" or "draft a PTM notice".',c:C.cyan},
+    {t:'Chat',d:'Ask anything - "summarize today\'s attendance" or "draft a PTM notice".',c:C.cyan},
     {t:'Voice',d:'Tap the mic, speak your question, hear the answer out loud.',c:C.emerald},
     {t:'Discover',d:'Quick cards for live snapshot, tutor mode, and smart suggestions.',c:C.violet},
     {t:'AI Tutor',d:'Explains any school topic in simple language for students.',c:C.fuchsia},
@@ -659,7 +659,7 @@ function p11_ai(doc:jsPDF){
 
 function p12_parent_student(doc:jsPDF){
   pageBg(doc); header(doc,'12','Family & Students','Parent Portal & Student View')
-  wrap(doc,'EduSphere isn\'t only for teachers — parents and students have their own tailored portals that show exactly what matters to them, with no access to other children\'s data.',20,50,170,10,5.2)
+  wrap(doc,'EduSphere isn\'t only for teachers - parents and students have their own tailored portals that show exactly what matters to them, with no access to other children\'s data.',20,50,170,10,5.2)
   // Parent portal phone
   phoneFrame(doc,22,65,62,135,C.amber)
   fill(doc,C.amber,0.3); rr(doc,26,74,54,20,3)
@@ -678,13 +678,13 @@ function p12_parent_student(doc:jsPDF){
   }
   // upcoming
   fill(doc,C.fuchsia,0.2); rr(doc,28,160,50,15,2)
-  txt(doc,'PTM — Sat 2 Aug',32,168,6,C.fuchsia,true); txt(doc,'10:00 AM',32,174,6,C.white70)
+  txt(doc,'PTM - Sat 2 Aug',32,168,6,C.fuchsia,true); txt(doc,'10:00 AM',32,174,6,C.white70)
   fill(doc,C.white50,0.4); rr(doc,45,192,16,1.5,0.7)
   // student portal phone
   phoneFrame(doc,108,65,62,135,C.emerald)
   fill(doc,C.emerald,0.3); rr(doc,112,74,54,15,3)
   txt(doc,'Hello, Isha!',139,81,8,C.white,true,{align:'center'})
-  txt(doc,'Your predicted final: 86%  🎯',139,88,6,C.gold,false,{align:'center'})
+  txt(doc,'Your predicted final: 86%  [*]',139,88,6,C.gold,false,{align:'center'})
   // strength bars
   txt(doc,'Subject strengths',115,98,6,C.cyan,true)
   const subj=['Math','Sci','Eng','Hin','SST']
@@ -697,21 +697,20 @@ function p12_parent_student(doc:jsPDF){
   })
   // ai tutor
   fill(doc,C.fuchsia,0.2); rr(doc,112,160,54,25,3)
-  txt(doc,'✦ Ask AI Tutor',139,168,7,C.fuchsia,true,{align:'center'})
+  txt(doc,'[AI] Ask AI Tutor',139,168,7,C.fuchsia,true,{align:'center'})
   wrap(doc,'"Explain photosynthesis in simple words"',118,175,42,5.5,4.5,C.white70,false)
   fill(doc,C.fuchsia); rr(doc,122,179,30,5,1.5); txt(doc,'Ask',137,183,5.5,C.white,true,{align:'center'})
   fill(doc,C.white50,0.4); rr(doc,131,192,16,1.5,0.7)
   // notes
   fill(doc,C.violet,0.15); rr(doc,20,207,75,55,10)
-  txt(doc,'♥ For Parents',28,219,10,C.amber,true)
-  wrap(doc,'• One portal per child, switchable if you have multiple kids.\n• Marks, attendance and events visible instantly.\n• WhatsApp alerts land on your phone directly.\n• No access to other children\'s records.',28,228,65,8,4)
+  txt(doc,'[*] For Parents',28,219,10,C.amber,true)
+  wrap(doc,'* One portal per child, switchable if you have multiple kids.\n* Marks, attendance and events visible instantly.\n* WhatsApp alerts land on your phone directly.\n* No access to other children\'s records.',28,228,65,8,4)
   fill(doc,C.emerald,0.15); rr(doc,105,207,85,55,10)
-  txt(doc,'● For Students',113,219,10,C.emerald,true)
-  wrap(doc,'• Personal dashboard showing their own marks and attendance.\n• Subject strength bars & AI-predicted final scores.\n• AI Tutor explains topics like a friendly senior.\n• Notifications for homework, exams and events.',113,228,72,8,4)
+  txt(doc,'* For Students',113,219,10,C.emerald,true)
+  wrap(doc,'* Personal dashboard showing their own marks and attendance.\n* Subject strength bars & AI-predicted final scores.\n* AI Tutor explains topics like a friendly senior.\n* Notifications for homework, exams and events.',113,228,72,8,4)
 }
-
 function p13_calendar(doc:jsPDF){
-  pageBg(doc); header(doc,'13','Timetable & Events','Calendar • Notifications • Schedule')
+  pageBg(doc); header(doc,'13','Timetable & Events','Calendar * Notifications * Schedule')
   wrap(doc,'EduSphere keeps the whole school on the same page with a shared calendar, a day-wise timetable, automatic event colour-coding, and instant notifications.',20,50,170,10,5.2)
   // calendar diagram
   h2(doc,'School Calendar',20,64)
@@ -732,12 +731,12 @@ function p13_calendar(doc:jsPDF){
   lg.forEach((l,i)=>{fill(doc,l.c); rect(doc,28+i*18,153,4,3); txt(doc,l.l,34+i*18,156.5,5.5,C.white50)})
   // Notifications
   card(doc,128,64,62,88,C.cyan)
-  txt(doc,'🔔 Notifications',134,76,9,C.cyan,true)
+  txt(doc,'[!] Notifications',134,76,9,C.cyan,true)
   const notifs=[
     {t:'Marks published: 10-A2 Math',c:C.emerald},
-    {t:'3 absent today — see list',c:C.rose},
+    {t:'3 absent today - see list',c:C.rose},
     {t:'New event: Sports Day 20 Jul',c:C.cyan},
-    {t:'AI: Priya trending up 🎉',c:C.gold},
+    {t:'AI: Priya trending up [*]',c:C.gold},
     {t:'Parent message sent',c:C.violet},
   ]
   notifs.forEach((n,i)=>{
@@ -745,14 +744,14 @@ function p13_calendar(doc:jsPDF){
     fill(doc,n.c); doc.circle(138,88+i*13,2,'F')
     wrap(doc,n.t,143,86+i*13,40,6.5,3)
   })
-// Timetable diagram
+  // Timetable diagram
   card(doc,22,158,168,95,C.violet)
-  txt(doc,'📅 Today\'s Timetable',30,170,10,C.violet,true)
+  txt(doc,'[Cal] Today\'s Timetable',30,170,10,C.violet,true)
   const periods=[
     ['1','08:00','Math','R. Verma','10-A2',C.cyan],
     ['2','08:45','English','S. Kaur','10-A2',C.emerald],
     ['3','09:30','Science','A. Khan','Lab-2',C.fuchsia],
-    ['4','10:15','Break','—','Canteen',C.amber],
+    ['4','10:15','Break','-','Canteen',C.amber],
     ['5','11:00','Hindi','M. Das','10-A2',C.violet],
     ['6','11:45','SST','P. Roy','10-A2',C.cyan],
     ['7','12:30','PE','Coach','Ground',C.emerald],
@@ -769,8 +768,8 @@ function p13_calendar(doc:jsPDF){
 }
 
 function p14_mobile(doc:jsPDF){
-  pageBg(doc); header(doc,'14','Mobile-first','Installable App • Security')
-  wrap(doc,'EduSphere is a Progressive Web App (PWA). Parents and teachers can "Install" it from Chrome on Android in one tap — it appears on the home screen like a regular app, works offline and sends push notifications.',20,50,170,10,5.2)
+  pageBg(doc); header(doc,'14','Mobile-first','Installable App * Security')
+  wrap(doc,'EduSphere is a Progressive Web App (PWA). Parents and teachers can "Install" it from Chrome on Android in one tap - it appears on the home screen like a regular app, works offline and sends push notifications.',20,50,170,10,5.2)
   // Install flow diagram (three phones)
   phoneFrame(doc,22,65,45,100,C.cyan)
   fill(doc,C.panel); rr(doc,26,80,37,18,3); txt(doc,'Add EduSphere to Home screen',44.5,88,6,C.cyan,true,{align:'center'}); wrap(doc,'Tap the menu then "Install app"',30,96,30,6,3)
@@ -780,7 +779,7 @@ function p14_mobile(doc:jsPDF){
 
   phoneFrame(doc,82,65,45,100,C.violet)
   fill(doc,C.panel); rr(doc,86,95,37,18,3)
-  txt(doc,'Installing…',104.5,106,7,C.violet,true,{align:'center'})
+  txt(doc,'Installing...',104.5,106,7,C.violet,true,{align:'center'})
   fill(doc,C.violet,0.2); rr(doc,90,115,28,4,2); fill(doc,C.violet); rr(doc,90,115,18,4,2)
   txt(doc,'Step 2',104.5,155,7,C.violet,true,{align:'center'})
   stroke(doc,C.violet,0.4); line(doc,127,115,145,115); fill(doc,C.violet); doc.circle(145,115,1.5,'F')
@@ -797,19 +796,20 @@ function p14_mobile(doc:jsPDF){
   h2(doc,'Security by design',20,175)
   const sec=[
     {t:'Email verification',d:'Every account must verify its email before using the app.',c:C.cyan},
-    {t:'5 roles locked server-side',d:'Super Admin / School Admin / Teacher / Student / Parent — permissions checked on every write.',c:C.violet},
+    {t:'5 roles locked server-side',d:'Super Admin / School Admin / Teacher / Student / Parent - permissions checked on every write.',c:C.violet},
     {t:'Firebase Realtime Database rules',d:'Marks require correct schoolId/studentId, numeric bounds and valid status before acceptance.',c:C.fuchsia},
     {t:'Teacher class-scope',d:'Teachers can only enter marks/attendance for classes assigned to them.',c:C.amber},
-    {t:'Student/parent privacy',d:'Students and parents see only their own (or their child\'s) record — never classmates.',c:C.emerald},
+    {t:'Student/parent privacy',d:'Students and parents see only their own (or their child\'s) record - never classmates.',c:C.emerald},
     {t:'Offline-safe',d:'Queued writes are de-duplicated and idempotent; no duplicate records on bad networks.',c:C.rose},
     {t:'Audit trail',d:'Every mark stores who entered it, when, and its publish status (draft / submitted / published).',c:C.gold},
     {t:'Selfies & photos',d:'Uploaded photos are auto-resized client-side to keep storage fast and cheap.',c:C.cyan},
   ]
-  sec.forEach((s,i)=>{const col=i%2,row=Math.floor(i/2); bullet(doc,s.t+' — '+s.d,20+col*85,185+row*11,80,s.c,8.4,4.8)})
+  sec.forEach((s,i)=>{const col=i%2,row=Math.floor(i/2); bullet(doc,s.t+' - '+s.d,20+col*85,185+row*11,80,s.c,8.4,4.8)})
   fill(doc,C.gold,0.15); rr(doc,20,240,170,28,8)
-  txt(doc,'🔒 Designed to respect student privacy',28,250,9,C.gold,true)
+  txt(doc,'[Lock] Designed to respect student privacy',28,250,9,C.gold,true)
   wrap(doc,'Face embeddings never leave the school\'s Firebase project; parents are in control of their child\'s WhatsApp communication; and all data is scoped to the school.',28,257,160,8,4)
 }
+
 function p15_closing(doc:jsPDF){
   pageBg(doc)
   op(doc,0.6); fill(doc,C.violet); el(doc,105,130,100,65); op(doc,0.4); fill(doc,C.cyan); el(doc,105,130,75,40); op(doc,1)
@@ -818,7 +818,7 @@ function p15_closing(doc:jsPDF){
   txt(doc,'Thank you',105,130,26,C.white,true,{align:'center'})
   txt(doc,'for considering EduSphere AI',105,143,12,C.cyan,true,{align:'center'})
   divider(doc,55,152,100)
-  wrap(doc,'EduSphere AI is more than an app — it is a small, thoughtful assistant that walks into school with every teacher, student and parent every morning. It handles attendance in seconds, marks with intelligence, reports with beauty, and always with a warm smile.',28,165,155,10.5,6)
+  wrap(doc,'EduSphere AI is more than an app - it is a small, thoughtful assistant that walks into school with every teacher, student and parent every morning. It handles attendance in seconds, marks with intelligence, reports with beauty, and always with a warm smile.',28,165,155,10.5,6)
   const promises=[
     'Every screen designed for thumbs first',
     'Every chart coloured for quick reading',
@@ -829,14 +829,13 @@ function p15_closing(doc:jsPDF){
   promises.forEach((p,i)=>{ fill(doc,C.emerald); doc.circle(38,195+i*8,1.3,'F'); txt(doc,p,45,198+i*8,9,C.white70)})
   txt(doc,'Crafted & coded by',105,245,8,C.white50,false,{align:'center'})
   txt(doc,'Rishu Jaswar',105,256,18,C.gold,true,{align:'center'})
-  txt(doc,'EduSphere AI  •  Your school. Smarter every day.',105,275,9,C.cyan,true,{align:'center'})
+  txt(doc,'EduSphere AI  *  Your school. Smarter every day.',105,275,9,C.cyan,true,{align:'center'})
 }
-
 // ========================== ENTRY ==========================
 export function generateFeatureBrochure(filename='EduSphere-AI-Features.pdf'){
   const doc = new jsPDF({unit:'mm',format:'a4',compress:true})
   doc.setProperties({
-    title:'EduSphere AI — Complete Feature Brochure',
+    title:'EduSphere AI - Complete Feature Brochure',
     author:'Rishu Jaswar',
     creator:'EduSphere AI',
     subject:'15-page feature overview for school principals',

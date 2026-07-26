@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -86,9 +87,11 @@ const formatClock = () => new Date().toLocaleTimeString('en-IN', { hour: '2-digi
 export default function AttendancePage(){
   const { profile } = useAuth()
   const { schoolId } = useSchool()
+  const [searchParams] = useSearchParams()
+  const preselectedClass = searchParams.get('class') || ''
   const [allStudents, setAllStudents] = useState<any[]>([])
   const [marks, setMarks] = useState<Record<string,string>>({})
-  const [classSel, setClassSel] = useState('')
+  const [classSel, setClassSel] = useState<string>(preselectedClass)
   const [aiScanning, setAiScanning] = useState(false)
   const [showQrScanner, setShowQrScanner] = useState(false)
   const [tab, setTab] = useState('manual')
@@ -167,9 +170,11 @@ useEffect(()=>{
   }, [allStudents])
 
   useEffect(()=>{
-    if (!classSel && classOptions.length) setClassSel(classOptions[0])
-    if (classSel && classOptions.length && !classOptions.includes(classSel)) setClassSel(classOptions[0])
-  }, [classOptions, classSel])
+    const desired = preselectedClass || classSel
+    if (!desired && classOptions.length) { setClassSel(classOptions[0]); return }
+    if (desired && classOptions.length && !classOptions.includes(desired)) { setClassSel(classOptions[0]); return }
+    if (desired && desired !== classSel && classOptions.includes(desired)) setClassSel(desired)
+  }, [classOptions, preselectedClass])
 
   // Load attendance history for History tab
   useEffect(() => {

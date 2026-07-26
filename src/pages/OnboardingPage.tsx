@@ -45,18 +45,24 @@ export default function OnboardingPage(){
       setJoinCode(pending)
       setActiveTab('join')
     }
+    const pendingRole = localStorage.getItem('pending_join_role')
+    if (pendingRole === 'parent' || pendingRole === 'teacher') {
+      setJoinRole(pendingRole)
+      setActiveTab('join')
+    }
+    try {
+      const params = new URLSearchParams(window.location.search)
+      const roleParam = params.get('role')
+      if (roleParam === 'parent' || roleParam === 'teacher') {
+        setJoinRole(roleParam as 'parent' | 'teacher')
+        setActiveTab('join')
+      }
+    } catch { /* ignore */ }
+    // Consume the pending role once the join succeeds below — clear after first use
   }, [])
 
-  // Release the global html/body/#root overflow lock while this auth
-  // screen is mounted so the page can scroll.
   useEffect(() => {
-    const root = document.documentElement
-    root.classList.add('auth-page-open')
     window.scrollTo(0, 0)
-    return () => {
-      root.classList.remove('auth-page-open')
-      document.body.classList.remove('auth-page-open')
-    }
   }, [])
 
   const createSchool = async () => {
@@ -187,6 +193,7 @@ export default function OnboardingPage(){
 
         await update(ref(db, `users/${user.uid}`), { linkedStudentIds })
         localStorage.removeItem('pending_school_code')
+        localStorage.removeItem('pending_join_role')
         await refreshProfile?.()
         toast.success(`Parent access connected to ${foundSchoolName}!`)
         setStep(2)
@@ -245,6 +252,7 @@ export default function OnboardingPage(){
         }).catch(error => console.warn(error))
       }
       localStorage.removeItem('pending_school_code')
+      localStorage.removeItem('pending_join_role')
       await refreshProfile?.()
       toast.success(`Joined ${foundSchoolName}!`)
       setStep(2)

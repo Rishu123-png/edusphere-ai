@@ -28,6 +28,10 @@ export default function LoginPage() {
   useEffect(() => {
     const code = searchParams.get('schoolCode')
     if (code) setSchoolCode(code)
+    const role = searchParams.get('role')
+    if (role === 'parent' || role === 'teacher') {
+      localStorage.setItem('pending_join_role', role)
+    }
   }, [searchParams])
 
   useEffect(() => {
@@ -431,7 +435,6 @@ interface LoginCardProps {
   mobile?: boolean
 }
 
-
 function LoginCard(p: LoginCardProps) {
   return (
     <motion.div
@@ -509,7 +512,7 @@ function LoginCard(p: LoginCardProps) {
                 </button>
               </div>
             </div>
-            
+
             <div className="flex justify-end">
               <button
                 type="button"
@@ -585,7 +588,8 @@ function LoginCard(p: LoginCardProps) {
             </div>
           </form>
         </TabsContent>
-<TabsContent value="signup">
+
+        <TabsContent value="signup">
           <form onSubmit={p.handleSignup} className="space-y-4">
             <div className="space-y-1.5">
               <Label className="text-[13px] font-medium text-white/70">Full name</Label>

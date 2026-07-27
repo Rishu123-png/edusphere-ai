@@ -17,7 +17,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import PageHeader from '@/components/mobile/PageHeader'
 import MyTeachersPanel from '@/components/mobile/MyTeachersPanel'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, Plus, Edit2, Trash2, Download, Camera, ImageUp, ScanFace, Smile, Eye, CheckCircle2, ShieldCheck, AlertCircle, Sparkles, Brain, Users, UserCheck, UserX, Cpu, Filter, X, QrCode, MoreHorizontal, ChevronRight, Send, Copy, MessageCircle, Mail } from 'lucide-react'
+import { Search, Plus, Edit2, Trash2, Download, Upload, Camera, ImageUp, ScanFace, Smile, Eye, CheckCircle2, ShieldCheck, AlertCircle, Sparkles, Brain, Users, UserCheck, UserX, Cpu, Filter, X, QrCode, MoreHorizontal, ChevronRight, Send, Copy, MessageCircle, Mail } from 'lucide-react'
 
 const COMMON_SUBJECTS = ['Maths', 'Physics', 'Chemistry', 'Biology', 'English', 'Hindi', 'Sanskrit', 'Social Science', 'Computer Science', 'Physical Education', 'Economics', 'Accountancy']
 
@@ -47,6 +47,12 @@ export default function StudentsPage(){
   const [enrollStatusText, setEnrollStatusText] = useState('Position face in neon rectangle • Please Smile 🙂')
   const enrollTimerRef = useRef<number | null>(null)
   const enrollBusyRef = useRef<boolean>(false)
+
+  // Bulk CSV/Excel import
+  const [importOpen, setImportOpen] = useState(false)
+  const [importPreview, setImportPreview] = useState<any[]>([])
+  const [importing, setImporting] = useState(false)
+  const csvFileRef = useRef<HTMLInputElement | null>(null)
 
   const isAdmin = isSchoolAdmin || profile?.role === 'super_admin'
   const isTeacher = profile?.role === 'teacher'
@@ -434,14 +440,134 @@ export default function StudentsPage(){
   }
 
   const bulkExport = ()=>{
-    const csv = 'StudentID,Admission,Roll,Name,Class,Section,Guardian,Phone,FaceReady,AddedBy\n' + filtered.map((s:any)=>
-      [s.studentId||s.id, s.admissionNumber,s.rollNumber,s.name,s.className,s.section,s.guardianName,s.guardianPhone, isValidDescriptor(s.faceDescriptor)?'Yes':'No', s.addedByName||''].join(',')
+    const csv = 'StudentID,Admission,Roll,Name,Class,Section,Guardian,Phone,Email,FaceReady\n' + filtered.map((s:any)=>
+      [s.studentId||s.id, s.admissionNumber,s.rollNumber,s.name,s.className,s.section,s.guardianName,s.guardianPhone,s.guardianEmail||'', isValidDescriptor(s.faceDescriptor)?'Yes':'No'].join(',')
     ).join('\n')
     const blob = new Blob([csv], {type:'text/csv'})
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download='students.csv'; a.click()
   }
 
-  // ===== Parent WhatsApp helpers =====
+  // Normalize a cell value (trim, strip quotes)
+  const cell = (row: Record<string,any>, keys: string[]): string => {
+    for (const k of keys) {
+      for (const key of Object.keys(row)) {
+        if (key.trim().toLowerCase().replace(/[^a-z]/g,'') === k.toLowerCase().replace(/[^a-z]/g,'')) {
+          const v = row[key]
+          if (v == null) continue
+          const str = String(v).trim().replace(/^"|"$/g,'')
+          if (str) return str
+        }
+      }
+    }
+    return ''
+  }
+
+  const handleImportFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (!f) return
+    try {
+      const XLSX = await import('xlsx')
+      const buf = await f.arrayBuffer()
+      const wb = XLSX.read(buf, { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const rows = XLSX.utils.sheet_to_json<Record<string,any>>(ws, { defval: '' })
+      if (!rows.length) { toast.error('No rows found in file'); return }
+
+      const preview: any[] = []
+      const existingKeys = new Set([
+        ...students.map((s:any) => String(s.admissionNumber||'').toLowerCase().trim()),
+        ...students.map((s:any) => String(s.rollNumber||'').toLowerCase().trim() + '|' + String(s.className||'').toLowerCase() + '|' + String(s.section||'').toLowerCase()),
+      ])
+      rows.forEach(row => {
+        const name = cell(row, ['name','studentname','student','fullname'])
+        const roll = cell(row, ['roll','rollno','rollnumber','rollno'])
+        const cls = cell(row, ['class','classname','grade'])
+        const section = cell(row, ['section','sec','division'])
+        const adm = cell(row, ['admission','admno','admissionno','admissionnumber'])
+        const gname = cell(row, ['guardianname','parentname','fathername','mothername','guardian'])
+        const gphone = cell(row, ['phone','guardianphone','parentphone','mobile','contact','mobile no','parent mobile','guardianmobile','mobile number'])
+        const gemail = cell(row, ['email','guardianemail','parentemail'])
+        const dob = cell(row, ['dob','dateofbirth'])
+
+        if (!name) return
+        // Normalize class/section: support "10-A" in single Class cell
+        let className = cls, sectionName = section
+        if (!section && cls && /^\d+\s*-?\s*[A-E]$/i.test(cls)) {
+          const m = cls.match(/^(\d+)\s*-?\s*([A-E])$/i)
+          if (m) { className = m[1]; sectionName = m[2].toUpperCase() }
+        }
+        const cleanClass = String(className || '').replace(/^class\s*/i,'').trim()
+        const cleanSection = (sectionName || 'A').toUpperCase().charAt(0)
+        const dupKey = String(adm||roll||'').toLowerCase().trim()
+        const rollKey = `${String(roll||'').toLowerCase().trim()}|${String(cleanClass).toLowerCase()}|${String(cleanSection).toLowerCase()}`
+        const isDupe = existingKeys.has(dupKey) || (roll && existingKeys.has(rollKey))
+        preview.push({
+          name, rollNumber: roll, admissionNumber: adm || roll,
+          className: cleanClass || '10', section: cleanSection,
+          guardianName: gname, guardianPhone: gphone, guardianEmail: gemail, dob,
+          _duplicate: isDupe, _valid: Boolean(name && (roll || adm) && cleanClass)
+        })
+      })
+      setImportPreview(preview)
+      setImportOpen(true)
+      toast.success(`Loaded ${preview.length} student${preview.length===1?'':'s'} — review and confirm.`)
+    } catch (err: any) {
+      toast.error(getFriendlyError(err) || 'Could not read file. Use CSV or Excel (.xlsx).')
+    } finally {
+      if (csvFileRef.current) csvFileRef.current.value = ''
+    }
+  }
+
+  const runImport = async () => {
+    if (!canManage) { toast.error('You cannot add students'); return }
+    if (!schoolId && profile?.schoolId) {}
+    const sid = schoolId || profile?.schoolId || 'global'
+    const toAdd = importPreview.filter(r => r._valid && !r._duplicate)
+    if (!toAdd.length) { toast.error('No valid new students to import'); return }
+    setImporting(true)
+    let ok = 0, fail = 0
+    const now = Date.now()
+    try {
+      const updates: Record<string, any> = {}
+      for (const r of toAdd) {
+        const id = generateId('stu_')
+        const payload = {
+          studentId: id,
+          id,
+          name: r.name,
+          rollNumber: r.rollNumber,
+          admissionNumber: r.admissionNumber || r.rollNumber,
+          className: r.className,
+          section: r.section,
+          guardianName: r.guardianName || '',
+          guardianPhone: r.guardianPhone || '',
+          guardianEmail: r.guardianEmail || '',
+          dob: r.dob || '',
+          photoUrl: '',
+          schoolId: sid,
+          status: 'active',
+          createdAt: now,
+          updatedAt: now,
+          qrCode: id,
+          addedBy: profile?.uid || '',
+          addedByRole: profile?.role || '',
+          addedByName: profile?.displayName || profile?.name || profile?.email || '',
+        }
+        updates[`schools/${sid}/students/${id}`] = payload
+        ok++
+      }
+      await update(ref(db), updates)
+      toast.success(`Imported ${ok} student${ok===1?'':'s'} successfully.${fail?` ${fail} skipped.`:''}`)
+      setImportOpen(false)
+      setImportPreview([])
+    } catch (err: any) {
+      toast.error(getFriendlyError(err) || 'Import failed')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+// ===== Parent WhatsApp helpers =====
   // Parents don't log in — they get all updates on WhatsApp (wa.me links work
   // without WhatsApp Business API, no paid plan, no app install friction).
   const buildParentWhatsApp = (s: any, kind: 'welcome'|'absent'|'marks' = 'welcome') => {
@@ -502,7 +628,15 @@ export default function StudentsPage(){
       {/* Header */}
       <PageHeader title="Students Database" subtitle={subtitle} action={
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="rounded-full hidden md:flex btn-outline-glass" onClick={bulkExport}>
+          {canManage && isAdmin && (
+            <>
+              <input ref={csvFileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleImportFile} />
+              <Button variant="outline" size="sm" className="rounded-full btn-outline-glass" onClick={()=>csvFileRef.current?.click()}>
+                <Upload size={16} className="mr-1.5"/> Import
+              </Button>
+            </>
+          )}
+          <Button variant="outline" size="sm" className="rounded-full btn-outline-glass" onClick={bulkExport}>
             <Download size={16} className="mr-1.5"/> Export
           </Button>
         </div>
@@ -539,7 +673,16 @@ export default function StudentsPage(){
         </Card>
       )}
 
-        {/* Add Student Dialog Trigger — Floating Action Button (mobile) */}
+        {/* Mobile FABs (Import + Add) */}
+      {canManage && isAdmin && (
+        <button
+          onClick={(e)=>{ e.preventDefault(); csvFileRef.current?.click() }}
+          className="md:hidden fixed bottom-24 left-4 z-30 w-12 h-12 rounded-full flex items-center justify-center shadow-lg bg-emerald-500"
+          aria-label="Import students"
+        >
+          <Upload size={20} className="text-white"/>
+        </button>
+      )}
       {canManage && (
         <Dialog open={open} onOpenChange={(o)=>{ setOpen(o); if(!o){ setEditing(null); setForm(emptyForm) }}}>
           <DialogTrigger asChild>
@@ -1004,6 +1147,73 @@ export default function StudentsPage(){
 
       {/* Teacher Panel */}
       {isTeacher && <MyTeachersPanel/>}
+
+      {/* ===== Import preview dialog ===== */}
+      <Dialog open={importOpen} onOpenChange={setImportOpen}>
+        <DialogContent className="rounded-[28px] max-h-[90vh] overflow-auto max-w-2xl !bg-[#0c1125] border border-white/[0.06]">
+          <DialogHeader>
+            <DialogTitle className="text-[20px] flex items-center gap-2 text-white">
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{background: 'linear-gradient(135deg,#10b981,#22D3EE)'}}>
+                <Upload size={18} className="text-white"/>
+              </div>
+              Import students — preview
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-white/80">
+            <div className="flex gap-2 text-[11px]">
+              <span className="rounded-full bg-emerald-500/15 text-emerald-300 px-2.5 py-1 font-bold">
+                {importPreview.filter(r=>r._valid && !r._duplicate).length} NEW
+              </span>
+              <span className="rounded-full bg-amber-500/15 text-amber-300 px-2.5 py-1 font-bold">
+                {importPreview.filter(r=>r._duplicate).length} DUPLICATE
+              </span>
+              <span className="rounded-full bg-rose-500/15 text-rose-300 px-2.5 py-1 font-bold">
+                {importPreview.filter(r=>!r._valid).length} INVALID
+              </span>
+            </div>
+            <p className="text-[11px] text-white/60">
+              Required columns: <b>Name, Roll, Class</b>. Optional: Section, Admission, Guardian Name, Phone, Email, DOB.
+              Header matches "student name", "roll no", "class", "section", "guardian", "phone", "email" case-insensitively.
+              Duplicates (same admission/roll+class) are skipped automatically.
+            </p>
+            <div className="max-h-[45vh] overflow-auto rounded-2xl border border-white/10">
+              <table className="w-full text-[11px]">
+                <thead className="bg-white/5 text-white/60">
+                  <tr>
+                    <th className="p-2 text-left">Name</th>
+                    <th className="p-2 text-left">Roll</th>
+                    <th className="p-2 text-left">Class</th>
+                    <th className="p-2 text-left">Guardian</th>
+                    <th className="p-2 text-left">Phone</th>
+                    <th className="p-2 text-left">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {importPreview.slice(0,200).map((r,i)=>(
+                    <tr key={i} className={`border-t border-white/5 ${r._duplicate?'text-amber-300/60':r._valid?'text-white/80':'text-rose-300/60'}`}>
+                      <td className="p-2">{r.name}</td>
+                      <td className="p-2">{r.rollNumber || '—'}</td>
+                      <td className="p-2">{r.className}{r.section?'-'+r.section:''}</td>
+                      <td className="p-2 truncate max-w-[120px]">{r.guardianName||'—'}</td>
+                      <td className="p-2">{r.guardianPhone||'—'}</td>
+                      <td className="p-2 text-[10px] font-bold">
+                        {r._duplicate?'SKIP (dupe)':r._valid?'NEW':'INVALID'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {importPreview.length > 200 && <div className="p-2 text-center text-[10px] text-white/40">+{importPreview.length-200} more rows hidden…</div>}
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button variant="outline" className="flex-1 rounded-full btn-outline-glass" onClick={()=>{setImportOpen(false); setImportPreview([])}}>Cancel</Button>
+              <Button variant="gradient" className="flex-1 rounded-full" disabled={importing} onClick={runImport}>
+                {importing?'Importing…':`Import ${importPreview.filter(r=>r._valid && !r._duplicate).length} students`}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

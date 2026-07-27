@@ -1,18 +1,21 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { useTheme } from '@/contexts/ThemeContext'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSchool } from '@/contexts/SchoolContext'
 import PageHeader from '@/components/mobile/PageHeader'
-import { Moon, Sun, School, Bell, User, Palette, ShieldCheck, Mail, Phone, Sparkles, FileDown, IdCard, Award, FileText } from 'lucide-react'
+import { Moon, Sun, School, Bell, User, Palette, ShieldCheck, Mail, Phone, Sparkles, FileDown, IdCard, Award, FileText, ImageUp, Download, Upload, Database, PenLine } from 'lucide-react'
 import { toast } from 'sonner'
 import { getFriendlyError } from '@/lib/errors'
 import { db } from '@/lib/firebase'
-import { ref, get, onValue } from 'firebase/database'
+import { ref, get, onValue, set } from 'firebase/database'
 import { generateFeatureBrochure } from '@/lib/brochurePdf'
 import { generateStudentIdCardsPdf } from '@/lib/idCardPdf'
 import { generateMeritListPdf } from '@/lib/meritListPdf'
+import { loadBranding, saveBranding, subscribeBranding, fileToDataUrl, type SchoolBranding } from '@/lib/schoolBranding'
 
 type StudentRow = { id:string; name?:string; rollNumber?:string|number; admissionNumber?:string|number; className?:string; section?:string; dob?:string; dateOfBirth?:string; guardianName?:string; guardianPhone?:string; bloodGroup?:string; blood?:string; marks?:Record<string,any> }
 
@@ -24,9 +27,23 @@ export default function SettingsPage(){
   const [adminName, setAdminName] = useState<string>('')
   const [students, setStudents] = useState<StudentRow[]>([])
   const [idClassSel, setIdClassSel] = useState<string>('')
+  const [branding, setBranding] = useState<SchoolBranding>({})
+  const [savingBranding, setSavingBranding] = useState(false)
+  const [backingUp, setBackingUp] = useState(false)
+  const [restoring, setRestoring] = useState(false)
+  const logoInputRef = useRef<HTMLInputElement | null>(null)
+  const sigInputRef = useRef<HTMLInputElement | null>(null)
+  const restoreInputRef = useRef<HTMLInputElement | null>(null)
 
   const isAdmin = profile?.role === 'school_admin' || profile?.role === 'super_admin'
   const isTeacher = profile?.role === 'teacher' || isAdmin
+
+  // Cloud-synced branding (logo/principal signature)
+  useEffect(() => {
+    if (!schoolId) { setBranding({}); return }
+    const unsub = subscribeBranding(schoolId, setBranding)
+    return unsub
+  }, [schoolId])
 
   useEffect(() => {
     let cancelled = false
@@ -134,6 +151,127 @@ export default function SettingsPage(){
     return (snap.val() || {}) as Record<string,Record<string,any>>
   }
 
+  // ===== Branding uploads (logo + principal signature) =====
+  const uploadLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (!f || !schoolId) return
+    try {
+      const dataUrl = await fileToDataUrl(f, 600)
+      setSavingBranding(true)
+      await saveBranding(schoolId, { ...branding, logoDataUrl: dataUrl })
+      toast.success('School logo saved')
+    } catch (err: any) {
+      toast.error(getFriendlyError(err) || 'Could not upload logo')
+    } finally {
+      setSavingBranding(false)
+      if (logoInputRef.current) logoInputRef.current.value = ''
+    }
+  }
+
+  const uploadSignature = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (!f || !schoolId) return
+    try {
+      const dataUrl = await fileToDataUrl(f, 500)
+      setSavingBranding(true)
+      await saveBranding(schoolId, { ...branding, principalSignature: dataUrl })
+      toast.success('Principal signature saved')
+    } catch (err: any) {
+      toast.error(getFriendlyError(err) || 'Could not upload signature')
+    } finally {
+      setSavingBranding(false)
+      if (sigInputRef.current) sigInputRef.current.value = ''
+    }
+  }
+
+  const updateBrandingField = async (patch: Partial<SchoolBranding>) => {
+    if (!schoolId) return
+    setSavingBranding(true)
+    try {
+      await saveBranding(schoolId, { ...branding, ...patch })
+    } catch (err: any) {
+      toast.error(getFriendlyError(err) || 'Could not save')
+    } finally {
+      setSavingBranding(false)
+    }
+  }
+
+  const clearLogo = async () => {
+    if (!schoolId) return
+    setSavingBranding(true)
+    const { logoDataUrl: _omit, ...rest } = branding
+    await saveBranding(schoolId, rest)
+    setSavingBranding(false)
+    toast.success('Logo removed')
+  }
+
+  const clearSignature = async () => {
+    if (!schoolId) return
+    setSavingBranding(true)
+    const { principalSignature: _omit, ...rest } = branding
+    await saveBranding(schoolId, rest)
+    setSavingBranding(false)
+    toast.success('Signature removed')
+  }
+
+  // ===== One-tap full-school backup / restore =====
+  const backupSchool = async () => {
+    if (!schoolId) { toast.error('No school selected'); return }
+    setBackingUp(true)
+    try {
+      const snap = await get(ref(db, `schools/${schoolId}`))
+      if (!snap.exists()) { toast.error('No school data to back up'); return }
+      const payload = {
+        __edusphere_backup: 1,
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        schoolId,
+        schoolCode: school?.code,
+        schoolName: school?.name,
+        data: snap.val(),
+      }
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      const stamp = new Date().toISOString().slice(0, 10)
+      const safe = (school?.name || 'edusphere').replace(/[^\w\-]+/g, '_')
+      a.href = url
+      a.download = `${safe}-backup-${stamp}.json`
+      document.body.appendChild(a); a.click(); a.remove()
+      URL.revokeObjectURL(url)
+      toast.success('Full-school backup downloaded — keep this file safe.')
+    } catch (err: any) {
+      toast.error(getFriendlyError(err) || 'Backup failed')
+    } finally {
+      setBackingUp(false)
+    }
+  }
+
+  const restoreSchool = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (!f || !schoolId) return
+    if (!confirm('Restoring will OVERWRITE all current school data (students, marks, attendance, timetable, teachers). This cannot be undone. Continue?')) {
+      if (restoreInputRef.current) restoreInputRef.current.value = ''
+      return
+    }
+    setRestoring(true)
+    try {
+      const text = await f.text()
+      const parsed = JSON.parse(text)
+      const data = parsed?.data && typeof parsed.data === 'object' ? parsed.data : parsed
+      if (!data || typeof data !== 'object') throw new Error('Invalid backup file')
+      // Must not wipe school id/code/name/creator fields — merge safely
+      await set(ref(db, `schools/${schoolId}`), data)
+      toast.success('School data restored. Refresh the page to see everything.')
+      setTimeout(() => window.location.reload(), 1500)
+    } catch (err: any) {
+      toast.error(getFriendlyError(err) || 'Restore failed — file may be corrupted')
+    } finally {
+      setRestoring(false)
+      if (restoreInputRef.current) restoreInputRef.current.value = ''
+    }
+  }
+
   return <div className="page-container space-y-4 pb-12">
     <PageHeader title="Settings" subtitle="Theme • School • Notifications • Account" />
 
@@ -236,6 +374,81 @@ export default function SettingsPage(){
         </Card>
 
         <Card className="rounded-[26px]">
+          <CardTitle className="flex items-center gap-2"><ImageUp size={18}/> School Branding</CardTitle>
+          <CardContent className="space-y-4 text-[13px]">
+            <p className="text-[11px] text-white/60">Upload your school logo and principal signature. They appear on ID cards, TCs, merit lists and report cards automatically.</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-center">
+                <div className="h-20 grid place-items-center rounded-xl bg-black/20 mb-2">
+                  {branding.logoDataUrl
+                    ? <img src={branding.logoDataUrl} alt="school logo" className="max-h-full max-w-full object-contain" />
+                    : <School size={28} className="text-white/30"/>}
+                </div>
+                <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={uploadLogo} />
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" className="flex-1 rounded-full h-9 text-[11px]" onClick={()=>logoInputRef.current?.click()} disabled={savingBranding || !isAdmin}>
+                    <ImageUp size={12} className="mr-1"/> {branding.logoDataUrl ? 'Change' : 'Upload logo'}
+                  </Button>
+                  {branding.logoDataUrl && (
+                    <Button size="sm" variant="ghost" className="rounded-full h-9 w-9 p-0 text-rose-300" onClick={clearLogo} disabled={savingBranding || !isAdmin}>
+                      ×
+                    </Button>
+                  )}
+                </div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-center">
+                <div className="h-20 grid place-items-center rounded-xl bg-black/20 mb-2">
+                  {branding.principalSignature
+                    ? <img src={branding.principalSignature} alt="principal signature" className="max-h-full max-w-full object-contain" />
+                    : <PenLine size={28} className="text-white/30"/>}
+                </div>
+                <input ref={sigInputRef} type="file" accept="image/*" className="hidden" onChange={uploadSignature} />
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" className="flex-1 rounded-full h-9 text-[11px]" onClick={()=>sigInputRef.current?.click()} disabled={savingBranding || !isAdmin}>
+                    <ImageUp size={12} className="mr-1"/> {branding.principalSignature ? 'Change' : 'Signature'}
+                  </Button>
+                  {branding.principalSignature && (
+                    <Button size="sm" variant="ghost" className="rounded-full h-9 w-9 p-0 text-rose-300" onClick={clearSignature} disabled={savingBranding || !isAdmin}>
+                      ×
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div>
+              <Label className="text-[11px] text-white/60">Principal name (for signatures)</Label>
+              <Input value={branding.principalName || ''} onChange={e=>setBranding(b=>({...b, principalName:e.target.value}))} onBlur={()=>isAdmin && updateBrandingField({ principalName: branding.principalName || '' })} placeholder="Principal full name" className="login-input mt-1 h-10" disabled={!isAdmin}/>
+            </div>
+            <div>
+              <Label className="text-[11px] text-white/60">School address (for letterheads)</Label>
+              <Input value={branding.schoolAddress || ''} onChange={e=>setBranding(b=>({...b, schoolAddress:e.target.value}))} onBlur={()=>isAdmin && updateBrandingField({ schoolAddress: branding.schoolAddress || '' })} placeholder="Full address" className="login-input mt-1 h-10" disabled={!isAdmin}/>
+            </div>
+            {!isAdmin && <p className="text-[10px] text-white/40">Only school admin can change branding.</p>}
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-[26px]">
+          <CardTitle className="flex items-center gap-2"><Database size={18}/> Backup & Restore</CardTitle>
+          <CardContent className="space-y-3 text-[13px]">
+            <p className="text-[11px] text-white/60">Download a full copy of your school data (students, marks, attendance, timetable, teachers, notifications) as a JSON file. Keep it on Google Drive / your laptop. Restore from the same file if anything goes wrong.</p>
+            <input ref={restoreInputRef} type="file" accept=".json,application/json" className="hidden" onChange={restoreSchool} />
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="gradient" className="rounded-full h-11" onClick={backupSchool} disabled={backingUp}>
+                <Download size={14} className="mr-2"/> {backingUp ? 'Preparing…' : 'Backup now'}
+              </Button>
+              <Button variant="outline" className="rounded-full h-11 btn-outline-glass" onClick={()=>restoreInputRef.current?.click()} disabled={restoring || !isAdmin}>
+                <Upload size={14} className="mr-2"/> {restoring ? 'Restoring…' : 'Restore'}
+              </Button>
+            </div>
+            <div className="rounded-2xl border border-amber-300/15 bg-amber-300/[.06] p-3 text-[10px] leading-relaxed text-amber-200">
+              <ShieldCheck size={12} className="inline mr-1 -mt-0.5"/>
+              Back up once a week and before every bulk import. Restore overwrites all school data — take a fresh backup first.
+            </div>
+            {!isAdmin && <p className="text-[10px] text-white/40">Only school admin can restore.</p>}
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-[26px]">
           <CardTitle className="flex items-center gap-2"><Bell size={18}/> Notifications</CardTitle>
           <CardContent className="space-y-3 text-[13px]">
             {[
@@ -255,7 +468,7 @@ export default function SettingsPage(){
               )
             })}
             <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-3 text-[11px] text-white/50">
-              Lock-screen push notifications for parents/teachers are coming next. In-app alerts and WhatsApp already work.
+              Lock-screen push notifications for teachers are coming next. In-app alerts and WhatsApp already work.
             </div>
           </CardContent>
         </Card>
@@ -334,7 +547,7 @@ export default function SettingsPage(){
               </>
             )}
           </div>
-          <div className="text-[11px] text-white/60">Crafted by Rishu Jaswar • v2.2</div>
+          <div className="text-[11px] text-white/60">Crafted by Rishu Jaswar • v2.7</div>
         </CardContent>
       </Card>
     </div>

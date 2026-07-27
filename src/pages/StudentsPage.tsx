@@ -8,7 +8,7 @@ import { db } from '@/lib/firebase'
 import { ref, onValue, update, remove, push, set } from 'firebase/database'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSchool } from '@/contexts/SchoolContext'
-import { generateId } from '@/lib/utils'
+import { generateId, whatsappUrl } from '@/lib/utils'
 import { createFaceDescriptorFromImageUrl, isValidDescriptor, loadFaceApiModels, resetFaceModels } from '@/lib/faceRecognition'
 import { fileToDataUrl, resizeImageDataUrl, uploadStudentPhoto } from '@/lib/studentPhoto'
 import { toast } from 'sonner'
@@ -17,7 +17,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import PageHeader from '@/components/mobile/PageHeader'
 import MyTeachersPanel from '@/components/mobile/MyTeachersPanel'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, Plus, Edit2, Trash2, Download, Camera, ImageUp, ScanFace, Smile, Eye, CheckCircle2, ShieldCheck, AlertCircle, Sparkles, Brain, Users, UserCheck, UserX, Cpu, Filter, X, QrCode, MoreHorizontal, ChevronRight, Send, Copy, Mail } from 'lucide-react'
+import { Search, Plus, Edit2, Trash2, Download, Camera, ImageUp, ScanFace, Smile, Eye, CheckCircle2, ShieldCheck, AlertCircle, Sparkles, Brain, Users, UserCheck, UserX, Cpu, Filter, X, QrCode, MoreHorizontal, ChevronRight, Send, Copy, MessageCircle, Mail } from 'lucide-react'
 
 const COMMON_SUBJECTS = ['Maths', 'Physics', 'Chemistry', 'Biology', 'English', 'Hindi', 'Sanskrit', 'Social Science', 'Computer Science', 'Physical Education', 'Economics', 'Accountancy']
 
@@ -441,53 +441,54 @@ export default function StudentsPage(){
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download='students.csv'; a.click()
   }
 
-  // ===== Parent invite helpers (same pattern as TeachersPage) =====
-  const buildParentInvite = (s: any) => {
-    const code = school?.code || ''
-    const schoolName = school?.name || 'EduSphere School'
+  // ===== Parent WhatsApp helpers =====
+  // Parents don't log in — they get all updates on WhatsApp (wa.me links work
+  // without WhatsApp Business API, no paid plan, no app install friction).
+  const buildParentWhatsApp = (s: any, kind: 'welcome'|'absent'|'marks' = 'welcome') => {
+    const schoolName = school?.name || 'School'
     const studentName = s?.name || 'your child'
-    const cls = `${s?.className || ''}${s?.section ? '-' + s.section : ''}`
-    const guardianEmail = (s?.guardianEmail || '').trim()
-    const link = `${window.location.origin}/login?schoolCode=${encodeURIComponent(code)}&role=parent`
-    const subject = `Parent access for ${studentName} — ${schoolName}`
-    const body =
-      `Dear ${s?.guardianName || 'Parent'},\n\n` +
-      `You have been granted parent access to view ${studentName}'s attendance, marks and school updates at ${schoolName}.\n\n` +
-      `Child: ${studentName} (Class ${cls || '—'}, Roll ${s?.rollNumber || '—'})\n` +
-      `School Code: ${code}\n\n` +
-      `How to login (2 minutes):\n` +
-      `  1. Open this link: ${link}\n` +
-      `  2. Tap "Sign up" and create an account using THIS email address (${guardianEmail || 'the email we have on file'}).\n` +
-      `  3. Verify your email (check inbox/spam).\n` +
-      `  4. On the onboarding screen choose "Join School" → "Parent" → enter School Code ${code}.\n` +
-      `  5. The app will automatically link ${studentName} to your account.\n\n` +
-      `If you have another child at this school, just add both emails on their profiles — the parent portal gives a child-switcher automatically.\n\n` +
-      `— ${schoolName}\n`
-    return { code, subject, body, link, guardianEmail }
-  }
-
-  const emailParent = (s: any) => {
-    if (!isAdmin) { toast.error('Admin only'); return }
-    const { subject, body, guardianEmail } = buildParentInvite(s)
-    if (!guardianEmail) { toast.error('Add guardian email on the student profile first'); return }
-    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(guardianEmail)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
-    const mailtoUrl = `mailto:${encodeURIComponent(guardianEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
-    const isAndroid = /Android/i.test(navigator.userAgent)
-    if (isAndroid) {
-      window.location.href = mailtoUrl
+    const cls = `${s?.className || ''}${s?.section ? '-' + s.section : ''}`.replace(/^-/, '')
+    const phone = String(s?.guardianPhone || '').replace(/\D/g,'')
+    const guardianName = s?.guardianName || 'Parent'
+    let msg = ''
+    if (kind === 'welcome') {
+      msg =
+        `Namaste ${guardianName} ji,\n\n` +
+        `This is a message from *${schoolName}* regarding your ward *${studentName}* (Class ${cls || '—'}, Roll ${s?.rollNumber || '—'}).\n\n` +
+        `Going forward, all updates about ${studentName} will be sent to you on WhatsApp only — attendance, marks, exam results, PTM invites, holidays and important notices.\n\n` +
+        `Please save this number as "${schoolName}" so you don't miss alerts. You don't need to install any separate app.\n\n` +
+        `If you have any question, reply to this message and the class teacher will get back to you.\n\n` +
+        `Regards,\n${schoolName}`
+    } else if (kind === 'absent') {
+      msg =
+        `Dear ${guardianName},\n\n` +
+        `Your ward *${studentName}* (Class ${cls}) has been marked *absent* today (${new Date().toLocaleDateString('en-IN')}).\n\n` +
+        `If this is a planned leave, please reply with the reason.\n\n` +
+        `— ${schoolName}`
     } else {
-      const opened = window.open(gmailUrl, '_blank', 'noopener,noreferrer')
-      if (!opened) window.location.href = mailtoUrl
+      msg =
+        `Dear ${guardianName},\n\n` +
+        `Marks for ${studentName} (Class ${cls}) have been updated. Please check and contact the class teacher in case of any doubt.\n\n` +
+        `— ${schoolName}`
     }
-    navigator.clipboard?.writeText(body).catch(() => {})
-    toast.success('Parent invite email draft opened — review and press Send.')
+    return { phone, msg, url: phone ? whatsappUrl(phone, msg) : '' }
   }
 
-  const copyParentInvite = (s: any) => {
-    if (!isAdmin) { toast.error('Admin only'); return }
-    const { body } = buildParentInvite(s)
-    navigator.clipboard.writeText(body).then(
-      () => toast.success('Parent invite text copied — paste into WhatsApp/SMS'),
+  const openParentWhatsApp = (s: any, kind: 'welcome'|'absent'|'marks' = 'welcome') => {
+    if (!isAdmin && !isTeacher) { toast.error('Only staff can message parents'); return }
+    const { phone, url, msg } = buildParentWhatsApp(s, kind)
+    if (!phone) { toast.error('Add guardian phone number on the student profile first'); return }
+    const w = window.open(url, '_blank', 'noopener,noreferrer')
+    if (!w) window.location.href = url
+    navigator.clipboard?.writeText(msg).catch(() => {})
+    toast.success('WhatsApp opened with pre-filled message — tap Send.')
+  }
+
+  const copyParentMessage = (s: any) => {
+    if (!isAdmin && !isTeacher) return
+    const { msg } = buildParentWhatsApp(s, 'welcome')
+    navigator.clipboard.writeText(msg).then(
+      () => toast.success('Message copied — paste into WhatsApp'),
       () => toast.error('Could not copy to clipboard')
     )
   }
@@ -507,49 +508,30 @@ export default function StudentsPage(){
         </div>
       }/>
 
-      {/* ===== PARENT LOGIN HELP CARD (visible to admin/teacher) ===== */}
+      {/* ===== PARENTS ON WHATSAPP CARD (visible to admin/teacher) ===== */}
       {canManage && (
-        <Card className="rounded-[24px] border-cyan-400/20 bg-gradient-to-br from-cyan-500/10 via-indigo-500/10 to-violet-500/10 text-white overflow-hidden">
+        <Card className="rounded-[24px] border-emerald-400/20 bg-gradient-to-br from-emerald-500/10 via-cyan-500/10 to-violet-500/10 text-white overflow-hidden">
           <CardContent className="p-4 md:p-5">
             <div className="flex items-start gap-3">
-              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-cyan-400/20 text-cyan-300">
-                <Mail size={20}/>
+              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-emerald-400/20 text-emerald-300">
+                <MessageCircle size={20}/>
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-[15px] font-black">Parent login — school code:</h3>
-                  <code className="rounded-lg bg-black/40 px-2.5 py-1 font-mono text-[15px] font-black text-cyan-200 tracking-wider">
-                    {school?.code || 'EDU-XXXXXX'}
-                  </code>
-                  <Button size="sm" variant="ghost" className="h-8 w-8 rounded-full p-0 hover:bg-white/10"
-                    onClick={() => {
-                      navigator.clipboard.writeText(school?.code || '').then(
-                        () => toast.success('School code copied'),
-                        () => toast.error('Could not copy')
-                      )
-                    }} title="Copy code">
-                    <Copy size={13}/>
-                  </Button>
+                  <h3 className="text-[15px] font-black">Parents — WhatsApp only</h3>
+                  <span className="rounded-full bg-emerald-400/20 px-2.5 py-1 text-[9px] font-black uppercase tracking-wider text-emerald-200">No app to install</span>
                 </div>
-                <p className="mt-2 text-[11px] leading-relaxed text-white/70">
-                  Tell parents: <b>1.</b> Open EduSphere AI and tap Sign up with their email.  <b>2.</b> Verify the email link.
-                  {' '}<b>3.</b> On the setup screen choose <b>Join School → Parent</b> and enter code <b className="text-cyan-200">{school?.code || 'EDU-XXXXXX'}</b>.
-                  {' '}The child links automatically only when the parent's login email matches the <b>Guardian Email</b> saved on this student profile.
+                <p className="mt-2 text-[11px] leading-relaxed text-white/75">
+                  Parents <b className="text-white">do not create login accounts</b>. All attendance alerts, marks reports, PTM notices and holidays go to their WhatsApp directly. Teachers/admin tap the green <b>[WhatsApp]</b> button next to any student to open a pre-filled chat.
                 </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <div className="rounded-full bg-white/10 px-3 py-1 text-[10px] font-bold">
-                    Step 1 • Sign up with email
-                  </div>
-                  <div className="rounded-full bg-white/10 px-3 py-1 text-[10px] font-bold">
-                    Step 2 • Verify email
-                  </div>
-                  <div className="rounded-full bg-cyan-400/20 px-3 py-1 text-[10px] font-bold text-cyan-200">
-                    Step 3 • Join School → Parent → {school?.code || 'code'}
-                  </div>
-                </div>
+                <ul className="mt-3 grid gap-1.5 text-[11px] text-white/70">
+                  <li className="flex gap-2"><span className="text-emerald-300 font-black">1.</span> Fill <b>Guardian Phone</b> on every student record (10-digit Indian mobile, no spaces).</li>
+                  <li className="flex gap-2"><span className="text-emerald-300 font-black">2.</span> Tap <b>[WhatsApp]</b> to open the parent chat with a ready message.</li>
+                  <li className="flex gap-2"><span className="text-emerald-300 font-black">3.</span> After taking attendance, open the <b>WhatsApp page</b> to bulk-message absentees in one tap.</li>
+                </ul>
                 <p className="mt-2 text-[10px] text-amber-200/80">
                   <AlertCircle size={11} className="inline -mt-0.5 mr-1"/>
-                  If a parent says "no child linked", check that their exact login email is typed in the Guardian Email field on the student card, then use the <b>Invite</b> button next to the student to email them a pre-filled link.
+                  Works with regular WhatsApp / WhatsApp Business on Android or iPhone. No WhatsApp Business API needed, no per-message cost.
                 </p>
               </div>
             </div>
@@ -896,33 +878,28 @@ export default function StudentsPage(){
               </AnimatePresence>
 
               {/* Actions */}
-              {isAdmin && (
+              {canManage && (
                 <div className="flex gap-2 mt-3 pt-3 border-t border-white/[0.06]">
-                  <Button size="sm" className="flex-1 rounded-full h-9 text-[12px] font-semibold btn-outline-glass" onClick={()=>handleEdit(s)}>
-                    <Edit2 size={13} className="mr-1.5"/> Edit
+                  {teacherCanEditStudent(s) && (
+                    <Button size="sm" className="flex-1 rounded-full h-9 text-[12px] font-semibold btn-outline-glass" onClick={()=>handleEdit(s)}>
+                      <Edit2 size={13} className="mr-1.5"/> Edit
+                    </Button>
+                  )}
+                  <Button size="sm" variant="success" className="rounded-full h-9 px-3 text-[12px] font-semibold"
+                    onClick={()=>openParentWhatsApp(s,'welcome')} title="Send WhatsApp to parent">
+                    <MessageCircle size={12} className="mr-1"/> WhatsApp
                   </Button>
-                  <Button size="sm" variant="outline" className="rounded-full h-9 px-3 text-[12px] font-semibold border-cyan-400/30 text-cyan-200 hover:bg-cyan-400/10"
-                    onClick={()=>emailParent(s)} title="Email parent invite">
-                    <Send size={12} className="mr-1"/> Invite
-                  </Button>
-                  <Button size="sm" variant="ghost" className="rounded-full h-9 w-9 p-0" onClick={()=>copyParentInvite(s)} title="Copy invite text">
+                  <Button size="sm" variant="ghost" className="rounded-full h-9 w-9 p-0" onClick={()=>copyParentMessage(s)} title="Copy message">
                     <Copy size={13} className="text-white/60"/>
                   </Button>
-                  <Button size="sm" variant="ghost" className="rounded-full h-9 w-9 p-0" onClick={()=>handleDelete(s)}>
-                    <Trash2 size={14} className="text-brand-error"/>
-                  </Button>
+                  {isAdmin && (
+                    <Button size="sm" variant="ghost" className="rounded-full h-9 w-9 p-0" onClick={()=>handleDelete(s)}>
+                      <Trash2 size={14} className="text-brand-error"/>
+                    </Button>
+                  )}
                 </div>
               )}
-              {!isAdmin && teacherCanEditStudent(s) && (
-                <div className="flex gap-2 mt-3 pt-3 border-t border-white/[0.06]">
-                  <Button size="sm" className="flex-1 rounded-full h-9 text-[12px] font-semibold btn-outline-glass" onClick={()=>handleEdit(s)}>
-                    <Edit2 size={13} className="mr-1.5"/> Edit & Face ID
-                  </Button>
-                  <Button size="sm" className="rounded-full h-9 w-9 p-0" variant="ghost" onClick={()=>setExpandedCard(expandedCard === s.id ? null : s.id)}>
-                    <MoreHorizontal size={14} className="text-white/50"/>
-                  </Button>
-                </div>
-              )}
+
             </motion.div>
           ))}
         </AnimatePresence>
@@ -1001,23 +978,17 @@ export default function StudentsPage(){
                     </div>
                   </td>
                   <td className="p-4 text-right space-x-2 whitespace-nowrap">
-                    {teacherCanEditStudent(s) ? (
-                      <>
-                        {isAdmin && (
-                          <>
-                            <Button size="sm" variant="outline" className="rounded-full font-semibold border-cyan-400/30 text-cyan-200 hover:bg-cyan-400/10"
-                              onClick={()=>emailParent(s)} title="Email parent invite">
-                              <Send size={12} className="mr-1"/> Invite Parent
-                            </Button>
-                            <Button size="sm" variant="ghost" className="rounded-full" onClick={()=>copyParentInvite(s)} title="Copy invite text">
-                              <Copy size={13}/>
-                            </Button>
-                          </>
-                        )}
-                        <Button size="sm" variant="outline" className="rounded-full font-semibold btn-outline-glass text-white/70" onClick={()=>handleEdit(s)}>Edit</Button>
-                        {isAdmin && <Button size="sm" variant="ghost" className="rounded-full" onClick={()=>handleDelete(s)}><Trash2 size={14} className="text-brand-error"/></Button>}
-                      </>
-                    ) : <span className="text-white/30 text-xs">View only</span>}
+                    <Button size="sm" variant="success" className="rounded-full font-semibold"
+                      onClick={()=>openParentWhatsApp(s,'welcome')} title="Send WhatsApp to parent">
+                      <MessageCircle size={12} className="mr-1"/> WhatsApp
+                    </Button>
+                    <Button size="sm" variant="ghost" className="rounded-full" onClick={()=>copyParentMessage(s)} title="Copy message">
+                      <Copy size={13}/>
+                    </Button>
+                    {teacherCanEditStudent(s) && (
+                      <Button size="sm" variant="outline" className="rounded-full font-semibold btn-outline-glass text-white/70" onClick={()=>handleEdit(s)}>Edit</Button>
+                    )}
+                    {isAdmin && <Button size="sm" variant="ghost" className="rounded-full" onClick={()=>handleDelete(s)}><Trash2 size={14} className="text-brand-error"/></Button>}
                   </td>
                 </motion.tr>
               ))}

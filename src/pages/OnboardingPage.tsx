@@ -18,7 +18,8 @@ export default function OnboardingPage(){
   const [step, setStep] = useState(profile?.schoolId ? 2 : 1)
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('create')
-  const [joinRole, setJoinRole] = useState<'teacher' | 'parent'>('teacher')
+  // NOTE: parent accounts are disabled — parents receive updates over WhatsApp, no login required.
+  // Only teachers join via code; admins create the school.
   const navigate = useNavigate()
 
   const [form, setForm] = useState({
@@ -45,19 +46,8 @@ export default function OnboardingPage(){
       setJoinCode(pending)
       setActiveTab('join')
     }
-    const pendingRole = localStorage.getItem('pending_join_role')
-    if (pendingRole === 'parent' || pendingRole === 'teacher') {
-      setJoinRole(pendingRole)
-      setActiveTab('join')
-    }
-    try {
-      const params = new URLSearchParams(window.location.search)
-      const roleParam = params.get('role')
-      if (roleParam === 'parent' || roleParam === 'teacher') {
-        setJoinRole(roleParam as 'parent' | 'teacher')
-        setActiveTab('join')
-      }
-    } catch { /* ignore */ }
+    // pending_join_role was previously used for parent invites; parent accounts
+    // have been removed (parents use WhatsApp), so only school code prefill remains.
     // Consume the pending role once the join succeeds below — clear after first use
   }, [])
 
@@ -145,11 +135,11 @@ export default function OnboardingPage(){
         self-write rule because the profile has no school yet), then (2) read
         school data, and (3) roll membership back if the join is rejected.
       */
-      const claimMembership = (role: 'teacher' | 'parent', extra: Record<string, unknown> = {}) =>
+      const claimMembership = (extra: Record<string, unknown> = {}) =>
         update(ref(db, `users/${user.uid}`), {
           schoolId: foundSchoolId,
           schoolCode: foundSchoolCode,
-          role,
+          role: 'teacher',
           uid: user.uid,
           email: user.email || '',
           displayName: profile?.displayName || user.displayName || user.email?.split('@')[0] || '',
@@ -166,44 +156,10 @@ export default function OnboardingPage(){
           updatedAt: Date.now(),
         })
 
-      // Parents can only join when the school has already linked their exact
-      // verified login email to a student guardian record.
-      if (joinRole === 'parent') {
-        // Step 1: become a member (no schoolId existed, so self-write passes)
-        await claimMembership('parent')
-
-        // Step 2: now readable — verify a child is linked to this account
-        const studentSnapshot = await get(ref(db, `schools/${foundSchoolId}/students`))
-        const studentEntries = studentSnapshot.exists() ? Object.entries(studentSnapshot.val() || {}) : []
-        const loginEmail = String(user.email || '').toLowerCase()
-        const linkedStudentIds = studentEntries
-          .filter(([, student]: any) =>
-            student?.parentUid === user.uid ||
-            student?.guardianUid === user.uid ||
-            (loginEmail && String(student?.guardianEmail || '').toLowerCase() === loginEmail)
-          )
-          .map(([studentId]) => studentId)
-
-        if (!linkedStudentIds.length) {
-          // Step 3: no child found → leave the school again (allowed by rules)
-          await rollbackMembership().catch(() => {})
-          toast.error('No child is linked to this login email. Ask the school admin to add it as Guardian Login Email on the student profile, then try again.')
-          return
-        }
-
-        await update(ref(db, `users/${user.uid}`), { linkedStudentIds })
-        localStorage.removeItem('pending_school_code')
-        localStorage.removeItem('pending_join_role')
-        await refreshProfile?.()
-        toast.success(`Parent access connected to ${foundSchoolName}!`)
-        setStep(2)
-        setTimeout(()=> navigate('/parent'), 1200)
-        return
-      }
 
       // Teacher join: claim membership first, THEN read the directory (the
       // reads below would previously be denied and silently wipe assignments).
-      await claimMembership('teacher')
+      await claimMembership()
 
       let assignedClasses: string[] = []
       let subjects: string[] = []
@@ -316,17 +272,16 @@ export default function OnboardingPage(){
               </TabsContent>
 
               <TabsContent value="join" className="space-y-4">
-                <div className="flex gap-2.5 rounded-2xl border border-violet-300/10 bg-violet-300/[.04] p-3 text-[10px] leading-relaxed text-slate-400"><KeyRound size={15} className="mt-0.5 shrink-0 text-violet-300"/><span>Enter the code shared by your school administrator. Parent access also requires your exact login email on the child profile.</span></div>
+                <div className="flex gap-2.5 rounded-2xl border border-violet-300/10 bg-violet-300/[.04] p-3 text-[10px] leading-relaxed text-slate-400"><KeyRound size={15} className="mt-0.5 shrink-0 text-violet-300"/><span>Enter the teacher invite code shared by your school administrator.</span></div>
                 <div>
                   <Label className="block text-center text-[9px] font-bold uppercase tracking-[.15em] text-slate-500">I am joining as</Label>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button type="button" onClick={()=>setJoinRole('teacher')} className={`flex items-center justify-center gap-2 rounded-2xl border p-3 text-[11px] font-bold transition ${joinRole==='teacher'?'border-cyan-300/25 bg-cyan-300/[.08] text-cyan-200':'border-white/[.06] bg-white/[.025] text-slate-500'}`}><UsersRound size={16}/> Teacher</button>
-                    <button type="button" onClick={()=>setJoinRole('parent')} className={`flex items-center justify-center gap-2 rounded-2xl border p-3 text-[11px] font-bold transition ${joinRole==='parent'?'border-violet-300/25 bg-violet-300/[.08] text-violet-200':'border-white/[.06] bg-white/[.025] text-slate-500'}`}><UserRound size={16}/> Parent</button>
+                  <div className="mt-3 rounded-2xl border border-white/[.06] bg-white/[.025] p-3 text-center text-[10px] text-slate-500">
+                    <b className="text-cyan-200">Teachers</b> join with the school code. <b>Parents</b> don't need an account — reports, attendance and notices are sent to their <b>WhatsApp</b> directly.
                   </div>
                 </div>
                 <div className="py-2"><Label className="block text-center text-[9px] font-bold uppercase tracking-[.15em] text-slate-500">School invite code</Label><Input value={joinCode} onChange={event=>setJoinCode(event.target.value.toUpperCase())} placeholder="EDU-XXXXXX" className="onboarding-input mt-3 h-16 rounded-2xl text-center font-mono text-[19px] font-black uppercase tracking-[.18em]"/></div>
-                {joinRole==='parent'&&<p className="rounded-xl border border-cyan-300/10 bg-cyan-300/[.04] p-2.5 text-center text-[9px] leading-relaxed text-cyan-100/70">Before joining, ask the admin to save <b>{user.email}</b> as Guardian Login Email on your child's profile.</p>}
-                <Button variant="gradient" disabled={loading||!emailVerified} className="login-primary-button h-13 min-h-[52px] w-full rounded-full" onClick={joinSchool}>{loading?'Verifying invite…':<>Verify & Join as {joinRole==='parent'?'Parent':'Teacher'} <ArrowRight size={16} className="ml-2"/></>}</Button>
+                
+                <Button variant="gradient" disabled={loading||!emailVerified} className="login-primary-button h-13 min-h-[52px] w-full rounded-full" onClick={joinSchool}>{loading?'Verifying invite…':<>Verify & Join <ArrowRight size={16} className="ml-2"/></>}</Button>
               </TabsContent>
               {!emailVerified&&<p className="mt-4 rounded-xl border border-rose-300/10 bg-rose-300/[.05] p-2.5 text-center text-[9px] text-rose-300">Email verification is required before school setup.</p>}
             </Tabs> : <div className="onboarding-success py-6 text-center"><div className="verified-pop mx-auto grid h-24 w-24 place-items-center rounded-full border border-emerald-300/20 bg-emerald-300/[.07] text-emerald-300 shadow-[0_0_45px_rgba(52,211,153,.12)]"><CheckCircle2 size={46}/></div><h2 className="mt-5 text-[22px] font-black text-emerald-300">Connection verified</h2><p className="mx-auto mt-2 max-w-sm text-[11px] leading-relaxed text-slate-500">Your profile and school workspace are ready. You can now add classes, students and smart attendance.</p><Button variant="gradient" className="login-primary-button mt-6 h-12 rounded-full px-8" onClick={()=>navigate('/')}>Open Dashboard <ArrowRight size={16} className="ml-2"/></Button></div>}

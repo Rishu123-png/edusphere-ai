@@ -10,6 +10,7 @@ import { db } from '@/lib/firebase'
 import { ref, onValue } from 'firebase/database'
 import { aiDailySummary } from '@/lib/ai'
 import { todayIST } from '@/lib/rtdb'
+import { istNowParts } from '@/lib/attendance'
 import { Users, GraduationCap, CheckCircle2, Clock3, AlertTriangle, Sparkles, TrendingUp, Award, Activity, Camera, UserPlus, FilePenLine, MessageCircle, CalendarDays, BrainCircuit, ArrowUpRight, RotateCcw, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -29,6 +30,7 @@ export default function DashboardPage(){
   const [attendance, setAttendance] = useState<Record<string, Record<string, any>>>({})
   const [todayHoliday, setTodayHoliday] = useState<any | null>(null)
   const [summaryTick, setSummaryTick] = useState(0)
+  const [events, setEvents] = useState<any[]>([])
 
   const isAdmin = profile?.role === 'school_admin' || profile?.role === 'super_admin'
 
@@ -62,11 +64,13 @@ export default function DashboardPage(){
   }, [schoolId])
 
   useEffect(()=>{
-    if(!schoolId){ setTodayHoliday(null); return }
+    if(!schoolId){ setTodayHoliday(null); setEvents([]); return }
     const today = todayIST()
     const unsub = onValue(ref(db, `schools/${schoolId}/events`), snap=>{
       const v = snap.val() || {}
-      const holiday = Object.values(v).find((e:any)=> e?.type === 'holiday' && e?.date === today) as any
+      const list = Object.entries(v).map(([id,e]:any)=>({id, ...e}))
+      setEvents(list)
+      const holiday = list.find((e:any)=> e?.type === 'holiday' && e?.date === today) as any
       setTodayHoliday(holiday || null)
     })
     return ()=>unsub()
@@ -210,6 +214,24 @@ export default function DashboardPage(){
                     🎉 Holiday today: {todayHoliday.title || todayHoliday.name}
                   </div>
                 )}
+
+                {/* Night-before-holiday reminder for admins (7 PM – 10 PM IST) */}
+                {(() => {
+                  if (!isAdmin) return null
+                  try {
+                    const { minutes } = istNowParts()
+                    if (minutes < 19*60 || minutes > 22*60) return null
+                    const t = new Date(Date.now() + 86400000)
+                    const tomorrow = t.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
+                    const holidayTomorrow = (Object.values(events || {}) as any[]).find((e: any)=> e?.type==='holiday' && e?.date===tomorrow)
+                    if (holidayTomorrow) return null
+                    return (
+                      <Link to="/calendar" className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold bg-cyan-500/15 text-cyan-200 border border-cyan-400/30">
+                        <CalendarDays size={12}/> Reminder: Is tomorrow a holiday? Tap to add it now.
+                      </Link>
+                    )
+                  } catch { return null }
+                })()}
               </div>
 
               {/* Right: Attendance Gauge */}

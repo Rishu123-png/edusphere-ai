@@ -8,6 +8,7 @@ import { db } from '@/lib/firebase'
 import { get, ref, set, update } from 'firebase/database'
 import { generateId, generateSchoolCode } from '@/lib/utils'
 import { getFriendlyError } from '@/lib/errors'
+import { seedDefaultHolidaysIfEmpty } from '@/lib/attendance'
 import { toast } from 'sonner'
 import { useNavigate } from 'react-router-dom'
 import AmbientBackground from '@/components/mobile/AmbientBackground'
@@ -84,6 +85,8 @@ export default function OnboardingPage(){
         createdAt: profile?.createdAt || Date.now()
       })
       await set(ref(db, `schools/${schoolId}`), school)
+      // Seed default Indian public holidays so Calendar/Attendance holiday-blocking works out-of-the-box.
+      seedDefaultHolidaysIfEmpty(schoolId).catch(()=>{})
       await set(ref(db, `schoolCodes/${code}`), {
         schoolId,
         schoolName: school.name,

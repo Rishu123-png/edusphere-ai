@@ -547,7 +547,7 @@ export default function SettingsPage(){
               </>
             )}
           </div>
-          <div className="text-[11px] text-white/60">Crafted by Rishu Jaswar • v2.7</div>
+          <div className="text-[11px] text-white/60">Crafted by Rishu Jaswar • v2.9</div>
         </CardContent>
       </Card>
     </div>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -10,9 +10,17 @@ import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSchool } from '@/contexts/SchoolContext'
 import { todayIST } from '@/lib/rtdb'
+import { whatsappUrl } from '@/lib/utils'
+import {
+  periodKey, classKeyOf, istNowParts, resolveTeacherPeriod,
+  isSundayOrHoliday, isRecordLocked, computeLockAt,
+  UNDO_WINDOW_MS, LATE_CUTOFF_MINUTES as LATE_CUTOFF_RECENT,
+  seedDefaultHolidaysIfEmpty,
+  type AttendanceStatus,
+} from '@/lib/attendance'
 import QRScanner from '@/components/QRScanner'
 import PageHeader from '@/components/mobile/PageHeader'
-import { Camera, QrCode, Users, X, ShieldCheck, SwitchCamera, ScanFace, AlertTriangle, Clock, Wifi, WifiOff, UserPlus, Grid, Volume2, History as HistoryIcon, CalendarDays, Search, Download } from 'lucide-react'
+import { Camera, QrCode, Users, X, ShieldCheck, SwitchCamera, ScanFace, AlertTriangle, Clock, Wifi, WifiOff, UserPlus, Grid, Volume2, History as HistoryIcon, CalendarDays, Search, Download, Send, Lock, Sun } from 'lucide-react'
 import { get } from 'firebase/database'
 import {
   detectFacesWithDescriptors,
@@ -34,7 +42,8 @@ const AI_MARK_COOLDOWN_MS = 60_000
 const LIVENESS_HISTORY_LIMIT = 6
 /* Minutes after midnight (IST local device time) after which a check-in is
    marked Late instead of Present. 09:16 → late. */
-const LATE_CUTOFF_MINUTES = 9 * 60 + 15
+// LATE_CUTOFF_MINUTES now imported from lib/attendance (kept alias for existing references)
+const LATE_CUTOFF_MINUTES = LATE_CUTOFF_RECENT
 
 type AiCheckKey = 'camera' | 'detect' | 'liveness' | 'match' | 'cooldown' | 'mark'
 type AiCheckState = 'idle' | 'checking' | 'pass' | 'fail'
@@ -85,7 +94,7 @@ const aiCheckLabels: Record<AiCheckKey, string> = {
 const formatClock = () => new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
 
 export default function AttendancePage(){
-  const { profile } = useAuth()
+  const { profile, isSchoolAdmin } = useAuth() as any
   const { schoolId } = useSchool()
   const [searchParams] = useSearchParams()
   const preselectedClass = searchParams.get('class') || ''
@@ -121,6 +130,44 @@ export default function AttendancePage(){
   const [histSubject, setHistSubject] = useState<string>('All')
   const [histRange, setHistRange] = useState<'7' | '30' | '90'>('30')
   const [histSearch, setHistSearch] = useState('')
+
+  // --- v2.9 period/subject-wise state ---
+  const [schedules, setSchedules] = useState<Record<string, any>>({})
+  const [teachers, setTeachers] = useState<any[]>([])
+  const [events, setEvents] = useState<any[]>([])
+  const [periodIdx, setPeriodIdx] = useState<number>(-1) // -1 = morning register
+  const [subjectSel, setSubjectSel] = useState<string>('')
+  const [todayLocked, setTodayLocked] = useState(false)
+  const [isHoliday, setIsHoliday] = useState(false)
+  const [holidayInfo, setHolidayInfo] = useState<any>(null)
+  const [dow, setDow] = useState<string>('Mon')
+  const [nowMin, setNowMin] = useState<number>(0)
+  const [nowHhmm, setNowHhmm] = useState<string>('')
+  const [bunkingReport, setBunkingReport] = useState<any[]>([])
+
+  /** Current slot key used when writing attendance records */
+  const activeSlotKey = useMemo(() => {
+    if (periodIdx === -1) return 'morning'
+    const sch = schedules[classSel]
+    const slot = sch?.slots?.[periodIdx]
+    const startHhmm = (slot?.label || '').split('-')[0]
+    return periodKey(periodIdx, startHhmm)
+  }, [periodIdx, schedules, classSel])
+
+  const isClassTeacher = useMemo(() => {
+    if (!classSel) return false
+    return teachers.some(
+      (t: any) =>
+        (t.uid === profile?.uid || String(t.displayName||t.name||'').toLowerCase() === String(profile?.displayName||profile?.name||'').toLowerCase()) &&
+        String(t.classTeacherOf||'').trim() === classSel
+    )
+  }, [teachers, classSel, profile])
+
+  const canMarkMorning = useMemo(() => {
+    if (!classSel) return false
+    if (isSchoolAdmin || profile?.role === 'super_admin') return true
+    return isClassTeacher
+  }, [isSchoolAdmin, profile, isClassTeacher, classSel])
 
   const lastCanvasSizeRef = useRef<{ w: number; h: number } | null>(null)
   const scanActiveRef = useRef(false)
@@ -176,7 +223,7 @@ useEffect(()=>{
     if (desired && desired !== classSel && classOptions.includes(desired)) setClassSel(desired)
   }, [classOptions, preselectedClass])
 
-  // Load attendance history for History tab
+  // Load attendance history for History tab (now nested: date/classKey/periodKey/sid -> rec)
   useEffect(() => {
     if (!schoolId && !profile?.schoolId) return
     const sid = schoolId || profile?.schoolId
@@ -185,6 +232,69 @@ useEffect(()=>{
     })
     return () => unsub()
   }, [schoolId, profile?.schoolId])
+
+  // Load schedules, teachers, events for period-aware routing & holiday blocking
+  useEffect(() => {
+    if (!schoolId && !profile?.schoolId) return
+    const sid = schoolId || profile?.schoolId
+    seedDefaultHolidaysIfEmpty(sid)
+    const u1 = onValue(ref(db, `schools/${sid}/schedules`), snap => setSchedules(snap.val() || {}))
+    const u2 = onValue(ref(db, `schools/${sid}/teachers`), snap => {
+      const v = snap.val() || {}
+      setTeachers(Object.entries(v).map(([id, t]: any) => ({ id, uid: t.uid || id, ...t })))
+    })
+    const u3 = onValue(ref(db, `schools/${sid}/events`), snap => {
+      const v = snap.val() || {}
+      setEvents(Object.entries(v).map(([id, e]: any) => ({ id, ...e })))
+    })
+    return () => { u1(); u2(); u3() }
+  }, [schoolId, profile?.schoolId])
+
+  // Clock tick (IST) for live period detection
+  useEffect(() => {
+    const tick = () => {
+      const { dow: d, minutes, hhmm } = istNowParts()
+      setDow(d); setNowMin(minutes); setNowHhmm(hhmm)
+    }
+    tick()
+    const i = setInterval(tick, 30 * 1000)
+    return () => clearInterval(i)
+  }, [])
+
+  // Holiday/Sunday blocker (re-evaluated on clock tick or events change)
+  useEffect(() => {
+    const holi = isSundayOrHoliday(dow, events)
+    const todayEvt = events.find((e: any) => e?.type === 'holiday' && e?.date === todayIST()) || null
+    setIsHoliday(holi)
+    setHolidayInfo(todayEvt)
+  }, [dow, events])
+
+  // Auto-select the current/next period for subject teachers when class is selected
+  useEffect(() => {
+    if (!classSel || isSchoolAdmin || profile?.role === 'super_admin') return
+    const sch: any = schedules[classSel]
+    if (!sch?.slots?.length) return
+    if (profile?.role !== 'teacher') return
+    const teacher = teachers.find((t: any) => t.uid === profile?.uid)
+    const subj = Array.isArray(teacher?.subjects) ? teacher.subjects[0] : (teacher as any)?.subject || ''
+    const resolved = resolveTeacherPeriod(
+      { slots: sch.slots.map((s: any) => {
+          const [a, b] = (s.label || '').split('-')
+          const sm = a ? Number(a.split(':')[0])*60 + Number(a.split(':')[1]) : 0
+          const em = b ? Number(b.split(':')[0])*60 + Number(b.split(':')[1]) : 0
+          return { start: a||'', end: b||'', startMin: sm, endMin: em }
+        }),
+        days: sch.days, grid: sch.grid } as any,
+      dow, nowMin,
+      { onlyMine: true, teacherId: teacher?.id, subject: subj }
+    )
+    if (resolved) {
+      if (periodIdx === -1 || periodIdx !== resolved.idx) {
+        setPeriodIdx(resolved.idx)
+        setSubjectSel(resolved.cell.subject || subj)
+      }
+    }
+  }, [schedules, classSel, teachers, dow, nowMin, profile, periodIdx, isSchoolAdmin])
 
   const students = useMemo(
     () => allStudents.filter((s:any)=> `${s.className}-${s.section}`===classSel),
@@ -351,23 +461,36 @@ const resetAiSession = () => {
       timestamp: now,
     }
 
+    const slotKey = activeSlotKey
+    const subjectLabel = periodIdx === -1 ? 'Morning Register' : (subjectSel || payload.subject || 'General')
+    const fullPayload = {
+      ...payload,
+      subject: subjectLabel,
+      periodIdx,
+      slotKey,
+      classKey: `${matchedStudent.className}-${matchedStudent.section}`,
+      isMorningRegister: periodIdx === -1,
+      markedByName: profile?.displayName || profile?.name || 'AI Camera',
+      createdAt: now, updatedAt: now,
+      lockedAt: computeLockAt(now),
+    }
     if (isOfflineMode) {
       saveToOfflineQueue([{
-        id: `${matchedStudent.id}_${date}`,
-        schoolId: sid,
-        date,
-        studentId: matchedStudent.id,
-        className: matchedStudent.className,
-        section: matchedStudent.section,
-        status: statusToMark as any,
-        markedBy: profile?.uid || 'ai_camera',
-        method: 'ai_camera',
-        timestamp: now,
+        id: `${matchedStudent.id}_${date}_${slotKey}`,
+        schoolId: sid, date, studentId: matchedStudent.id,
+        className: matchedStudent.className, section: matchedStudent.section,
+        status: statusToMark as AttendanceStatus, markedBy: profile?.uid || 'ai_camera',
+        method: 'ai_camera', timestamp: now, slotKey, subject: subjectLabel,
+        periodIdx, classKey: `${matchedStudent.className}-${matchedStudent.section}`,
       }])
     } else {
-      update(ref(db, `schools/${sid}/attendance/${date}/${matchedStudent.id}`), payload).catch(error => {
+      const ck = `${matchedStudent.className}-${matchedStudent.section}`
+      update(ref(db), {
+        [`schools/${sid}/attendance/${date}/${ck}/${slotKey}/${matchedStudent.id}`]: fullPayload,
+        [`schools/${sid}/attendance/${date}/${matchedStudent.id}`]: { ...fullPayload, _compat: true },
+      }).catch(error => {
         console.error('AI attendance write failed', error)
-        toast.error(`Cloud save failed for ${matchedStudent.name}. It will remain selected locally.`)
+        toast.error(`Cloud save failed for ${matchedStudent.name}. Selected locally — will sync on SAVE.`)
       })
     }
 
@@ -420,15 +543,37 @@ const resetAiSession = () => {
     await runAiScan()
   }
 
+  /** Bulk open WhatsApp messages to all currently-marked-absent guardians, one tab per student, small delay to avoid popup blocking. */
+  const sendBulkWhatsApp = useCallback(() => {
+    const date = todayIST()
+    const absentees = students.filter(s => marks[s.id] === 'absent')
+    if (!absentees.length) { toast.info('No absent students to message right now.'); return }
+    const subjectLabel = periodIdx === -1 ? 'Morning Register' : subjectSel || 'class'
+    toast.success(`Opening WhatsApp for ${absentees.length} absent student(s)...`, { duration: 4000 })
+    absentees.forEach((s, i) => {
+      const phone = String(s.guardianPhone || '').replace(/\D/g, '')
+      if (!phone || phone.length < 10) return
+      const msg = `Dear ${s.guardianName || 'Parent'}, ${s.name} (Roll ${s.rollNumber}, ${classSel}) is marked ABSENT today (${date}, ${subjectLabel}, ${nowHhmm}). Please contact the class teacher. - EduSphere AI`
+      setTimeout(() => { window.open(whatsappUrl(phone, msg), '_blank', 'noopener') }, i * 650)
+    })
+  }, [students, marks, periodIdx, subjectSel, classSel, nowHhmm])
+
   const submit = async (method: 'manual' | 'ai_camera' | 'qr' = 'manual')=>{
+    if (isHoliday) { toast.error(`Today is ${holidayInfo ? 'a holiday ('+(holidayInfo.title||'Holiday')+')' : 'Sunday'} — attendance is disabled.`); return }
     if(!students.length){ toast.error(classSel ? `No students in ${classSel}` : 'Select a class first'); return }
+
     const date = todayIST()
     const sid = schoolId || profile?.schoolId || 'global'
-    let present = 0
+    const slotKey = activeSlotKey
+    const subjectLabel = periodIdx === -1 ? 'Morning Register' : (subjectSel || 'General')
 
-    // Safety: on manual save, require the teacher to have actively marked
-    // every student (green Present / amber Late / red Absent). Don't silently
-    // default unmarked students to "present" — that caused fake 100% days.
+    // Morning register: only class teacher or admin
+    if (periodIdx === -1 && !canMarkMorning) {
+      toast.error('Only the Class Teacher or Admin can mark the Morning Register.')
+      return
+    }
+
+    // Every row must be actively marked
     if (method === 'manual') {
       const unmarked = students.filter(s => !['present','late','absent'].includes(marks[s.id]))
       if (unmarked.length) {
@@ -437,46 +582,90 @@ const resetAiSession = () => {
       }
     }
 
+    // Lock-after-save: refuse if already locked and not admin
+    if (!isOfflineMode) {
+      try {
+        const slotSnap = await get(ref(db, `schools/${sid}/attendance/${date}/${classSel}/${slotKey}`))
+        const existing = (slotSnap.val() || {}) as Record<string, any>
+        const anyLocked = Object.values(existing).some(rec => rec && isRecordLocked(rec))
+        if (anyLocked && !isSchoolAdmin && profile?.role !== 'super_admin') {
+          toast.error(`This ${subjectLabel} attendance was saved over 5 minutes ago and is locked. Ask Admin to edit.`)
+          return
+        }
+      } catch { /* proceed on read failure */ }
+    }
+
+    let present = 0
+    const now = Date.now()
+    const lockedAt = computeLockAt(now)
+
     if (isOfflineMode) {
       const offlineRecs = students.map(s => ({
-        id: `${s.id}_${date}`,
-        schoolId: sid,
-        date,
-        studentId: s.id,
-        className: s.className,
-        section: s.section,
-        status: (marks[s.id] || 'absent') as any,
-        markedBy: profile?.uid || 'system',
-        method,
-        timestamp: Date.now()
+        id: `${s.id}_${date}_${slotKey}`,
+        schoolId: sid, date, studentId: s.id,
+        className: s.className, section: s.section,
+        status: (marks[s.id] || 'absent') as AttendanceStatus,
+        markedBy: profile?.uid || 'system', method,
+        timestamp: now, slotKey, subject: subjectLabel, periodIdx, classKey: classSel,
       }))
       saveToOfflineQueue(offlineRecs)
-      toast.success(`Offline Mode • Saved ${offlineRecs.length} records locally! Will sync automatically when internet returns.`)
+      const snapMarks = { ...marks }
+      toast.success(`Offline • ${subjectLabel} saved (${offlineRecs.length})`, {
+        duration: 7000,
+        action: { label: 'Undo', onClick: () => { setMarks(snapMarks); toast.info('Restored marks for editing.') } }
+      })
+      setMarks({})
       return
     }
 
-    const now = Date.now()
     const updates: Record<string, unknown> = {}
     for (const student of students) {
-      // For non-manual methods (AI/QR) fall back to "absent" for anyone not
-      // marked present/late; for manual we already enforced every row above.
-      const status = marks[student.id] || (method === 'manual' ? 'absent' : 'absent')
+      const status = (marks[student.id] || 'absent') as AttendanceStatus
       if (status === 'present' || status === 'late') present++
-      updates[`schools/${sid}/attendance/${date}/${student.id}`] = {
+      const rec = {
         studentId: student.id,
         className: student.className,
         section: student.section,
-        subject: student.subject || (Array.isArray(profile?.subjects) ? (profile as any).subjects?.[0] : ((profile as any)?.subject || 'General')) || 'General',
+        classKey: classSel,
+        subject: subjectLabel,
+        periodIdx,
+        periodName: subjectLabel,
+        slotKey,
         date,
         status,
         markedBy: profile?.uid,
+        markedByName: profile?.displayName || profile?.name || profile?.email || '',
         method,
+        isMorningRegister: periodIdx === -1,
         timestamp: now,
+        createdAt: now,
+        updatedAt: now,
+        lockedAt,
       }
+      updates[`schools/${sid}/attendance/${date}/${classSel}/${slotKey}/${student.id}`] = rec
+      // Legacy compat flat path (overwritten by latest save; keeps old dashboard/history working)
+      updates[`schools/${sid}/attendance/${date}/${student.id}`] = { ...rec, _compat: true }
     }
 
     await update(ref(db), updates)
-    toast.success(`Attendance saved to Firebase • Present/Late ${present}/${students.length}`)
+
+    const snapMarks = { ...marks }
+    const presentCountNow = present
+    toast.success(`${subjectLabel} saved • P/L ${presentCountNow}/${students.length} • locks in 5 min`, {
+      duration: 8000,
+      action: {
+        label: 'Undo',
+        onClick: async () => {
+          try {
+            const undoUpdates: Record<string, unknown> = {}
+            students.forEach(s => { undoUpdates[`schools/${sid}/attendance/${date}/${classSel}/${slotKey}/${s.id}`] = null })
+            await update(ref(db), undoUpdates)
+            setMarks(snapMarks)
+            toast.success('Undone — attendance restored for editing.')
+          } catch { setMarks(snapMarks); toast.info('Undo applied locally; refresh to confirm.') }
+        }
+      }
+    })
     setMarks({})
   }
 
@@ -824,35 +1013,52 @@ const handleQrScan = async (scannedText: string) => {
     const matchedStudent = allStudents.find((s: any) => s.id === scannedText || s.qrCode === scannedText)
 
     if (matchedStudent) {
+      if (isHoliday) { toast.error('Today is a holiday — attendance disabled.'); return }
       const date = todayIST()
+      const now = Date.now()
+      const ck = `${matchedStudent.className}-${matchedStudent.section}`
+      const slotKey = activeSlotKey
+      const subjectLabel = periodIdx === -1 ? 'Morning Register' : (subjectSel || 'General')
+      const rec = {
+        id: `${matchedStudent.id}_${date}_${slotKey}`,
+        schoolId: sid,
+        studentId: matchedStudent.id,
+        className: matchedStudent.className,
+        section: matchedStudent.section,
+        classKey: ck,
+        subject: subjectLabel, periodIdx, slotKey,
+        date, status: 'present' as AttendanceStatus,
+        markedBy: profile?.uid, markedByName: profile?.displayName || 'QR',
+        method: 'qr', isMorningRegister: periodIdx === -1,
+        timestamp: now, createdAt: now, updatedAt: now,
+        lockedAt: computeLockAt(now),
+      }
       if (isOfflineMode) {
         saveToOfflineQueue([{
-          id: `${matchedStudent.id}_${date}`,
-          schoolId: sid,
-          date,
-          studentId: matchedStudent.id,
-          className: matchedStudent.className,
-          section: matchedStudent.section,
-          status: 'present',
-          markedBy: profile?.uid || 'qr',
-          method: 'qr',
-          timestamp: Date.now()
+          id: rec.id,
+          schoolId: rec.schoolId,
+          date: rec.date,
+          studentId: rec.studentId,
+          className: rec.className,
+          section: rec.section,
+          classKey: rec.classKey,
+          subject: rec.subject,
+          periodIdx: rec.periodIdx,
+          slotKey: rec.slotKey,
+          status: rec.status,
+          markedBy: rec.markedBy,
+          method: 'qr' as const,
+          timestamp: rec.timestamp,
         }])
       } else {
-        await update(ref(db, `schools/${sid}/attendance/${date}/${matchedStudent.id}`), {
-          studentId: matchedStudent.id,
-          className: matchedStudent.className,
-          section: matchedStudent.section,
-          date,
-          status: 'present',
-          markedBy: profile?.uid,
-          method: 'qr',
-          timestamp: Date.now()
+        await update(ref(db), {
+          [`schools/${sid}/attendance/${date}/${ck}/${slotKey}/${matchedStudent.id}`]: rec,
+          [`schools/${sid}/attendance/${date}/${matchedStudent.id}`]: { ...rec, _compat: true },
         })
       }
       marksRef.current = { ...marksRef.current, [matchedStudent.id]: 'present' }
       setMarks(prev => ({ ...prev, [matchedStudent.id]: 'present' }))
-      toast.success(`Verified: ${matchedStudent.name} marked Present via QR!`)
+      toast.success(`Verified: ${matchedStudent.name} marked Present (${subjectLabel})`)
       setShowQrScanner(false)
       setHybridQrOverlay(false)
       try { navigator.vibrate?.(100) } catch { /* ignore */ }
@@ -863,39 +1069,39 @@ const handleQrScan = async (scannedText: string) => {
 
   const sendParentAlert = async (student: any) => {
     const sid = schoolId || profile?.schoolId || 'global'
-    const phone = student.guardianPhone || 'No Phone'
+    const phone = String(student.guardianPhone || '').replace(/\D/g, '')
+    const date = todayIST()
+    const subjectLabel = periodIdx === -1 ? 'Morning Register' : (subjectSel || 'class')
 
-    /* BUG FIX: the previous copy baked in a hardcoded "Attendance 74%" for
-       every student. Compute the real rate from saved attendance records. */
+    if (!phone || phone.length < 10) {
+      toast.error(`No guardian phone saved for ${student.name}. Add one from the Students page.`)
+      return
+    }
+
+    // Lightweight attendance % (best-effort; don't block the send)
     let attendancePct = 0
     try {
       const snapshot = await get(ref(db, `schools/${sid}/attendance`))
       const allDays = snapshot.val() || {}
-      let total = 0
-      let presentLike = 0
+      let total = 0, presentLike = 0
       Object.values(allDays).forEach((day: any) => {
-        const record = day?.[student.id]
-        if (record?.status) {
-          total += 1
-          if (['present', 'late'].includes(record.status)) presentLike += 1
-        }
+        if (!day || typeof day !== 'object') return
+        // Check legacy flat record first, then nested
+        const rec = day[student.id] || Object.values(day).find((x: any)=> x?.studentId===student.id)
+        if (rec?.status) { total += 1; if (['present','late'].includes(rec.status)) presentLike += 1 }
       })
-      attendancePct = total ? Math.round((presentLike / total) * 100) : 0
-    } catch { /* fall through with 0 — alert still sends */ }
+      attendancePct = total ? Math.round((presentLike/total)*100) : 0
+    } catch { /* ignore */ }
 
-    const body = `${student.name} is absent today. Attendance rate: ${attendancePct}%. Please contact the class teacher.`
-    toast.success(`Parent Alert Dispatched to ${student.guardianName || 'Guardian'} (${phone}):\n"${body}"`)
+    const body = `Dear ${student.guardianName || 'Parent'}, ${student.name} (Roll ${student.rollNumber}, ${classSel}) is marked ABSENT today (${date}, ${subjectLabel}, ${nowHhmm}). Attendance rate: ${attendancePct}%. Please contact the class teacher. - EduSphere AI`
+    window.open(whatsappUrl(phone, body), '_blank', 'noopener')
+    toast.success(`Opening WhatsApp for ${student.guardianName || 'Guardian'} (${phone})`)
     try {
       const nRef = push(ref(db, `schools/${sid}/notifications`))
       await set(nRef, {
-        id: nRef.key,
-        schoolId: sid,
-        toRole: 'parent',
-        title: `Absent Alert: ${student.name}`,
-        body,
-        type: 'parent_alert',
-        read: false,
-        createdAt: Date.now()
+        id: nRef.key, schoolId: sid,
+        title: `Absent Alert: ${student.name}`, body,
+        type: 'parent_alert', read: false, createdAt: Date.now(),
       })
     } catch { /* ignore */ }
   }
@@ -930,36 +1136,70 @@ const handleQrScan = async (scannedText: string) => {
   const historyRecords = useMemo(() => {
     const days = Number(histRange)
     const cutoff = Date.now() - days * 86400000
-    const list: Array<{ date: string; studentId: string; studentName: string; rollNumber: string; status: string; method?: string; subject?: string; className?: string; section?: string; timestamp: number; confidence?: number }> = []
-    Object.entries(historyMap).forEach(([dateStr, dayRecs]: [string, any]) => {
-      if (!dayRecs) return
+    const list: Array<{ date: string; studentId: string; studentName: string; rollNumber: string; status: string; method?: string; subject?: string; className?: string; section?: string; timestamp: number; confidence?: number; period?: string }> = []
+    const seen = new Set<string>()
+
+    const ingest = (dateStr: string, rec: any, dayDate: number, periodLabel?: string) => {
+      if (!rec || !rec.studentId) return
+      const targetClass = histClass ? histClass.split('-') : null
+      if (targetClass) {
+        const [c, sec] = targetClass
+        if ((rec.className || rec.classKey?.split('-')[0] || '') !== c) return
+        if ((rec.section || rec.classKey?.split('-')[1] || '') !== sec) return
+      }
+      if (histSubject !== 'All' && (rec.subject || 'General') !== histSubject) return
+      const student = allStudents.find(s => s.id === rec.studentId)
+      const name = student?.name || rec.name || rec.studentId || 'Unknown'
+      if (histSearch && !name.toLowerCase().includes(histSearch.toLowerCase()) && !(rec.rollNumber || student?.rollNumber || '').toLowerCase().includes(histSearch.toLowerCase())) return
+      const dedupKey = `${dateStr}|${rec.studentId}|${rec.slotKey || 'legacy'}|${rec.periodIdx ?? 'x'}`
+      if (seen.has(dedupKey)) return
+      seen.add(dedupKey)
+      list.push({
+        date: dateStr,
+        studentId: rec.studentId,
+        studentName: name,
+        rollNumber: rec.rollNumber || student?.rollNumber || '-',
+        status: rec.status || 'absent',
+        method: rec.method,
+        subject: rec.subject || (rec.isMorningRegister ? 'Morning Register' : 'General'),
+        className: rec.className,
+        section: rec.section,
+        timestamp: rec.timestamp || rec.updatedAt || dayDate,
+        confidence: rec.confidence,
+        period: periodLabel || (rec.isMorningRegister ? 'Morning' : rec.periodName),
+      })
+    }
+
+    Object.entries(historyMap).forEach(([dateStr, dayTree]: [string, any]) => {
+      if (!dayTree) return
       const [y, m, d] = dateStr.split('-').map(Number)
       const dayDate = new Date(Date.UTC(y, (m || 1) - 1, d || 1)).getTime()
       if (dayDate < cutoff - 86400000) return
-      const targetClass = histClass ? histClass.split('-') : null
-      Object.values(dayRecs as Record<string, any>).forEach((rec: any) => {
-        if (!rec) return
-        if (targetClass) {
-          const [c, sec] = targetClass
-          if ((rec.className || '') !== c || (rec.section || '') !== sec) return
+
+      // New shape: dayTree[classKey][slotKey][studentId] = rec
+      // Legacy shape: dayTree[studentId] = rec (flat). The two are distinguished: legacy recs have no classKey/slotKey nesting.
+      Object.entries(dayTree as Record<string, any>).forEach(([k, v]) => {
+        if (!v) return
+        // Check if this is a nested class-key entry. Nested entries contain objects whose values are either slot objects (have pN: or morning keys) OR student records with studentId.
+        if (typeof v === 'object' && v !== null) {
+          // Is it a legacy flat student record?
+          if (v.studentId && (v.status === 'present' || v.status === 'late' || v.status === 'absent')) {
+            ingest(dateStr, v, dayDate)
+            return
+          }
+          // Otherwise iterate class sections
+          Object.entries(v as Record<string, any>).forEach(([slotKey, slotOrRec]) => {
+            if (!slotOrRec) return
+            // slotKey 'morning' or starts with 'p'
+            if (typeof slotOrRec === 'object' && slotOrRec !== null) {
+              if (slotOrRec.studentId && (slotOrRec.status==='present'||slotOrRec.status==='late'||slotOrRec.status==='absent')) {
+                ingest(dateStr, slotOrRec, dayDate, slotKey)
+                return
+              }
+              Object.values(slotOrRec as Record<string, any>).forEach(rec => ingest(dateStr, rec, dayDate, slotKey))
+            }
+          })
         }
-        if (histSubject !== 'All' && (rec.subject || 'General') !== histSubject) return
-        const student = allStudents.find(s => s.id === rec.studentId)
-        const name = student?.name || rec.name || rec.studentId || 'Unknown'
-        if (histSearch && !name.toLowerCase().includes(histSearch.toLowerCase()) && !(rec.rollNumber || student?.rollNumber || '').toLowerCase().includes(histSearch.toLowerCase())) return
-        list.push({
-          date: dateStr,
-          studentId: rec.studentId,
-          studentName: name,
-          rollNumber: rec.rollNumber || student?.rollNumber || '-',
-          status: rec.status || 'absent',
-          method: rec.method,
-          subject: rec.subject || 'General',
-          className: rec.className,
-          section: rec.section,
-          timestamp: rec.timestamp || dayDate,
-          confidence: rec.confidence,
-        })
       })
     })
     list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
@@ -1049,6 +1289,113 @@ const handleQrScan = async (scannedText: string) => {
         <div className="text-[10px] text-rose-300/70 mt-0.5">Auto-queued parent alerts</div>
       </Card>
     </div>
+    {/* HOLIDAY / SUNDAY BLOCKER BANNER */}
+    {isHoliday && (
+      <div className="p-4 rounded-[24px] bg-rose-500/15 border border-rose-400/40 text-rose-100 flex items-start gap-3">
+        <CalendarDays size={22} className="shrink-0 mt-0.5"/>
+        <div>
+          <div className="font-black text-[15px]">Today is a holiday — attendance disabled</div>
+          <div className="text-[12px] text-rose-200/80 mt-1">
+            {dow === 'Sun' ? 'Sunday' : holidayInfo?.title || 'School holiday'}
+            {' • '}Marking is blocked automatically so teachers can't accidentally record attendance. Admins can manage holidays on the Calendar page.
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* PERIOD / SUBJECT SELECTOR BAR (v2.9 subject-wise) */}
+    {!isHoliday && (() => {
+      const sch: any = schedules[classSel]
+      const slots: any[] = sch?.slots || []
+      const dayKey = dow
+      const currentCellFor = (i: number): any => sch?.grid?.[`${dayKey}:${i}`] || sch?.grid?.[`Mon:${i}`] || {}
+      return (
+        <Card className="rounded-[24px] border-cyan-400/20 bg-gradient-to-br from-cyan-500/10 via-indigo-500/10 to-violet-500/10 p-4 text-white">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div>
+              <div className="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-200">Marking for</div>
+              <div className="text-[17px] font-black text-white mt-0.5 flex items-center gap-2 flex-wrap">
+                {periodIdx === -1 ? (
+                  <><Sun size={16} className="text-amber-300"/> Morning Register</>
+                ) : (
+                  <>Period {periodIdx+1} • {subjectSel || '—'}</>
+                )}
+                <span className="text-[11px] font-bold text-white/60">{dow} • {nowHhmm} IST</span>
+                {periodIdx !== -1 && slots[periodIdx] && <span className="text-[11px] font-bold text-cyan-300">({slots[periodIdx].label})</span>}
+              </div>
+              <div className="text-[11px] text-white/60 mt-0.5">
+                {periodIdx === -1
+                  ? (canMarkMorning ? 'Class-teacher morning register sets daily baseline.' : 'Only Class Teacher or Admin can mark morning register.')
+                  : subjectSel
+                    ? `Subject teacher marks this period only; after save it locks in 5 min.`
+                    : 'Select a period below.'}
+              </div>
+            </div>
+            {absentCount > 0 && (
+              <Button variant="gradient" size="sm" className="rounded-full h-11 px-4 font-bold text-[12px] bg-gradient-to-r from-emerald-500 to-green-500" onClick={sendBulkWhatsApp}>
+                <Send size={14} className="mr-1.5"/> WhatsApp {absentCount} absent parent{absentCount!==1?'s':''}
+              </Button>
+            )}
+          </div>
+
+          {/* Period chips */}
+          <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-thin">
+            <button
+              onClick={() => { setPeriodIdx(-1); setSubjectSel(''); setMarks({}) }}
+              disabled={!canMarkMorning}
+              title={canMarkMorning ? 'Morning register (class teacher only)' : 'Only class teacher/admin'}
+              className={`shrink-0 px-3 py-2 rounded-full text-[11px] font-bold border transition ${
+                periodIdx === -1
+                  ? 'bg-amber-400 text-black border-amber-300 shadow'
+                  : canMarkMorning ? 'bg-white/5 border-white/15 text-white/80 hover:bg-white/10' : 'bg-white/[0.03] border-white/10 text-white/30 cursor-not-allowed'
+              }`}
+            >
+              <Sun size={11} className="inline mr-1 -mt-0.5"/> Morning Register
+            </button>
+            {slots.map((slot, i) => {
+              const cell = currentCellFor(i)
+              const isBreak = ['Lunch','Break','Assembly','PT','Library'].includes(cell?.subject)
+              const isMine = isSchoolAdmin || profile?.role === 'super_admin' || profile?.role !== 'teacher'
+                ? true
+                : teachers.some((t: any) =>
+                    (t.uid === profile?.uid) &&
+                    (cell?.teacherId === t.id || String(cell?.teacherName||'').toLowerCase() === String(profile?.displayName||profile?.name||'').toLowerCase())
+                  )
+              const isLive = (() => {
+                const [a,b] = (slot.label||'').split('-')
+                if (!a||!b) return false
+                const sm = Number(a.split(':')[0])*60 + Number(a.split(':')[1])
+                const em = Number(b.split(':')[0])*60 + Number(b.split(':')[1])
+                return nowMin >= sm && nowMin < em
+              })()
+              return (
+                <button
+                  key={i}
+                  onClick={() => { if(!isBreak){ setPeriodIdx(i); setSubjectSel(cell?.subject || ''); setMarks({}) } }}
+                  disabled={isBreak}
+                  className={`shrink-0 px-3 py-2 rounded-full text-[11px] font-bold border transition ${
+                    periodIdx === i
+                      ? 'bg-cyan-400 text-black border-cyan-300 shadow'
+                      : isBreak
+                        ? 'bg-amber-500/10 border-amber-400/20 text-amber-300/60 cursor-not-allowed'
+                        : !isMine
+                          ? 'bg-white/[0.03] border-white/10 text-white/30'
+                          : 'bg-white/5 border-white/15 text-white/80 hover:bg-white/10'
+                  }`}
+                >
+                  {isLive && <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1 animate-pulse"/>}
+                  P{i+1} {isBreak ? `• ${cell.subject}` : cell?.subject ? `• ${cell.subject}` : `• ${slot.label}`}
+                </button>
+              )
+            })}
+            {!slots.length && (
+              <span className="text-[11px] text-white/40 italic px-2 py-2">No timetable published for {classSel} yet. Defaulting to single manual session.</span>
+            )}
+          </div>
+        </Card>
+      )
+    })()}
+
 <Tabs value={tab} onValueChange={setTab} className="w-full">
       {/* Mode selector — big tap-friendly button grid (no horizontal scroll!) */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
@@ -1080,6 +1427,53 @@ const handleQrScan = async (scannedText: string) => {
 
       {/* TAB 1: MANUAL & ROSTER */}
       <TabsContent value="manual" className="mt-4">
+        {/* Class-teacher Bunking Report (today): present in morning but absent in later periods */}
+        {canMarkMorning && periodIdx === -1 && (() => {
+          const today = todayIST()
+          const dayData: any = historyMap?.[today]?.[classSel]
+          if (!dayData) return null
+          const morning = dayData.morning || {}
+          const rows: Array<{ student: any; absents: string[] }> = []
+          students.forEach(s => {
+            const mr = morning[s.id]
+            if (!mr || (mr.status !== 'present' && mr.status !== 'late')) return
+            const abs: string[] = []
+            Object.entries(dayData).forEach(([pkey, precs]: [string, any]) => {
+              if (pkey === 'morning' || !pkey.startsWith('p') || !precs) return
+              const r = precs[s.id]
+              if (r?.status === 'absent') abs.push(`${pkey.split(':')[0].toUpperCase()}:${r.subject || '?'}`)
+            })
+            if (abs.length) rows.push({ student: s, absents: abs })
+          })
+          if (!rows.length) return null
+          return (
+            <Card className="mb-3 rounded-[22px] p-3 border-amber-400/30 bg-amber-500/10 text-amber-100">
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-black text-[13px] flex items-center gap-1.5"><AlertTriangle size={15}/> Bunking alert • {rows.length} student(s)</div>
+                <Button size="sm" variant="outline" className="h-8 rounded-full text-[11px] border-emerald-400/40 bg-emerald-500/10 text-emerald-100 font-bold" onClick={() => {
+                  const msgList = rows.map(r => `${r.student.name} (Roll ${r.student.rollNumber}) — absent in ${r.absents.join(', ')}`).join('%0A')
+                  toast.success('Opening WhatsApp to class teacher group...')
+                  // class teacher group would be a saved number; for now open to each parent individually
+                  rows.forEach((r, i) => {
+                    const ph = String(r.student.guardianPhone||'').replace(/\D/g,'')
+                    if (!ph || ph.length < 10) return
+                    const body = `Dear ${r.student.guardianName||'Parent'}, ${r.student.name} was present in Morning Register but found ABSENT in ${r.absents.join(', ')}. Please contact the class teacher. - EduSphere AI`
+                    setTimeout(()=>window.open(whatsappUrl(ph, body),'_blank','noopener'), i*650)
+                  })
+                }}><Send size={12} className="mr-1"/> Message all</Button>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {rows.slice(0,12).map(r => (
+                  <span key={r.student.id} className="text-[11px] bg-black/30 rounded-full px-2.5 py-1 font-bold">
+                    {r.student.name} <span className="opacity-70 font-normal">({r.absents.join(', ')})</span>
+                  </span>
+                ))}
+                {rows.length>12 && <span className="text-[11px] px-2 py-1">+{rows.length-12} more</span>}
+              </div>
+            </Card>
+          )
+        })()}
+
         {/* Bulk action shortcuts */}
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <button onClick={() => {
@@ -1168,10 +1562,22 @@ const handleQrScan = async (scannedText: string) => {
             ))}
             {!students.length && <Card className="p-10 text-center text-white/50 text-sm rounded-[24px] border-white/10 bg-white/[0.03]">No students in {classSel || 'selected class'}. Add students from the Students page.</Card>}
           </div>
-          <div className="sticky bottom-[88px] md:bottom-6 z-20 -mt-2 pt-2 bg-gradient-to-t from-[#050816] via-[#050816]/85 to-transparent">
-            <Button onClick={()=>submit('manual')} variant="success" size="lg" className="w-full rounded-full h-14 font-extrabold text-[16px] shadow-[0_10px_30px_rgba(16,185,129,0.3)]" disabled={!students.length}>
-              ✓ SAVE ATTENDANCE • {presentCount} Present • {lateCount} Late • {absentCount} Absent
-            </Button>
+          <div className="sticky bottom-[88px] md:bottom-6 z-20 -mt-2 pt-2 bg-gradient-to-t from-[#050816] via-[#050816]/85 to-transparent space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <Button onClick={sendBulkWhatsApp} variant="outline" size="lg"
+                className="rounded-full h-12 font-bold text-[13px] border-emerald-400/40 bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/20"
+                disabled={!absentCount}>
+                <Send size={14} className="mr-1.5"/> WhatsApp {absentCount} Absent
+              </Button>
+              <Button onClick={()=>submit('manual')} variant="success" size="lg"
+                className="rounded-full h-12 font-extrabold text-[14px] shadow-[0_10px_30px_rgba(16,185,129,0.3)]"
+                disabled={!students.length}>
+                <Lock size={14} className="mr-1.5"/> SAVE {periodIdx===-1?'MORNING':(subjectSel||'Period')} • {presentCount}P {lateCount}L {absentCount}A
+              </Button>
+            </div>
+            <p className="text-center text-[10px] text-white/40 px-2">
+              After saving, this period locks in 5 minutes. Use Undo on the toast to fix mistakes in that window. After lock, ask Admin.
+            </p>
           </div>
         </div>
       </TabsContent>

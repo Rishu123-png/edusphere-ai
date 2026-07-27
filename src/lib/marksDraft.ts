@@ -31,7 +31,9 @@ export function clearDraft(composite: string) {
     const all = loadAllDrafts()
     delete all[composite]
     localStorage.setItem(KEY, JSON.stringify(all))
-  } catch {}
+  } catch {
+    // localStorage unavailable (private mode / quota) — drafts are best-effort.
+  }
 }
 
 // Prune drafts older than 30 days
@@ -41,5 +43,7 @@ export function pruneDrafts() {
     const cut = Date.now() - 30*24*60*60*1000
     for (const k of Object.keys(all)) if ((all[k]?.savedAt||0) < cut) delete all[k]
     localStorage.setItem(KEY, JSON.stringify(all))
-  } catch {}
+  } catch {
+    // localStorage unavailable (private mode / quota) — pruning is best-effort.
+  }
 }

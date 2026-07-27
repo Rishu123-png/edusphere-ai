@@ -56,9 +56,12 @@
           ".read": "auth != null && (root.child('users').child(auth.uid).child('schoolId').val() == $schoolId || root.child('users').child(auth.uid).child('role').val() == 'super_admin')",
           ".indexOn": [".key"],
           "$date": {
-            "$studentId": {
+            // Single recursive write rule: any descendant path under $date (legacy
+            // flat $studentId OR new $classKey/$slotKey/$studentId) is writable by
+            // teachers/admins of the school. .validate runs at every leaf.
+            "$rest": {
               ".write": "auth != null && root.child('users').child(auth.uid).child('schoolId').val() == $schoolId && (root.child('users').child(auth.uid).child('role').val() == 'teacher' || root.child('users').child(auth.uid).child('role').val() == 'school_admin' || root.child('users').child(auth.uid).child('role').val() == 'super_admin')",
-              ".validate": "newData.hasChildren(['studentId','date','status','markedBy','timestamp'])"
+              ".validate": "(!newData.exists()) || (newData.hasChildren(['studentId','date','status','markedBy','timestamp']) && (newData.child('status').val() == 'present' || newData.child('status').val() == 'late' || newData.child('status').val() == 'absent' || newData.child('status').val() == 'leave'))"
             }
           }
         },

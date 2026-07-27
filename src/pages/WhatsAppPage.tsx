@@ -45,16 +45,37 @@ export default function WhatsAppPage(){
 
   const absentees = useMemo(()=>{
     const studentMap = new Map(students.map(s=>[s.id, s]))
-    return Object.values(attendanceToday)
-      .filter((r:any)=> r.status === 'absent' || r.status === 'late')
-      .map((r:any)=>{
-        const s = studentMap.get(r.studentId)
+    // Support both legacy flat shape ({studentId: rec}) and new period-keyed shape ({classKey: {slotKey: {studentId: rec}}}).
+    const worstStatus = new Map<string, { status: string; subject?: string }>()
+    const ingest = (rec: any) => {
+      if (!rec || !rec.studentId) return
+      const prev = worstStatus.get(rec.studentId)
+      // Priority: absent > late > present
+      const score = (s: string) => s === 'absent' ? 3 : s === 'late' ? 2 : s === 'present' ? 1 : 0
+      if (!prev || score(rec.status) > score(prev.status)) {
+        worstStatus.set(rec.studentId, { status: rec.status, subject: rec.subject })
+      }
+    }
+    Object.values(attendanceToday).forEach((node: any) => {
+      if (!node || typeof node !== 'object') return
+      if (node.studentId && node.status) { ingest(node); return } // legacy flat
+      // Nested: classKey -> slotKey -> {studentId: rec}
+      Object.values(node).forEach((slotOrStudent: any) => {
+        if (!slotOrStudent || typeof slotOrStudent !== 'object') return
+        if (slotOrStudent.studentId && slotOrStudent.status) { ingest(slotOrStudent); return }
+        Object.values(slotOrStudent).forEach((rec: any) => ingest(rec))
+      })
+    })
+    return Array.from(worstStatus.entries())
+      .filter(([,r]) => r.status === 'absent' || r.status === 'late')
+      .map(([sid, r]) => {
+        const s = studentMap.get(sid)
         return {
-          id: r.studentId,
+          id: sid,
           name: s?.name || 'Student',
           class: s ? `${s.className}-${s.section}` : '—',
           parent: s?.guardianPhone || '',
-          reason: r.status === 'late' ? 'Late' : 'Absent',
+          reason: r.status === 'late' ? 'Late' : `Absent${r.subject && r.subject !== 'General' ? ' ('+r.subject+')' : ''}`,
         }
       })
       .filter((a:any)=> a.parent)

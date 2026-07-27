@@ -3,6 +3,7 @@ import { initializeApp, getApps, type FirebaseOptions } from 'firebase/app'
 import { getAuth, GoogleAuthProvider } from 'firebase/auth'
 import { getDatabase } from 'firebase/database'
 import { getStorage } from 'firebase/storage'
+import { getFunctions } from 'firebase/functions'
 import type { Analytics } from 'firebase/analytics'
 
 const firebaseConfig: FirebaseOptions = {
@@ -49,6 +50,7 @@ if (typeof window !== 'undefined') {
 export const auth = getAuth(app)
 export const db = getDatabase(app)
 export const storage = getStorage(app)
+export const functions = getFunctions(app)
 export const googleProvider = new GoogleAuthProvider()
 googleProvider.setCustomParameters({ prompt: 'select_account' })
 

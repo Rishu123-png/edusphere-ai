@@ -1,26 +1,25 @@
 import { useEffect, useRef } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Users, ClipboardCheck, FileText, Settings, Brain, UserCircle } from 'lucide-react'
+import { LayoutDashboard, Users, ClipboardCheck, FileText, Settings, Brain } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
 import { AnimeBounceClick } from '../AnimeWrapper'
 import { motion, AnimatePresence } from 'framer-motion'
 
 const tabs = [
-  { to: '/', label: 'Home', icon: LayoutDashboard, roles: ['super_admin','school_admin','teacher','student','parent'] },
-  { to: '/parent', label: 'My Child', icon: UserCircle, roles: ['parent'] },
+  { to: '/', label: 'Home', icon: LayoutDashboard, roles: ['super_admin','school_admin','teacher'] },
   { to: '/students', label: 'Students', icon: Users, roles: ['super_admin','school_admin','teacher'] },
   { to: '/attendance', label: 'Attendance', icon: ClipboardCheck, roles: ['super_admin','school_admin','teacher'] },
-  { to: '/marks', label: 'Marks', icon: FileText, roles: ['super_admin','school_admin','teacher','student','parent'] },
-  { to: '/ai', label: 'AI', icon: Brain, roles: ['super_admin','school_admin','teacher','parent'] },
+  { to: '/marks', label: 'Marks', icon: FileText, roles: ['super_admin','school_admin','teacher'] },
+  { to: '/ai', label: 'AI', icon: Brain, roles: ['super_admin','school_admin','teacher'] },
 ]
 
 export default function BottomNav(){
   const { profile } = useAuth()
-  const role = profile?.role || 'student'
+  const role = profile?.role || 'teacher'
   const visibleTabs = tabs.filter(t => t.roles.includes(role)).slice(0,5)
   if(visibleTabs.length < 5){
-    visibleTabs.push({ to: '/settings', label: 'Settings', icon: Settings, roles: ['super_admin','school_admin','teacher','student','parent'] })
+    visibleTabs.push({ to: '/settings', label: 'Settings', icon: Settings, roles: ['super_admin','school_admin','teacher'] })
   }
   const loc = useLocation()
   const navRef = useRef<HTMLDivElement>(null)

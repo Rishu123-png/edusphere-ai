@@ -31,6 +31,11 @@
         ".read": "auth != null && (root.child('users').child(auth.uid).child('schoolId').val() == $schoolId || root.child('users').child(auth.uid).child('role').val() == 'super_admin')",
         ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() == 'super_admin' || (root.child('users').child(auth.uid).child('role').val() == 'school_admin' && root.child('users').child(auth.uid).child('schoolId').val() == $schoolId) || (!data.exists() && newData.child('createdBy').val() == auth.uid))",
 
+        "branding": {
+          ".read": "auth != null && (root.child('users').child(auth.uid).child('schoolId').val() == $schoolId || root.child('users').child(auth.uid).child('role').val() == 'super_admin')",
+          ".write": "auth != null && root.child('users').child(auth.uid).child('schoolId').val() == $schoolId && (root.child('users').child(auth.uid).child('role').val() == 'school_admin' || root.child('users').child(auth.uid).child('role').val() == 'super_admin')"
+        },
+
         "students": {
           ".read": "auth != null && (root.child('users').child(auth.uid).child('schoolId').val() == $schoolId || root.child('users').child(auth.uid).child('role').val() == 'super_admin')",
           ".indexOn": ["className", "guardianEmail", "parentUid"],

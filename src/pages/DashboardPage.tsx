@@ -91,7 +91,30 @@ export default function DashboardPage(){
   }, [teachers])
 
   const studentMap = useMemo(()=> new Map(students.map((s:any)=>[s.id, s])), [students])
-  const todayRecords = useMemo(()=> Object.values(attendance[todayIST()] || {}), [attendance])
+  // Flatten today's attendance from both legacy (flat {sid:rec}) and new period-keyed
+  // ({classKey: {slotKey: {sid:rec}}}) shapes. For dashboard counts we de-dup per
+  // student and treat "absent in any period after morning present" as present-with-bunking,
+  // but top-line present/absent uses the worst status per student today.
+  const todayRecords = useMemo(()=>{
+    const day = attendance[todayIST()] || {}
+    const byStudent = new Map<string, any>()
+    const ingest = (rec: any) => {
+      if (!rec?.studentId) return
+      const prev = byStudent.get(rec.studentId)
+      const score = (s: string) => s === 'absent' ? 3 : s === 'late' ? 2 : s === 'present' ? 1 : 0
+      if (!prev || score(rec.status) > score(prev.status)) byStudent.set(rec.studentId, rec)
+    }
+    Object.values(day).forEach((node: any) => {
+      if (!node || typeof node !== 'object') return
+      if (node.studentId && node.status) { ingest(node); return }
+      Object.values(node).forEach((slotOrStudent: any) => {
+        if (!slotOrStudent || typeof slotOrStudent !== 'object') return
+        if (slotOrStudent.studentId && slotOrStudent.status) { ingest(slotOrStudent); return }
+        Object.values(slotOrStudent).forEach((rec: any) => ingest(rec))
+      })
+    })
+    return Array.from(byStudent.values())
+  }, [attendance])
 
   const counts = useMemo(()=>{
     const presentRecords = todayRecords.filter((r:any)=>r.status === 'present')
@@ -363,7 +386,7 @@ export default function DashboardPage(){
         </div>
       </div>
 
-      {/* ===== SECOND ROW ===== */}
+{/* ===== SECOND ROW ===== */}
       <div className="grid lg:grid-cols-3 gap-4">
         {/* Trend line */}
         <div className="card-premium">

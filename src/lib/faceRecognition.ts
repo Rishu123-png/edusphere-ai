@@ -130,7 +130,11 @@ async function evictModelCache() {
             'ssd_mobilenetv1_model',
           ]
           for (const p of modelPaths) {
-            try { await cache.delete(`${LOCAL_MODEL_BASE}/${p}-weights_manifest.json`) } catch {}
+            try {
+              await cache.delete(`${LOCAL_MODEL_BASE}/${p}-weights_manifest.json`)
+            } catch {
+              // Cache entry may not exist or be evicted already — safe to ignore.
+            }
           }
         })
       ).catch(() => {})

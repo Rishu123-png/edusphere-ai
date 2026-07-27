@@ -128,3 +128,93 @@ export const sendWhatsAppAlert = onCall({ enforceAppCheck: false }, async reques
 
   return { results, mode: token && phoneId ? 'cloud_api' : 'manual_links' }
 })
+
+/**
+ * Server-side AI proxy.
+ *
+ * The browser must NEVER hold a model credential — anything inlined into the
+ * Vite bundle is readable by every visitor of the deployed site. This callable
+ * keeps the key in Functions config and returns only the generated text.
+ *
+ * Configure with either:
+ *   firebase functions:secrets:set GEMINI_API_KEY
+ *   firebase functions:secrets:set AI_API_KEY      (OpenAI-compatible: OpenRouter/Groq)
+ *
+ * Optional env: AI_PROVIDER ('gemini' | 'openai'), AI_BASE_URL, AI_MODEL, GEMINI_MODEL
+ */
+export const aiChat = onCall({ enforceAppCheck: false }, async request => {
+  const auth = requireUser(request.auth)
+
+  const prompt = String(request.data?.prompt ?? '').slice(0, 8000)
+  if (!prompt.trim()) throw new HttpsError('invalid-argument', 'Empty prompt.')
+
+  const systemInstruction = String(request.data?.systemInstruction ?? '').slice(0, 8000)
+  const temperature = Number.isFinite(request.data?.temperature) ? Number(request.data.temperature) : 0.7
+  const maxTokens = Math.min(2048, Math.max(16, Number(request.data?.maxTokens) || 900))
+
+  const rawHistory: Array<{ role?: string; text?: unknown }> =
+    Array.isArray(request.data?.history) ? request.data.history : []
+  const history: Array<{ role: 'user' | 'model'; text: string }> = rawHistory
+    .slice(-12)
+    .map(h => ({
+      role: (h?.role === 'model' ? 'model' : 'user') as 'user' | 'model',
+      text: String(h?.text ?? '').slice(0, 4000),
+    }))
+
+  const provider = (process.env.AI_PROVIDER || 'gemini').toLowerCase()
+  const geminiKey = process.env.GEMINI_API_KEY || ''
+  const aiKey = process.env.AI_API_KEY || ''
+
+  try {
+    if (provider === 'openai') {
+      if (!aiKey) throw new HttpsError('failed-precondition', 'AI is not configured.')
+      const baseUrl = process.env.AI_BASE_URL || 'https://openrouter.ai/api/v1'
+      const model = process.env.AI_MODEL || 'meta-llama/llama-3.1-8b-instruct:free'
+
+      const messages: Array<{ role: string; content: string }> = []
+      if (systemInstruction) messages.push({ role: 'system', content: systemInstruction })
+      for (const h of history) messages.push({ role: h.role === 'model' ? 'assistant' : 'user', content: h.text })
+      messages.push({ role: 'user', content: prompt })
+
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${aiKey}`,
+          'X-Title': 'EduSphere AI',
+        },
+        body: JSON.stringify({ model, messages, temperature, max_tokens: maxTokens }),
+      })
+      if (!res.ok) throw new HttpsError('unavailable', 'AI is busy right now.')
+      const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
+      const text = (data?.choices?.[0]?.message?.content || '').trim()
+      if (!text) throw new HttpsError('unavailable', 'AI returned an empty reply.')
+      return { text }
+    }
+
+    if (!geminiKey) throw new HttpsError('failed-precondition', 'AI is not configured.')
+    const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
+    const body: Record<string, unknown> = {
+      contents: [
+        ...history.map(h => ({ role: h.role, parts: [{ text: h.text }] })),
+        { role: 'user', parts: [{ text: prompt }] },
+      ],
+      generationConfig: { temperature, topP: 0.9, maxOutputTokens: maxTokens },
+    }
+    if (systemInstruction) body.systemInstruction = { parts: [{ text: systemInstruction }] }
+
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    )
+    if (!res.ok) throw new HttpsError('unavailable', 'AI is busy right now.')
+    const data = (await res.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }
+    const text = (data?.candidates?.[0]?.content?.parts ?? []).map(p => p.text ?? '').join('').trim()
+    if (!text) throw new HttpsError('unavailable', 'AI returned an empty reply.')
+    return { text }
+  } catch (err) {
+    if (err instanceof HttpsError) throw err
+    // Never leak provider internals to the client (white-label rule).
+    throw new HttpsError('unavailable', 'AI is unavailable right now.')
+  }
+})

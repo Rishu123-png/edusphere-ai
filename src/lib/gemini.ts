@@ -2,34 +2,28 @@
 // ============================================================================
 // EduSphere AI — Intelligence Brain
 // ----------------------------------------------------------------------------
-// Provider-flexible AI client. Supports two modes (chosen by VITE_AI_PROVIDER):
+// Thin client for the server-side AI proxy (`aiChat` Cloud Function).
+// The provider is chosen on the SERVER via the AI_PROVIDER env var:
 //   • 'gemini'  (default) → Google Gemini generative language API
 //   • 'openai'            → any OpenAI-compatible endpoint (OpenRouter, Groq…)
 //
-// This lets you run the assistant 100% FREE using OpenRouter's free models
-// (e.g. meta-llama/llama-3.1-8b-instruct:free) — no credit card required.
+// You can still run the assistant 100% FREE using OpenRouter's free models —
+// just set the key with `firebase functions:secrets:set AI_API_KEY`.
 //
-// The API key is supplied through environment variables (see .env.example).
+// SECURITY (2026-07 hardening):
+//   API keys are NEVER read in the browser. Anything referenced through
+//   `import.meta.env.VITE_*` is inlined into the public JS bundle at build time
+//   and is readable by every visitor of the deployed site — a private GitHub
+//   repo does not protect it. All model traffic now goes through the `aiChat`
+//   Cloud Function, which holds the credential server-side.
+//
 // IMPORTANT (white-label / "proper website" rule):
 //   This module is internal. The UI NEVER mentions the provider by name — the
 //   assistant is branded as the "EduSphere AI Assistant". Raw model errors are
 //   swallowed and a calm local fallback is returned instead.
 // ============================================================================
 
-// --- Gemini (Google) ---------------------------------------------------------
-const GEMINI_KEY = (import.meta.env.VITE_GEMINI_API_KEY as string | undefined)?.trim() || ''
-const GEMINI_MODEL =
-  (import.meta.env.VITE_GEMINI_MODEL as string | undefined)?.trim() || 'gemini-2.0-flash'
-const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`
-
-// --- OpenAI-compatible (OpenRouter / Groq / …) -------------------------------
-const PROVIDER = (import.meta.env.VITE_AI_PROVIDER as string | undefined)?.toLowerCase() || 'gemini'
-const AI_BASE_URL =
-  (import.meta.env.VITE_AI_BASE_URL as string | undefined)?.trim() || 'https://openrouter.ai/api/v1'
-const AI_API_KEY = (import.meta.env.VITE_AI_API_KEY as string | undefined)?.trim() || ''
-const AI_MODEL =
-  (import.meta.env.VITE_AI_MODEL as string | undefined)?.trim() ||
-  'google/gemma-4-31b-it:free'
+import { getApp } from 'firebase/app'
 
 export interface GeminiTurn {
   role: 'user' | 'model'
@@ -43,129 +37,38 @@ export interface GeminiOptions {
   maxTokens?: number
 }
 
-/** Unified entry point — routes to the active provider. */
+/**
+ * Unified entry point — proxies to the `aiChat` Cloud Function.
+ *
+ * No API key exists in this bundle. If the function is not deployed or the
+ * server has no key configured, this throws and every caller falls back to the
+ * local offline replies below, so the assistant still feels alive.
+ */
 async function callModel(prompt: string, opts: GeminiOptions = {}): Promise<string> {
-  if (PROVIDER === 'openai') return callOpenAI(prompt, opts)
-  return callGemini(prompt, opts)
-}
+  const { getFunctions, httpsCallable } = await import('firebase/functions')
+  const fns = getFunctions(getApp())
+  const call = httpsCallable<
+    {
+      prompt: string
+      history?: GeminiTurn[]
+      systemInstruction?: string
+      temperature?: number
+      maxTokens?: number
+    },
+    { text?: string }
+  >(fns, 'aiChat')
 
-// ----------------------------------------------------------------------------
-// Gemini implementation
-// ----------------------------------------------------------------------------
-async function callGemini(prompt: string, opts: GeminiOptions = {}): Promise<string> {
-  // Never ship an AI credential in the browser bundle. Configure a key locally
-  // for development, or proxy requests through a protected server in production.
-  if (!GEMINI_KEY) throw new Error('missing_ai_key')
-  const contents = [
-    ...(opts.history ?? []).map((h) => ({ role: h.role, parts: [{ text: h.text }] })),
-    { role: 'user', parts: [{ text: prompt }] },
-  ]
-  const body: Record<string, unknown> = { contents }
-  if (opts.systemInstruction) body.systemInstruction = { parts: [{ text: opts.systemInstruction }] }
-  body.generationConfig = {
+  const res = await call({
+    prompt,
+    history: opts.history ?? [],
+    systemInstruction: opts.systemInstruction ?? '',
     temperature: opts.temperature ?? 0.7,
-    topP: 0.9,
-    maxOutputTokens: opts.maxTokens ?? 900,
-  }
+    maxTokens: opts.maxTokens ?? 900,
+  })
 
-  const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), 25000)
-  try {
-    const res = await fetch(GEMINI_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    })
-    if (!res.ok) {
-      let detail = ''
-      try {
-        const errBody = await res.json()
-        detail = errBody?.error?.message || ''
-      } catch {
-        /* ignore parse errors */
-      }
-      const quotaNote =
-        res.status === 429
-          ? 'Quota exceeded — enable billing or check the free-tier quota for this API key. '
-          : ''
-      // Dev-only diagnostic. Never surfaced in the UI (white-label rule).
-      console.warn(
-        `[EduSphere AI] Gemini request failed (HTTP ${res.status}). ` +
-          quotaNote +
-          (detail ? `Details: ${String(detail).slice(0, 220)} ` : '') +
-          'Assistant is using offline mode for now.',
-      )
-      throw new Error(`request_failed_${res.status}`)
-    }
-    const data = await res.json()
-    const parts = data?.candidates?.[0]?.content?.parts ?? []
-    const text = parts.map((p: { text?: string }) => p.text ?? '').join('').trim()
-    if (!text) throw new Error('empty_response')
-    return text
-  } finally {
-    window.clearTimeout(timeout)
-  }
-}
-
-// ----------------------------------------------------------------------------
-// OpenAI-compatible implementation (OpenRouter / Groq / …)
-// ----------------------------------------------------------------------------
-async function callOpenAI(prompt: string, opts: GeminiOptions = {}): Promise<string> {
-  if (!AI_API_KEY) throw new Error('missing_ai_key')
-
-  const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
-  if (opts.systemInstruction) messages.push({ role: 'system', content: opts.systemInstruction })
-  for (const h of opts.history ?? []) {
-    messages.push({ role: h.role === 'model' ? 'assistant' : 'user', content: h.text })
-  }
-  messages.push({ role: 'user', content: prompt })
-
-  const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), 25000)
-  try {
-    const res = await fetch(`${AI_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${AI_API_KEY}`,
-        'HTTP-Referer': 'https://edusphere.app',
-        'X-Title': 'EduSphere AI',
-      },
-      body: JSON.stringify({
-        model: AI_MODEL,
-        messages,
-        temperature: opts.temperature ?? 0.7,
-        max_tokens: opts.maxTokens ?? 900,
-      }),
-      signal: controller.signal,
-    })
-    if (!res.ok) {
-      let detail = ''
-      try {
-        const b = await res.json()
-        detail = b?.error?.message || ''
-      } catch {
-        /* ignore */
-      }
-      if (res.status === 429) {
-        console.warn(
-          `[EduSphere AI] ${PROVIDER} quota exceeded — check your free-tier limits. Assistant is in offline mode.`,
-        )
-      } else {
-        console.warn(
-          `[EduSphere AI] ${PROVIDER} request failed (HTTP ${res.status}). ${String(detail).slice(0, 200)}`,
-        )
-      }
-      throw new Error(`request_failed_${res.status}`)
-    }
-    const data = await res.json()
-    const text = (data?.choices?.[0]?.message?.content || '').trim()
-    if (!text) throw new Error('empty_response')
-    return text
-  } finally {
-    window.clearTimeout(timeout)
-  }
+  const text = (res.data?.text || '').trim()
+  if (!text) throw new Error('empty_response')
+  return text
 }
 
 // ----------------------------------------------------------------------------

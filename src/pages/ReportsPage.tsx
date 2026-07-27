@@ -103,6 +103,10 @@ export default function ReportsPage() {
     })
   }, [allAttendance.length, totalPresent, totalAbsent, totalLate])
 
+  // Strips ASCII control characters (and angle brackets) before they reach the
+  // PDF/Excel writers — school names pasted from Word often carry them and they
+  // corrupt jsPDF output. The control-character range is intentional here.
+  // eslint-disable-next-line no-control-regex
   const cleanReportText = (value: unknown) => String(value ?? '').replace(/[\u0000-\u001f<>]+/g, ' ').trim()
 
   const generatePDFReport = async (type: 'Comprehensive' | 'Weekly' | 'Monthly' = 'Comprehensive') => {

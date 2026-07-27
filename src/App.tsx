@@ -25,7 +25,10 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const SuperAdminPage = lazy(() => import('./pages/SuperAdminPage'))
 const ReportsPage = lazy(() => import('./pages/ReportsPage'))
 const CalendarPage = lazy(() => import('./pages/CalendarPage'))
-const ParentPortalPage = lazy(() => import('./pages/ParentPortalPage'))
+// Parent Portal intentionally disabled — parents receive updates over WhatsApp (wa.me),
+// which is the channel 99% of Indian private-school parents actually use.
+// Kept as dormant import if a school principal ever asks for a parent login.
+// const ParentPortalPage = lazy(() => import('./pages/ParentPortalPage'))
 
 function AppLoader({ label = 'Loading EduSphere AI…' }: { label?: string }) {
   return (
@@ -137,14 +140,14 @@ export default function App(){
           <Route path="/students" element={<RequireAuth allow={['super_admin','school_admin','teacher']}><PageSuspense><StudentsPage/></PageSuspense></RequireAuth>}/>
           <Route path="/teachers" element={<RequireAuth allow={['super_admin','school_admin']}><PageSuspense><TeachersPage/></PageSuspense></RequireAuth>}/>
           <Route path="/attendance" element={<RequireAuth allow={['super_admin','school_admin','teacher']}><PageSuspense><AttendancePage/></PageSuspense></RequireAuth>}/>
-          <Route path="/marks" element={<RequireAuth allow={['super_admin','school_admin','teacher','student','parent']}><PageSuspense><MarksPage/></PageSuspense></RequireAuth>}/>
+          <Route path="/marks" element={<RequireAuth allow={['super_admin','school_admin','teacher']}><PageSuspense><MarksPage/></PageSuspense></RequireAuth>}/>
           <Route path="/ai" element={<PageSuspense><AIPage/></PageSuspense>}/>
           <Route path="/schedule" element={<PageSuspense><SchedulePage/></PageSuspense>}/>
           <Route path="/notifications" element={<PageSuspense><NotificationsPage/></PageSuspense>}/>
           <Route path="/whatsapp" element={<RequireAuth allow={['super_admin','school_admin','teacher']}><PageSuspense><WhatsAppPage/></PageSuspense></RequireAuth>}/>
           <Route path="/reports" element={<RequireAuth allow={['super_admin','school_admin','teacher']}><PageSuspense><ReportsPage/></PageSuspense></RequireAuth>}/>
           <Route path="/calendar" element={<PageSuspense><CalendarPage/></PageSuspense>}/>
-          <Route path="/parent" element={<RequireAuth allow={['super_admin','school_admin','student','parent']}><PageSuspense><ParentPortalPage/></PageSuspense></RequireAuth>}/>
+          {/* /parent route disabled - parents on WhatsApp */}
           <Route path="/settings" element={<PageSuspense><SettingsPage/></PageSuspense>}/>
           <Route path="/superadmin" element={<RequireAuth allow={['super_admin']}><PageSuspense><SuperAdminPage/></PageSuspense></RequireAuth>}/>
         </Route>

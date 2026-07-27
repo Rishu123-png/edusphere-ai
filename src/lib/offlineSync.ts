@@ -9,9 +9,13 @@ export interface OfflineAttendanceRecord {
   studentId: string
   className: string
   section: string
+  classKey?: string
+  subject?: string
+  periodIdx?: number
+  slotKey?: string
   status: 'present' | 'absent' | 'late' | 'leave'
   markedBy?: string
-  method: 'manual' | 'ai_camera' | 'qr'
+  method: 'manual' | 'ai_camera' | 'qr' | 'bulk'
   timestamp: number
 }
 
@@ -64,18 +68,27 @@ export async function syncOfflineQueueToFirebase(): Promise<number> {
   const updatesByPath: Record<string, unknown> = {}
 
   for (const item of queue) {
-    const path = `schools/${item.schoolId || 'global'}/attendance/${item.date}/${item.studentId}`
-    updatesByPath[path] = {
+    const sid = item.schoolId || 'global'
+    const ck = item.classKey || `${item.className}-${item.section}`
+    const slotKey = item.slotKey || (item.periodIdx === -1 ? 'morning' : `p${item.periodIdx||0}`)
+    const rec = {
       studentId: item.studentId,
       className: item.className,
       section: item.section,
+      classKey: ck,
+      subject: item.subject || 'General',
+      periodIdx: typeof item.periodIdx === 'number' ? item.periodIdx : 0,
+      slotKey,
       date: item.date,
       status: item.status,
       markedBy: item.markedBy || 'system',
       method: item.method,
       timestamp: item.timestamp || Date.now(),
-      syncedFromOffline: true
+      syncedFromOffline: true,
     }
+    // New period-keyed path (primary) + legacy compat path
+    updatesByPath[`schools/${sid}/attendance/${item.date}/${ck}/${slotKey}/${item.studentId}`] = rec
+    updatesByPath[`schools/${sid}/attendance/${item.date}/${item.studentId}`] = { ...rec, _compat: true }
     syncedCount++
   }
 

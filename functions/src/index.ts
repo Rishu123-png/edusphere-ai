@@ -1,4 +1,3 @@
-
 import { initializeApp } from 'firebase-admin/app'
 import { getDatabase } from 'firebase-admin/database'
 import { HttpsError, onCall } from 'firebase-functions/v2/https'
@@ -8,23 +7,29 @@ initializeApp()
 const db = getDatabase()
 
 // ----------------------------------------------------------------------------
-// AI credentials — held server-side only, with automatic failover:
-//   Gemini (primary) → Groq (fallback, Llama 70B) → offline error
+// AI credentials — server-side only, dual Groq-key auto-failover:
+//   Groq key #1 (primary) → Groq key #2 (fallback) → Gemini (dormant, opt-in)
 // Configure via:
-//   firebase functions:secrets:set GEMINI_API_KEY
 //   firebase functions:secrets:set GROQ_API_KEY
-// Inline defaults below are used for the pilot deploy so the function works
-// even without running `secrets:set` first. Env/secrets always win over inline.
+//   firebase functions:secrets:set GROQ_API_KEY_2
+// (Optional Gemini opt-in):
+//   firebase functions:secrets:set GEMINI_API_KEY
+// Inline defaults below run for the pilot without requiring secrets:set.
+// Env vars / secrets always win over inline defaults.
 // Never expose these keys in a VITE_* variable — those are bundled publicly.
 // ----------------------------------------------------------------------------
 const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY')
 const GROQ_API_KEY = defineSecret('GROQ_API_KEY')
+const GROQ_API_KEY_2 = defineSecret('GROQ_API_KEY_2')
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
 
 // Pilot defaults (override via secrets or env vars in production)
-const DEFAULT_GEMINI_KEY = 'AQ.Ab8RN6I44uwOBq0CjC44GnF6eo80IshbrUjnKt2ja5PAQex6-w'
+// Gemini default left empty on purpose — key provided has quota=0; re-enable
+// by setting a real AIza... secret.
+const DEFAULT_GEMINI_KEY = ''
 const DEFAULT_GROQ_KEY = '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'
+const DEFAULT_GROQ_KEY_2 = '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'
 const codePattern = /^EDU-[A-Z0-9]{6,12}$/
 const clean = (value: unknown, max = 120) => String(value ?? '').trim().slice(0, max)
 const id = (prefix: string) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
@@ -147,13 +152,11 @@ export const sendWhatsAppAlert = onCall({ enforceAppCheck: false }, async reques
 })
 
 /**
- * Server-side AI proxy with automatic Gemini → Groq failover.
+ * Server-side AI proxy with automatic key-level failover.
  *
- * The browser never sees an AI API key. `src/lib/gemini.ts` calls this
- * callable with { prompt, history, systemInstruction, temperature, maxTokens }.
- * The function tries Gemini first; if Gemini fails / times out / hits quota,
- * it automatically retries against Groq (Llama 70B). Only if both providers
- * fail does it throw, so the client can degrade to its local offline replies.
+ * Chain (tries in order, first success wins):
+ *   Groq key #1 → Groq key #2 → Gemini (if configured) → HttpsError
+ * The client catches the error and falls back to local offline replies.
  */
 interface AiChatTurn { role: 'user' | 'model'; text: string }
 interface AiChatRequest {
@@ -277,7 +280,7 @@ async function tryGroq(params: {
 }
 
 export const aiChat = onCall(
-  { enforceAppCheck: false, secrets: [GEMINI_API_KEY, GROQ_API_KEY], timeoutSeconds: 55 },
+  { enforceAppCheck: false, secrets: [GEMINI_API_KEY, GROQ_API_KEY, GROQ_API_KEY_2], timeoutSeconds: 55 },
   async request => {
     requireUser(request.auth)
 
@@ -290,30 +293,38 @@ export const aiChat = onCall(
     const maxTokens = typeof data.maxTokens === 'number' ? Math.max(1, Math.min(2000, data.maxTokens)) : 900
     const systemInstruction = data.systemInstruction ? clean(data.systemInstruction, 6000) : undefined
 
-    // Resolve keys: secret > inline pilot default
-    const geminiKey = (() => { try { return GEMINI_API_KEY.value() } catch { return '' } })() || process.env.GEMINI_API_KEY || DEFAULT_GEMINI_KEY
-    const groqKey  = (() => { try { return GROQ_API_KEY.value() }  catch { return '' } })() || process.env.GROQ_API_KEY  || DEFAULT_GROQ_KEY
+    // Resolve keys: secret > env var > inline pilot default.
+    const resolve = (secret: { value(): string }, envName: string, fallback: string): string => {
+      try { const v = secret.value(); if (v && v.trim()) return v.trim() } catch { /* secret not bound */ }
+      const envV = (process.env[envName] || '').trim()
+      if (envV) return envV
+      return (fallback || '').trim()
+    }
+    const groqKey1 = resolve(GROQ_API_KEY,   'GROQ_API_KEY',   DEFAULT_GROQ_KEY)
+    const groqKey2 = resolve(GROQ_API_KEY_2, 'GROQ_API_KEY_2', DEFAULT_GROQ_KEY_2)
+    const geminiKey = resolve(GEMINI_API_KEY, 'GEMINI_API_KEY', DEFAULT_GEMINI_KEY)
 
     const errors: string[] = []
-    const perProviderTimeout = 22000
+    const perProviderTimeout = 20000
 
-    // 1) Gemini first
-    if (geminiKey) {
-      try {
-        const text = await tryGemini({ key: geminiKey, prompt, history, systemInstruction, temperature, maxTokens, timeoutMs: perProviderTimeout })
-        return { text, provider: 'gemini' }
-      } catch (e) {
-        errors.push((e as Error).message)
-      }
+    // Build ordered provider list.
+    const queue: Array<{ name: string; key: string; kind: 'groq' | 'gemini' }> = []
+    if (groqKey1) queue.push({ name: 'groq#1', key: groqKey1, kind: 'groq' })
+    if (groqKey2 && groqKey2 !== groqKey1) queue.push({ name: 'groq#2', key: groqKey2, kind: 'groq' })
+    if (geminiKey) queue.push({ name: 'gemini', key: geminiKey, kind: 'gemini' })
+
+    if (!queue.length) {
+      throw new HttpsError('failed-precondition', 'AI is not configured on the server yet.')
     }
 
-    // 2) Groq fallback
-    if (groqKey) {
+    for (const p of queue) {
       try {
-        const text = await tryGroq({ key: groqKey, prompt, history, systemInstruction, temperature, maxTokens, timeoutMs: perProviderTimeout })
-        return { text, provider: 'groq' }
+        const text = p.kind === 'groq'
+          ? await tryGroq({ key: p.key, prompt, history, systemInstruction, temperature, maxTokens, timeoutMs: perProviderTimeout })
+          : await tryGemini({ key: p.key, prompt, history, systemInstruction, temperature, maxTokens, timeoutMs: perProviderTimeout })
+        return { text, provider: p.name }
       } catch (e) {
-        errors.push((e as Error).message)
+        errors.push(`${p.name}: ${(e as Error).message}`)
       }
     }
 

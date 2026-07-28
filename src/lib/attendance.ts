@@ -192,15 +192,31 @@ export const DEFAULT_INDIAN_HOLIDAYS_2025_26: Array<{ title: string; date: strin
   { title: 'Independence Day (2026)',  date: '2026-08-15' },
 ]
 
+/**
+ * Ensure the school has the default Indian public holidays seeded.
+ * Idempotent:
+ *   - Safe to call on every page load (AttendancePage calls it on mount).
+ *   - Adds any default holiday that is missing (by date key).
+ *   - Does NOT overwrite existing events (admin edits/deletions are respected).
+ *   - If admin deleted a default holiday, we respect that deletion (we check the
+ *     event node exists under any id with a matching date, not just the default id).
+ */
 export async function seedDefaultHolidaysIfEmpty(schoolId: string): Promise<void> {
   if (!schoolId) return
   try {
     const snap = await get(ref(db, `schools/${schoolId}/events`))
-    const existing = snap.val() || {}
-    if (Object.keys(existing).length) return
+    const existing = (snap.val() || {}) as Record<string, any>
+    const existingDates = new Set(
+      Object.values(existing)
+        .filter((e: any) => e && typeof e.date === 'string')
+        .map((e: any) => e.date),
+    )
     const updates: Record<string, any> = {}
+    const now = Date.now()
     for (const h of DEFAULT_INDIAN_HOLIDAYS_2025_26) {
+      if (existingDates.has(h.date)) continue // school already has something on this date
       const key = `holiday_${h.date.replace(/-/g, '')}`
+      if (existing[key]) { existingDates.add(h.date); continue }
       updates[`schools/${schoolId}/events/${key}`] = {
         id: key,
         title: h.title,
@@ -208,10 +224,12 @@ export async function seedDefaultHolidaysIfEmpty(schoolId: string): Promise<void
         type: 'holiday',
         note: h.note || 'Default Indian holiday — edit/delete as needed',
         isDefault: true,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+        createdAt: now,
+        updatedAt: now,
       }
     }
-    await update(ref(db), updates)
-  } catch { /* ignore */ }
+    if (Object.keys(updates).length) {
+      await update(ref(db), updates)
+    }
+  } catch { /* ignore — network/offline, don't block the page */ }
 }

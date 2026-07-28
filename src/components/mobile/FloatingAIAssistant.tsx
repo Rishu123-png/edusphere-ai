@@ -50,7 +50,6 @@ const PAGE_LABELS: Record<string, string> = {
   '/schedule': 'Schedule',
   '/reports': 'Reports',
   '/calendar': 'Calendar',
-  '/parent': 'Parent Portal',
   '/notifications': 'Notifications',
   '/whatsapp': 'WhatsApp',
   '/settings': 'Settings',

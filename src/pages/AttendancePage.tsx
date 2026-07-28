@@ -559,6 +559,19 @@ const resetAiSession = () => {
   }, [students, marks, periodIdx, subjectSel, classSel, nowHhmm])
 
   const submit = async (method: 'manual' | 'ai_camera' | 'qr' = 'manual')=>{
+    // Defensive re-check at click time — re-derive IST dow and look up today's
+    // holiday from freshly-loaded events so a stale state/clock tick race cannot
+    // let a save slip through on a Sunday or school holiday.
+    const { dow: liveDow } = istNowParts()
+    const todayStr = todayIST()
+    const liveHoliday = events.find((e: any)=> e?.type === 'holiday' && e?.date === todayStr)
+    const liveSunday = liveDow === 'Sun'
+    if (liveSunday || liveHoliday) {
+      setIsHoliday(true)
+      setHolidayInfo(liveHoliday || null)
+      toast.error(`Today is ${liveSunday ? 'Sunday' : 'a holiday (' + (liveHoliday?.title || 'Holiday') + ')'} — attendance is disabled.`)
+      return
+    }
     if (isHoliday) { toast.error(`Today is ${holidayInfo ? 'a holiday ('+(holidayInfo.title||'Holiday')+')' : 'Sunday'} — attendance is disabled.`); return }
     if(!students.length){ toast.error(classSel ? `No students in ${classSel}` : 'Select a class first'); return }
 

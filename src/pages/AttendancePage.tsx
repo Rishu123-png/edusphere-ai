@@ -144,6 +144,7 @@ export default function AttendancePage(){
   const [nowMin, setNowMin] = useState<number>(0)
   const [nowHhmm, setNowHhmm] = useState<string>('')
   const [bunkingReport, setBunkingReport] = useState<any[]>([])
+  const [saving, setSaving] = useState(false)
 
   /** Current slot key used when writing attendance records */
   const activeSlotKey = useMemo(() => {
@@ -564,7 +565,7 @@ const resetAiSession = () => {
     // let a save slip through on a Sunday or school holiday.
     const { dow: liveDow } = istNowParts()
     const todayStr = todayIST()
-    const liveHoliday = events.find((e: any)=> e?.type === 'holiday' && e?.date === todayStr)
+    const liveHoliday = (events || []).find((e: any)=> e?.type === 'holiday' && e?.date === todayStr)
     const liveSunday = liveDow === 'Sun'
     if (liveSunday || liveHoliday) {
       setIsHoliday(true)
@@ -595,91 +596,106 @@ const resetAiSession = () => {
       }
     }
 
-    // Lock-after-save: refuse if already locked and not admin
-    if (!isOfflineMode) {
-      try {
-        const slotSnap = await get(ref(db, `schools/${sid}/attendance/${date}/${classSel}/${slotKey}`))
-        const existing = (slotSnap.val() || {}) as Record<string, any>
-        const anyLocked = Object.values(existing).some(rec => rec && isRecordLocked(rec))
-        if (anyLocked && !isSchoolAdmin && profile?.role !== 'super_admin') {
-          toast.error(`This ${subjectLabel} attendance was saved over 5 minutes ago and is locked. Ask Admin to edit.`)
-          return
+    setSaving(true)
+    try {
+      // Lock-after-save: refuse if already locked and not admin
+      if (!isOfflineMode) {
+        try {
+          const slotSnap = await get(ref(db, `schools/${sid}/attendance/${date}/${classSel}/${slotKey}`))
+          const existing = (slotSnap.val() || {}) as Record<string, any>
+          const anyLocked = Object.values(existing).some(rec => rec && isRecordLocked(rec))
+          if (anyLocked && !isSchoolAdmin && profile?.role !== 'super_admin') {
+            toast.error(`This ${subjectLabel} attendance was saved over 5 minutes ago and is locked. Ask Admin to edit.`)
+            return
+          }
+        } catch { /* proceed on read failure */ }
+      }
+
+      let present = 0
+      const now = Date.now()
+      const lockedAt = computeLockAt(now)
+
+      if (isOfflineMode) {
+        const offlineRecs = students.map(s => ({
+          id: `${s.id}_${date}_${slotKey}`,
+          schoolId: sid, date, studentId: s.id,
+          className: s.className, section: s.section,
+          status: (marks[s.id] || 'absent') as AttendanceStatus,
+          markedBy: profile?.uid || 'system', method,
+          timestamp: now, slotKey, subject: subjectLabel, periodIdx, classKey: classSel,
+        }))
+        saveToOfflineQueue(offlineRecs)
+        const snapMarks = { ...marks }
+        toast.success(`Offline • ${subjectLabel} saved (${offlineRecs.length})`, {
+          duration: 7000,
+          action: { label: 'Undo', onClick: () => { setMarks(snapMarks); toast.info('Restored marks for editing.') } }
+        })
+        setMarks({})
+        return
+      }
+
+      const updates: Record<string, unknown> = {}
+      for (const student of students) {
+        const status = (marks[student.id] || 'absent') as AttendanceStatus
+        if (status === 'present' || status === 'late') present++
+        const rec = {
+          studentId: student.id,
+          className: student.className,
+          section: student.section,
+          classKey: classSel,
+          subject: subjectLabel,
+          periodIdx,
+          periodName: subjectLabel,
+          slotKey,
+          date,
+          status,
+          markedBy: profile?.uid,
+          markedByName: profile?.displayName || profile?.name || profile?.email || '',
+          method,
+          isMorningRegister: periodIdx === -1,
+          timestamp: now,
+          createdAt: now,
+          updatedAt: now,
+          lockedAt,
         }
-      } catch { /* proceed on read failure */ }
-    }
+        updates[`schools/${sid}/attendance/${date}/${classSel}/${slotKey}/${student.id}`] = rec
+        // Legacy compat flat path
+        updates[`schools/${sid}/attendance/${date}/${student.id}`] = { ...rec, _compat: true }
+      }
 
-    let present = 0
-    const now = Date.now()
-    const lockedAt = computeLockAt(now)
+      await update(ref(db), updates)
 
-    if (isOfflineMode) {
-      const offlineRecs = students.map(s => ({
-        id: `${s.id}_${date}_${slotKey}`,
-        schoolId: sid, date, studentId: s.id,
-        className: s.className, section: s.section,
-        status: (marks[s.id] || 'absent') as AttendanceStatus,
-        markedBy: profile?.uid || 'system', method,
-        timestamp: now, slotKey, subject: subjectLabel, periodIdx, classKey: classSel,
-      }))
-      saveToOfflineQueue(offlineRecs)
       const snapMarks = { ...marks }
-      toast.success(`Offline • ${subjectLabel} saved (${offlineRecs.length})`, {
-        duration: 7000,
-        action: { label: 'Undo', onClick: () => { setMarks(snapMarks); toast.info('Restored marks for editing.') } }
+      const presentCountNow = present
+      toast.success(`${subjectLabel} saved • P/L ${presentCountNow}/${students.length} • locks in 5 min`, {
+        duration: 8000,
+        action: {
+          label: 'Undo',
+          onClick: async () => {
+            try {
+              const undoUpdates: Record<string, unknown> = {}
+              students.forEach(s => { undoUpdates[`schools/${sid}/attendance/${date}/${classSel}/${slotKey}/${s.id}`] = null })
+              await update(ref(db), undoUpdates)
+              setMarks(snapMarks)
+              toast.success('Undone — attendance restored for editing.')
+            } catch { setMarks(snapMarks); toast.info('Undo applied locally; refresh to confirm.') }
+          }
+        }
       })
       setMarks({})
-      return
-    }
-
-    const updates: Record<string, unknown> = {}
-    for (const student of students) {
-      const status = (marks[student.id] || 'absent') as AttendanceStatus
-      if (status === 'present' || status === 'late') present++
-      const rec = {
-        studentId: student.id,
-        className: student.className,
-        section: student.section,
-        classKey: classSel,
-        subject: subjectLabel,
-        periodIdx,
-        periodName: subjectLabel,
-        slotKey,
-        date,
-        status,
-        markedBy: profile?.uid,
-        markedByName: profile?.displayName || profile?.name || profile?.email || '',
-        method,
-        isMorningRegister: periodIdx === -1,
-        timestamp: now,
-        createdAt: now,
-        updatedAt: now,
-        lockedAt,
+    } catch (err: any) {
+      console.error('[Attendance] save failed:', err)
+      const code = err?.code || ''
+      if (code === 'PERMISSION_DENIED') {
+        toast.error('Save blocked by database permissions. Publish the updated database.rules.json in Firebase Console → Realtime Database → Rules.', { duration: 12000 })
+      } else if (code === 'NETWORK_ERROR' || /network|offline/i.test(err?.message || '')) {
+        toast.error('Network error — attendance will save when connection returns.')
+      } else {
+        toast.error(`Could not save: ${err?.message || 'unknown error'}. Try again.`)
       }
-      updates[`schools/${sid}/attendance/${date}/${classSel}/${slotKey}/${student.id}`] = rec
-      // Legacy compat flat path (overwritten by latest save; keeps old dashboard/history working)
-      updates[`schools/${sid}/attendance/${date}/${student.id}`] = { ...rec, _compat: true }
+    } finally {
+      setSaving(false)
     }
-
-    await update(ref(db), updates)
-
-    const snapMarks = { ...marks }
-    const presentCountNow = present
-    toast.success(`${subjectLabel} saved • P/L ${presentCountNow}/${students.length} • locks in 5 min`, {
-      duration: 8000,
-      action: {
-        label: 'Undo',
-        onClick: async () => {
-          try {
-            const undoUpdates: Record<string, unknown> = {}
-            students.forEach(s => { undoUpdates[`schools/${sid}/attendance/${date}/${classSel}/${slotKey}/${s.id}`] = null })
-            await update(ref(db), undoUpdates)
-            setMarks(snapMarks)
-            toast.success('Undone — attendance restored for editing.')
-          } catch { setMarks(snapMarks); toast.info('Undo applied locally; refresh to confirm.') }
-        }
-      }
-    })
-    setMarks({})
   }
 
   const resizeOverlayCanvas = () => {
@@ -1064,10 +1080,20 @@ const handleQrScan = async (scannedText: string) => {
           timestamp: rec.timestamp,
         }])
       } else {
-        await update(ref(db), {
-          [`schools/${sid}/attendance/${date}/${ck}/${slotKey}/${matchedStudent.id}`]: rec,
-          [`schools/${sid}/attendance/${date}/${matchedStudent.id}`]: { ...rec, _compat: true },
-        })
+        try {
+          await update(ref(db), {
+            [`schools/${sid}/attendance/${date}/${ck}/${slotKey}/${matchedStudent.id}`]: rec,
+            [`schools/${sid}/attendance/${date}/${matchedStudent.id}`]: { ...rec, _compat: true },
+          })
+        } catch (err: any) {
+          console.error('[QR] save failed:', err)
+          if (err?.code === 'PERMISSION_DENIED') {
+            toast.error('Save blocked by database permissions. Publish updated database.rules.json in Firebase Console.')
+          } else {
+            toast.error(`Could not save QR scan: ${err?.message || 'error'}`)
+          }
+          return
+        }
       }
       marksRef.current = { ...marksRef.current, [matchedStudent.id]: 'present' }
       setMarks(prev => ({ ...prev, [matchedStudent.id]: 'present' }))
@@ -1584,8 +1610,8 @@ const handleQrScan = async (scannedText: string) => {
               </Button>
               <Button onClick={()=>submit('manual')} variant="success" size="lg"
                 className="rounded-full h-12 font-extrabold text-[14px] shadow-[0_10px_30px_rgba(16,185,129,0.3)]"
-                disabled={!students.length}>
-                <Lock size={14} className="mr-1.5"/> SAVE {periodIdx===-1?'MORNING':(subjectSel||'Period')} • {presentCount}P {lateCount}L {absentCount}A
+                disabled={!students.length || saving}>
+                {saving ? 'Saving...' : <><Lock size={14} className="mr-1.5"/> SAVE {periodIdx===-1?'MORNING':(subjectSel||'Period')} • {presentCount}P {lateCount}L {absentCount}A</>}
               </Button>
             </div>
             <p className="text-center text-[10px] text-white/40 px-2">

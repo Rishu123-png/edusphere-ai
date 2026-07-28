@@ -56,12 +56,35 @@
           ".read": "auth != null && (root.child('users').child(auth.uid).child('schoolId').val() == $schoolId || root.child('users').child(auth.uid).child('role').val() == 'super_admin')",
           ".indexOn": [".key"],
           "$date": {
-            // Single recursive write rule: any descendant path under $date (legacy
-            // flat $studentId OR new $classKey/$slotKey/$studentId) is writable by
-            // teachers/admins of the school. .validate runs at every leaf.
-            "$rest": {
-              ".write": "auth != null && root.child('users').child(auth.uid).child('schoolId').val() == $schoolId && (root.child('users').child(auth.uid).child('role').val() == 'teacher' || root.child('users').child(auth.uid).child('role').val() == 'school_admin' || root.child('users').child(auth.uid).child('role').val() == 'super_admin')",
-              ".validate": "(!newData.exists()) || (newData.hasChildren(['studentId','date','status','markedBy','timestamp']) && (newData.child('status').val() == 'present' || newData.child('status').val() == 'late' || newData.child('status').val() == 'absent' || newData.child('status').val() == 'leave'))"
+            // WRITE RULE AT $DATE LEVEL — cascades to EVERY descendant path below.
+            // This covers BOTH shapes:
+            //   legacy flat:  attendance/$date/$studentId              (record)
+            //   new nested:   attendance/$date/$classKey/$slotKey/$studentId  (record)
+            // Firebase RTDB .write rules cascade down, so granting write at $date
+            // grants write for all children/grandchildren — no need for per-level
+            // write rules. The earlier "two sibling $wildcards" parse error came
+            // from trying to split writes by path name; cascading avoids it entirely.
+            ".write": "auth != null && root.child('users').child(auth.uid).child('schoolId').val() == $schoolId && (root.child('users').child(auth.uid).child('role').val() == 'teacher' || root.child('users').child(auth.uid).child('role').val() == 'school_admin' || root.child('users').child(auth.uid).child('role').val() == 'super_admin')",
+
+            // VALIDATION: any node written that HAS a 'studentId' field is an
+            // attendance record and must have all required fields. Internal
+            // wrapper nodes (like 10-A, morning, p0:0800) don't have studentId,
+            // so they pass without triggering the record check.
+            ".validate": "(!newData.exists()) || (!newData.hasChildren(['studentId'])) || (newData.hasChildren(['studentId','date','status','markedBy','timestamp']) && (newData.child('status').val() == 'present' || newData.child('status').val() == 'late' || newData.child('status').val() == 'absent' || newData.child('status').val() == 'leave'))",
+
+            "$any": {
+              // Apply the same "is-a-record?" validation at every descendant level.
+              // Wrapper nodes (classKey/slotKey) don't have studentId → pass.
+              // Record nodes (leaf) DO have studentId → must satisfy the check.
+              ".validate": "(!newData.exists()) || (!newData.hasChildren(['studentId'])) || (newData.hasChildren(['studentId','date','status','markedBy','timestamp']) && (newData.child('status').val() == 'present' || newData.child('status').val() == 'late' || newData.child('status').val() == 'absent' || newData.child('status').val() == 'leave'))",
+
+              "$any2": {
+                ".validate": "(!newData.exists()) || (!newData.hasChildren(['studentId'])) || (newData.hasChildren(['studentId','date','status','markedBy','timestamp']) && (newData.child('status').val() == 'present' || newData.child('status').val() == 'late' || newData.child('status').val() == 'absent' || newData.child('status').val() == 'leave'))",
+
+                "$any3": {
+                  ".validate": "(!newData.exists()) || (!newData.hasChildren(['studentId'])) || (newData.hasChildren(['studentId','date','status','markedBy','timestamp']) && (newData.child('status').val() == 'present' || newData.child('status').val() == 'late' || newData.child('status').val() == 'absent' || newData.child('status').val() == 'leave'))"
+                }
+              }
             }
           }
         },

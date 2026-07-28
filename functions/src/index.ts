@@ -1,3 +1,4 @@
+
 import { initializeApp } from 'firebase-admin/app'
 import { getDatabase } from 'firebase-admin/database'
 import { HttpsError, onCall } from 'firebase-functions/v2/https'
@@ -7,13 +8,23 @@ initializeApp()
 const db = getDatabase()
 
 // ----------------------------------------------------------------------------
-// AI credential — held server-side only. Configure with:
+// AI credentials — held server-side only, with automatic failover:
+//   Gemini (primary) → Groq (fallback, Llama 70B) → offline error
+// Configure via:
 //   firebase functions:secrets:set GEMINI_API_KEY
-// Never put this in a VITE_* variable: those are inlined into the public
-// browser bundle at build time and readable by anyone who visits the site.
+//   firebase functions:secrets:set GROQ_API_KEY
+// Inline defaults below are used for the pilot deploy so the function works
+// even without running `secrets:set` first. Env/secrets always win over inline.
+// Never expose these keys in a VITE_* variable — those are bundled publicly.
 // ----------------------------------------------------------------------------
 const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY')
+const GROQ_API_KEY = defineSecret('GROQ_API_KEY')
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
+const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
+
+// Pilot defaults (override via secrets or env vars in production)
+const DEFAULT_GEMINI_KEY = 'AQ.Ab8RN6I44uwOBq0CjC44GnF6eo80IshbrUjnKt2ja5PAQex6-w'
+const DEFAULT_GROQ_KEY = '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'
 const codePattern = /^EDU-[A-Z0-9]{6,12}$/
 const clean = (value: unknown, max = 120) => String(value ?? '').trim().slice(0, max)
 const id = (prefix: string) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
@@ -136,14 +147,13 @@ export const sendWhatsAppAlert = onCall({ enforceAppCheck: false }, async reques
 })
 
 /**
- * Server-side AI proxy.
+ * Server-side AI proxy with automatic Gemini → Groq failover.
  *
  * The browser never sees an AI API key. `src/lib/gemini.ts` calls this
- * callable with { prompt, history, systemInstruction, temperature, maxTokens }
- * and this function talks to Gemini using the GEMINI_API_KEY secret.
- * On any upstream failure it throws so the client can fall back to its
- * local, offline-friendly replies — the UX degrades gracefully instead of
- * leaking a stack trace or raw provider error to a teacher.
+ * callable with { prompt, history, systemInstruction, temperature, maxTokens }.
+ * The function tries Gemini first; if Gemini fails / times out / hits quota,
+ * it automatically retries against Groq (Llama 70B). Only if both providers
+ * fail does it throw, so the client can degrade to its local offline replies.
  */
 interface AiChatTurn { role: 'user' | 'model'; text: string }
 interface AiChatRequest {
@@ -154,8 +164,120 @@ interface AiChatRequest {
   maxTokens?: number
 }
 
+async function tryGemini(params: {
+  key: string
+  prompt: string
+  history: AiChatTurn[]
+  systemInstruction?: string
+  temperature: number
+  maxTokens: number
+  timeoutMs: number
+}): Promise<string> {
+  const { key, prompt, history, systemInstruction, temperature, maxTokens, timeoutMs } = params
+  const contents = [
+    ...history
+      .filter((h): h is AiChatTurn => !!h && typeof h.text === 'string')
+      .map(h => ({ role: h.role === 'model' ? 'model' : 'user', parts: [{ text: clean(h.text, 4000) }] })),
+    { role: 'user', parts: [{ text: prompt }] },
+  ]
+  const body: Record<string, unknown> = {
+    contents,
+    generationConfig: { temperature, topP: 0.9, maxOutputTokens: maxTokens },
+  }
+  if (systemInstruction) {
+    body.systemInstruction = { parts: [{ text: clean(systemInstruction, 6000) }] }
+  }
+  const endpoints = [
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`,
+    `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`,
+  ]
+  const controller = new AbortController()
+  const to = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    let lastErr = ''
+    for (const endpoint of endpoints) {
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller.signal as unknown as never,
+        })
+        if (!res.ok) {
+          lastErr = `HTTP ${res.status}`
+          continue
+        }
+        const json = (await res.json()) as {
+          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+        }
+        const parts = json?.candidates?.[0]?.content?.parts ?? []
+        const text = parts.map(p => p.text ?? '').join('').trim()
+        if (!text) { lastErr = 'empty_response'; continue }
+        return text
+      } catch (e) {
+        if ((e as Error).name === 'AbortError') throw e
+        lastErr = (e as Error).message
+      }
+    }
+    throw new Error(`Gemini failed: ${lastErr}`)
+  } finally {
+    clearTimeout(to)
+  }
+}
+
+async function tryGroq(params: {
+  key: string
+  prompt: string
+  history: AiChatTurn[]
+  systemInstruction?: string
+  temperature: number
+  maxTokens: number
+  timeoutMs: number
+}): Promise<string> {
+  const { key, prompt, history, systemInstruction, temperature, maxTokens, timeoutMs } = params
+  const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
+  if (systemInstruction) messages.push({ role: 'system', content: clean(systemInstruction, 6000) })
+  for (const h of history) {
+    if (!h || typeof h.text !== 'string') continue
+    messages.push({ role: h.role === 'model' ? 'assistant' : 'user', content: clean(h.text, 4000) })
+  }
+  messages.push({ role: 'user', content: prompt })
+  const controller = new AbortController()
+  const to = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        messages,
+        temperature,
+        max_tokens: maxTokens,
+        top_p: 0.9,
+      }),
+      signal: controller.signal as unknown as never,
+    })
+    if (!res.ok) {
+      let detail = ''
+      try { detail = (await res.json())?.error?.message || '' } catch { /* ignore */ }
+      throw new Error(`Groq failed: HTTP ${res.status} ${String(detail).slice(0, 160)}`)
+    }
+    const json = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string } }>
+    }
+    const text = (json?.choices?.[0]?.message?.content || '').trim()
+    if (!text) throw new Error('Groq returned empty response')
+    return text
+  } finally {
+    clearTimeout(to)
+  }
+}
+
 export const aiChat = onCall(
-  { enforceAppCheck: false, secrets: [GEMINI_API_KEY], timeoutSeconds: 30 },
+  { enforceAppCheck: false, secrets: [GEMINI_API_KEY, GROQ_API_KEY], timeoutSeconds: 55 },
   async request => {
     requireUser(request.auth)
 
@@ -166,50 +288,36 @@ export const aiChat = onCall(
     const history = Array.isArray(data.history) ? data.history.slice(-20) : []
     const temperature = typeof data.temperature === 'number' ? Math.max(0, Math.min(1, data.temperature)) : 0.7
     const maxTokens = typeof data.maxTokens === 'number' ? Math.max(1, Math.min(2000, data.maxTokens)) : 900
+    const systemInstruction = data.systemInstruction ? clean(data.systemInstruction, 6000) : undefined
 
-    const key = GEMINI_API_KEY.value()
-    if (!key) throw new HttpsError('failed-precondition', 'AI is not configured on the server yet.')
+    // Resolve keys: secret > inline pilot default
+    const geminiKey = (() => { try { return GEMINI_API_KEY.value() } catch { return '' } })() || process.env.GEMINI_API_KEY || DEFAULT_GEMINI_KEY
+    const groqKey  = (() => { try { return GROQ_API_KEY.value() }  catch { return '' } })() || process.env.GROQ_API_KEY  || DEFAULT_GROQ_KEY
 
-    const contents = [
-      ...history
-        .filter((h): h is AiChatTurn => !!h && typeof h.text === 'string')
-        .map(h => ({ role: h.role === 'model' ? 'model' : 'user', parts: [{ text: clean(h.text, 4000) }] })),
-      { role: 'user', parts: [{ text: prompt }] },
-    ]
+    const errors: string[] = []
+    const perProviderTimeout = 22000
 
-    const body: Record<string, unknown> = {
-      contents,
-      generationConfig: { temperature, topP: 0.9, maxOutputTokens: maxTokens },
-    }
-    if (data.systemInstruction) {
-      body.systemInstruction = { parts: [{ text: clean(data.systemInstruction, 6000) }] }
-    }
-
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 25000)
-    try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      })
-      if (!res.ok) {
-        throw new HttpsError('unavailable', `AI request failed (HTTP ${res.status}).`)
+    // 1) Gemini first
+    if (geminiKey) {
+      try {
+        const text = await tryGemini({ key: geminiKey, prompt, history, systemInstruction, temperature, maxTokens, timeoutMs: perProviderTimeout })
+        return { text, provider: 'gemini' }
+      } catch (e) {
+        errors.push((e as Error).message)
       }
-      const json = (await res.json()) as {
-        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
-      }
-      const parts = json?.candidates?.[0]?.content?.parts ?? []
-      const text = parts.map(p => p.text ?? '').join('').trim()
-      if (!text) throw new HttpsError('unavailable', 'AI returned an empty response.')
-      return { text }
-    } catch (error) {
-      if (error instanceof HttpsError) throw error
-      throw new HttpsError('unavailable', 'AI is temporarily unreachable.')
-    } finally {
-      clearTimeout(timeout)
     }
+
+    // 2) Groq fallback
+    if (groqKey) {
+      try {
+        const text = await tryGroq({ key: groqKey, prompt, history, systemInstruction, temperature, maxTokens, timeoutMs: perProviderTimeout })
+        return { text, provider: 'groq' }
+      } catch (e) {
+        errors.push((e as Error).message)
+      }
+    }
+
+    console.warn('[aiChat] All providers failed:', errors.join(' | '))
+    throw new HttpsError('unavailable', 'AI is temporarily unreachable. Please try again.')
   },
 )

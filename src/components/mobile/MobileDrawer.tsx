@@ -1,29 +1,28 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Users, GraduationCap, ClipboardCheck, FileText, Brain, CalendarClock, Bell, MessageCircle, Settings, Shield, BarChart3, CalendarDays, UserCircle, X, LogOut, Sparkles } from 'lucide-react'
+import { LayoutDashboard, Users, GraduationCap, ClipboardCheck, FileText, Brain, CalendarClock, Bell, MessageCircle, Settings, Shield, BarChart3, CalendarDays, X, LogOut, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
 import { Drawer } from 'vaul'
 
 const nav = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['super_admin','school_admin','teacher','student','parent'] },
+  { to: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['super_admin','school_admin','teacher'] },
   { to: '/students', label: 'Students', icon: Users, roles: ['super_admin','school_admin','teacher'] },
   { to: '/teachers', label: 'Teachers', icon: GraduationCap, roles: ['super_admin','school_admin'] },
   { to: '/attendance', label: 'Attendance', icon: ClipboardCheck, roles: ['super_admin','school_admin','teacher'] },
-  { to: '/marks', label: 'Marks', icon: FileText, roles: ['super_admin','school_admin','teacher','student','parent'] },
+  { to: '/marks', label: 'Marks', icon: FileText, roles: ['super_admin','school_admin','teacher'] },
   { to: '/schedule', label: 'Schedule', icon: CalendarClock, roles: ['super_admin','school_admin','teacher'] },
-  { to: '/ai', label: 'AI Insights', icon: Brain, roles: ['super_admin','school_admin','teacher','parent'] },
+  { to: '/ai', label: 'AI Insights', icon: Brain, roles: ['super_admin','school_admin','teacher'] },
   { to: '/reports', label: 'Reports', icon: BarChart3, roles: ['super_admin','school_admin','teacher'] },
-  { to: '/calendar', label: 'Calendar', icon: CalendarDays, roles: ['super_admin','school_admin','teacher','student','parent'] },
-  { to: '/parent', label: 'Parent Portal', icon: UserCircle, roles: ['parent','student','super_admin','school_admin'] },
-  { to: '/notifications', label: 'Notifications', icon: Bell, roles: ['super_admin','school_admin','teacher','student','parent'] },
+  { to: '/calendar', label: 'Calendar', icon: CalendarDays, roles: ['super_admin','school_admin','teacher'] },
+  { to: '/notifications', label: 'Notifications', icon: Bell, roles: ['super_admin','school_admin','teacher'] },
   { to: '/whatsapp', label: 'WhatsApp', icon: MessageCircle, roles: ['super_admin','school_admin','teacher'] },
   { to: '/superadmin', label: 'Super Admin', icon: Shield, roles: ['super_admin'] },
-  { to: '/settings', label: 'Settings', icon: Settings, roles: ['super_admin','school_admin','teacher','student','parent'] },
+  { to: '/settings', label: 'Settings', icon: Settings, roles: ['super_admin','school_admin','teacher'] },
 ]
 
 export default function MobileDrawer({ open, onOpenChange }: { open: boolean, onOpenChange: (o:boolean)=>void }) {
   const { profile, logout } = useAuth()
-  const role = profile?.role || 'student'
+  const role = profile?.role || 'teacher'
   const items = nav.filter(n => n.roles.includes(role))
 
   return (

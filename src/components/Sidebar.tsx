@@ -43,7 +43,7 @@ export default function Sidebar() {
         ))}
       </nav>
       <div className="p-4 text-[11px] text-muted-foreground border-t border-slate-100 dark:border-zinc-800">
-        v2.1 • Mobile First • PWA • Firebase RTDB
+        v3.0 • Mobile First • PWA • Gemini + Groq AI • Firebase RTDB
       </div>
     </aside>
   )

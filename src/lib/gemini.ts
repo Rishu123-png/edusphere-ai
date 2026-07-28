@@ -1,39 +1,64 @@
 // ============================================================================
-// EduSphere AI — Intelligence Brain  (v3.0: dual-provider auto-failover)
+// EduSphere AI — Intelligence Brain  (v3.1: dual-Groq-key auto-failover)
 // ----------------------------------------------------------------------------
-// Provider chain (tries in order, auto-falls-over on any failure/timeout/quota):
-//   1. Google Gemini      (VITE_GEMINI_API_KEY,   model: gemini-2.0-flash)
-//   2. Groq (Llama 70B)   (VITE_GROQ_API_KEY,     model: llama-3.3-70b-versatile)
+// Provider chain (tries in order; auto-falls-over on any failure/timeout/quota):
+//   1. Groq #1 (primary)    VITE_GROQ_API_KEY      model: llama-3.3-70b-versatile
+//   2. Groq #2 (fallback)   VITE_GROQ_API_KEY_2    model: llama-3.3-70b-versatile
 //
-// Whichever is configured first in the chain is tried first. If a key is
-// missing that provider is skipped. If both providers fail we fall back to
-// calm local replies (see bottom of file) so the assistant never shows a raw
-// provider error to a teacher.
+// Google Gemini support is left in the code (callGemini function exists) but
+// is DISABLED by default because the current Gemini key has quota=0 and OAuth
+// keys don't work on the generativelanguage endpoint. To re-enable later, set
+// VITE_GEMINI_API_KEY to a real AIza... key from aistudio.google.com and
+// prepend `{ kind: 'gemini', key: GEMINI_KEY }` to the PROVIDERS array below.
+//
+// If all providers fail we fall back to calm local replies so the assistant
+// never shows a raw provider error to a teacher.
 //
 // IMPORTANT (white-label / "proper website" rule):
-//   This module is internal. The UI NEVER mentions the provider by name — the
-//   assistant is branded as the "EduSphere AI Assistant". Raw model errors are
-//   swallowed.
+//   This module is internal. The UI NEVER mentions the provider by name —
+//   the assistant is branded as the "EduSphere AI Assistant". Raw model
+//   errors are swallowed.
 // ============================================================================
 
-// --- Google Gemini (primary) ------------------------------------------------
-// Keys can be overridden via VITE_GEMINI_API_KEY / VITE_GROQ_API_KEY env vars
-// (e.g. on Vercel). Inline defaults are used for the pilot deploy.
-const GEMINI_KEY =
-  ((import.meta.env.VITE_GEMINI_API_KEY as string | undefined) || '').trim() ||
-  'AQ.Ab8RN6I44uwOBq0CjC44GnF6eo80IshbrUjnKt2ja5PAQex6-w'
-const GEMINI_MODEL =
-  ((import.meta.env.VITE_GEMINI_MODEL as string | undefined) || '').trim() ||
-  'gemini-2.0-flash'
-
-// --- Groq (auto-fallback if Gemini fails / times out / hits quota) ----------
-const GROQ_KEY =
+// --- Groq #1 (primary) ------------------------------------------------------
+const GROQ_KEY_1 =
   ((import.meta.env.VITE_GROQ_API_KEY as string | undefined) || '').trim() ||
   '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'
+
+// --- Groq #2 (fallback — second free Groq account, doubles free-tier quota) -
+const GROQ_KEY_2 =
+  ((import.meta.env.VITE_GROQ_API_KEY_2 as string | undefined) || '').trim() ||
+  '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'
+
 const GROQ_MODEL =
   ((import.meta.env.VITE_GROQ_MODEL as string | undefined) || '').trim() ||
   'llama-3.3-70b-versatile'
 const GROQ_BASE_URL = 'https://api.groq.com/openai/v1'
+
+// --- Google Gemini (disabled by default — kept dormant for future re-enable) -
+// To re-enable: get an AIza... key from https://aistudio.google.com/apikey,
+// set VITE_GEMINI_API_KEY, and uncomment the gemini entry in PROVIDERS below.
+const GEMINI_KEY =
+  ((import.meta.env.VITE_GEMINI_API_KEY as string | undefined) || '').trim() || ''
+const GEMINI_MODEL =
+  ((import.meta.env.VITE_GEMINI_MODEL as string | undefined) || '').trim() ||
+  'gemini-2.0-flash'
+
+// ----------------------------------------------------------------------------
+// Ordered list of providers — tried in order, first to succeed wins.
+// ----------------------------------------------------------------------------
+interface Provider {
+  name: string
+  call(prompt: string, opts: GeminiOptions, timeoutMs: number): Promise<string>
+}
+
+function buildProviders(): Provider[] {
+  const list: Provider[] = []
+  if (GROQ_KEY_1) list.push({ name: 'groq#1', call: (p, o, t) => callGroqWithKey(GROQ_KEY_1, p, o, t) })
+  if (GROQ_KEY_2) list.push({ name: 'groq#2', call: (p, o, t) => callGroqWithKey(GROQ_KEY_2, p, o, t) })
+  if (GEMINI_KEY) list.push({ name: 'gemini', call: callGemini })
+  return list
+}
 
 export interface GeminiTurn {
   role: 'user' | 'model'
@@ -49,7 +74,66 @@ export interface GeminiOptions {
 }
 
 // ----------------------------------------------------------------------------
-// Gemini implementation
+// Groq implementation  (OpenAI-compatible chat/completions) — takes key param
+// ----------------------------------------------------------------------------
+async function callGroqWithKey(
+  key: string,
+  prompt: string,
+  opts: GeminiOptions,
+  timeoutMs: number,
+): Promise<string> {
+  if (!key) throw new Error('missing_groq_key')
+
+  const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
+  if (opts.systemInstruction)
+    messages.push({ role: 'system', content: opts.systemInstruction })
+  for (const h of opts.history ?? []) {
+    messages.push({ role: h.role === 'model' ? 'assistant' : 'user', content: h.text })
+  }
+  messages.push({ role: 'user', content: prompt })
+
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
+  const chained = chainSignal(controller.signal, opts.signal)
+  try {
+    const res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        messages,
+        temperature: opts.temperature ?? 0.7,
+        max_tokens: opts.maxTokens ?? 900,
+        top_p: 0.9,
+      }),
+      signal: chained,
+    })
+    if (!res.ok) {
+      let detail = ''
+      try {
+        detail = (await res.json())?.error?.message || ''
+      } catch {
+        /* ignore */
+      }
+      console.warn(
+        `[EduSphere AI] Groq key failed (HTTP ${res.status}). ${String(detail).slice(0, 200)} — trying next key.`,
+      )
+      throw new Error(`groq_failed_${res.status}`)
+    }
+    const data = await res.json()
+    const text = (data?.choices?.[0]?.message?.content || '').trim()
+    if (!text) throw new Error('groq_empty_response')
+    return text
+  } finally {
+    window.clearTimeout(timeout)
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Gemini implementation (dormant — kept for future use)
 // ----------------------------------------------------------------------------
 async function callGemini(
   prompt: string,
@@ -74,7 +158,6 @@ async function callGemini(
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
   const chained = chainSignal(controller.signal, opts.signal)
   try {
-    // Try v1beta first, fall back to v1 if needed.
     const endpoints = [
       `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`,
       `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`,
@@ -90,29 +173,22 @@ async function callGemini(
           signal: chained,
         })
         if (!res.ok) {
-          try {
-            lastErrDetail = (await res.json())?.error?.message || ''
-          } catch {
-            /* ignore */
-          }
+          try { lastErrDetail = (await res.json())?.error?.message || '' } catch { /* ignore */ }
           lastStatus = res.status
-          continue // try next endpoint version
+          continue
         }
         const data = await res.json()
         const parts = data?.candidates?.[0]?.content?.parts ?? []
         const text = parts.map((p: { text?: string }) => p.text ?? '').join('').trim()
-        if (!text) {
-          lastErrDetail = 'empty_response'
-          continue
-        }
+        if (!text) { lastErrDetail = 'empty_response'; continue }
         return text
       } catch (e) {
         lastErrDetail = (e as Error).message
-        if ((e as Error).name === 'AbortError') throw e // don't swallow abort
+        if ((e as Error).name === 'AbortError') throw e
       }
     }
     console.warn(
-      `[EduSphere AI] Gemini failed (HTTP ${lastStatus}). ${String(lastErrDetail).slice(0, 200)} — falling back to Groq.`,
+      `[EduSphere AI] Gemini failed (HTTP ${lastStatus}). ${String(lastErrDetail).slice(0, 200)}`,
     )
     throw new Error(`gemini_failed_${lastStatus || 'network'}`)
   } finally {
@@ -120,66 +196,7 @@ async function callGemini(
   }
 }
 
-// ----------------------------------------------------------------------------
-// Groq implementation  (OpenAI-compatible chat/completions)
-// ----------------------------------------------------------------------------
-async function callGroq(
-  prompt: string,
-  opts: GeminiOptions,
-  timeoutMs: number,
-): Promise<string> {
-  if (!GROQ_KEY) throw new Error('missing_groq_key')
-
-  const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = []
-  if (opts.systemInstruction)
-    messages.push({ role: 'system', content: opts.systemInstruction })
-  for (const h of opts.history ?? []) {
-    messages.push({ role: h.role === 'model' ? 'assistant' : 'user', content: h.text })
-  }
-  messages.push({ role: 'user', content: prompt })
-
-  const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
-  const chained = chainSignal(controller.signal, opts.signal)
-  try {
-    const res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${GROQ_KEY}`,
-      },
-      body: JSON.stringify({
-        model: GROQ_MODEL,
-        messages,
-        temperature: opts.temperature ?? 0.7,
-        max_tokens: opts.maxTokens ?? 900,
-        top_p: 0.9,
-      }),
-      signal: chained,
-    })
-    if (!res.ok) {
-      let detail = ''
-      try {
-        detail = (await res.json())?.error?.message || ''
-      } catch {
-        /* ignore */
-      }
-      console.warn(
-        `[EduSphere AI] Groq failed (HTTP ${res.status}). ${String(detail).slice(0, 200)}`,
-      )
-      throw new Error(`groq_failed_${res.status}`)
-    }
-    const data = await res.json()
-    const text = (data?.choices?.[0]?.message?.content || '').trim()
-    if (!text) throw new Error('groq_empty_response')
-    return text
-  } finally {
-    window.clearTimeout(timeout)
-  }
-}
-
-/** Combine two AbortSignals so that either the internal timeout or the
- *  caller-provided cancel (e.g. conversation closed) aborts the request. */
+/** Combine two AbortSignals so internal timeout OR caller cancel aborts the request. */
 function chainSignal(a: AbortSignal, b?: AbortSignal): AbortSignal {
   if (!b) return a
   if (a.aborted) return a
@@ -192,29 +209,20 @@ function chainSignal(a: AbortSignal, b?: AbortSignal): AbortSignal {
 }
 
 // ----------------------------------------------------------------------------
-// Unified entry — Gemini first, then Groq on any failure
+// Unified entry — tries providers in order
 // ----------------------------------------------------------------------------
 async function callModel(prompt: string, opts: GeminiOptions = {}): Promise<string> {
+  const providers = buildProviders()
+  if (!providers.length) throw new Error('no_providers_configured')
   const errors: string[] = []
-  const timeoutMs = 22000
+  const timeoutMs = 20000
 
-  // 1) Gemini (if key configured)
-  if (GEMINI_KEY) {
+  for (const p of providers) {
     try {
-      const out = await callGemini(prompt, opts, timeoutMs)
-      return out
+      const out = await p.call(prompt, opts, timeoutMs)
+      if (out) return out
     } catch (e) {
-      errors.push((e as Error).message)
-    }
-  }
-
-  // 2) Groq fallback (always configured with embedded key)
-  if (GROQ_KEY) {
-    try {
-      const out = await callGroq(prompt, opts, timeoutMs)
-      return out
-    } catch (e) {
-      errors.push((e as Error).message)
+      errors.push(`${p.name}: ${(e as Error).message}`)
     }
   }
 
@@ -252,19 +260,16 @@ function formatContext(ctx: SchoolContext): string {
   const lines: string[] = []
   if (ctx.role) lines.push(`Teacher role: ${ctx.role}`)
   if (ctx.page) lines.push(`Current screen: ${ctx.page}`)
-  if (typeof ctx.totalStudents === 'number')
-    lines.push(`Total enrolled students: ${ctx.totalStudents}`)
+  if (typeof ctx.totalStudents === 'number') lines.push(`Total enrolled students: ${ctx.totalStudents}`)
   if (typeof ctx.present === 'number') lines.push(`Present today: ${ctx.present}`)
   if (typeof ctx.absent === 'number') lines.push(`Absent today: ${ctx.absent}`)
   if (typeof ctx.late === 'number') lines.push(`Late today: ${ctx.late}`)
-  if (typeof ctx.attendancePct === 'number')
-    lines.push(`Today's attendance rate: ${ctx.attendancePct}%`)
-  if (ctx.lowAttendanceStudent)
-    lines.push(`Lowest-attendance student right now: ${ctx.lowAttendanceStudent}`)
+  if (typeof ctx.attendancePct === 'number') lines.push(`Today's attendance rate: ${ctx.attendancePct}%`)
+  if (ctx.lowAttendanceStudent) lines.push(`Lowest-attendance student right now: ${ctx.lowAttendanceStudent}`)
   return lines.length ? lines.join('\n') : 'No live school data available yet.'
 }
 
-/** Natural-language chat with the assistant. Falls back to a local reply if both providers are unreachable. */
+/** Natural-language chat with the assistant. Falls back to a local reply if all providers are unreachable. */
 export async function askAssistant(
   userMessage: string,
   history: GeminiTurn[],
@@ -273,13 +278,7 @@ export async function askAssistant(
 ): Promise<string> {
   const system = `${ASSISTANT_SYSTEM}\n\n---\nLIVE SCHOOL CONTEXT (use it, never invent numbers):\n${formatContext(ctx)}`
   try {
-    return await callModel(userMessage, {
-      history,
-      systemInstruction: system,
-      temperature: 0.6,
-      maxTokens: 900,
-      signal,
-    })
+    return await callModel(userMessage, { history, systemInstruction: system, temperature: 0.6, maxTokens: 900, signal })
   } catch {
     return localFallbackReply(userMessage, ctx)
   }
@@ -289,11 +288,7 @@ export async function askAssistant(
 export async function getProactiveWhisper(ctx: SchoolContext): Promise<string | null> {
   const system = `${ASSISTANT_SYSTEM}\n\nWrite ONE short, friendly, proactive sentence (max 22 words) a helpful co-teacher would whisper to a teacher based on the live context. If nothing needs attention, return the word NONE.`
   try {
-    const out = await callModel(formatContext(ctx), {
-      systemInstruction: system,
-      temperature: 0.8,
-      maxTokens: 160,
-    })
+    const out = await callModel(formatContext(ctx), { systemInstruction: system, temperature: 0.8, maxTokens: 160 })
     if (!out || out.trim().toUpperCase() === 'NONE') return null
     return out.trim()
   } catch {
@@ -302,7 +297,7 @@ export async function getProactiveWhisper(ctx: SchoolContext): Promise<string | 
 }
 
 // ----------------------------------------------------------------------------
-// Local fallbacks (keep the product feeling alive even when offline / all keys busted)
+// Local fallbacks (keep the product feeling alive even offline / all keys busted)
 // ----------------------------------------------------------------------------
 const JOKES = [
   'Why did the teacher wear sunglasses? Because her students were so bright!',
@@ -321,12 +316,7 @@ export async function askTutor(
 ): Promise<string> {
   const system = `You are "EduSphere AI Tutor", a patient, friendly subject tutor for school students (CBSE and state boards). Explain concepts in simple language, give a short relatable example, and when useful ask one quick check-in question. Keep replies mobile-friendly (3-6 sentences). Never mention any external AI service or brand. Always reply in English only.`
   try {
-    return await callModel(topic, {
-      systemInstruction: system,
-      temperature: 0.6,
-      maxTokens: 720,
-      signal,
-    })
+    return await callModel(topic, { systemInstruction: system, temperature: 0.6, maxTokens: 720, signal })
   } catch {
     return `Let's learn "${topic}". A simple way to start: break it into small steps, master each one, then connect them. Try one easy example and tell me where you get stuck — I'll guide you step by step.`
   }
@@ -354,28 +344,18 @@ export function localNudge(ctx: SchoolContext): string | null {
 
 function localFallbackReply(message: string, ctx: SchoolContext): string {
   const lower = message.toLowerCase()
-  if (lower.includes('joke') || lower.includes('smile') || lower.includes('funny')) {
-    return getJoke()
-  }
+  if (lower.includes('joke') || lower.includes('smile') || lower.includes('funny')) return getJoke()
   const hasAttendanceToday =
     typeof ctx.totalStudents === 'number' &&
     ctx.totalStudents > 0 &&
-    (typeof ctx.present === 'number' ||
-      typeof ctx.absent === 'number' ||
-      typeof ctx.attendancePct === 'number')
+    (typeof ctx.present === 'number' || typeof ctx.absent === 'number' || typeof ctx.attendancePct === 'number')
 
   if (!hasAttendanceToday) {
-    if (
-      lower.includes('attendance') ||
-      lower.includes('present') ||
-      lower.includes('absent') ||
-      lower.includes('who')
-    ) {
+    if (lower.includes('attendance') || lower.includes('present') || lower.includes('absent') || lower.includes('who')) {
       return "I don't see today's attendance marked yet. Open the Attendance screen and start a class — I'll summarize it live as you mark students."
     }
     return "I'm running locally right now because the cloud AI isn't reachable. Open Attendance, Marks, or Students and I'll give you live insights from that screen."
   }
-
   if (lower.includes('present') || lower.includes('attendance today')) {
     if (typeof ctx.present === 'number' && typeof ctx.totalStudents === 'number') {
       const pct = ctx.totalStudents ? Math.round((ctx.present / ctx.totalStudents) * 100) : 0
@@ -395,8 +375,6 @@ function localFallbackReply(message: string, ctx: SchoolContext): string {
     bits.push(`${ctx.attendancePct}% attendance`)
   }
   if (ctx.lowAttendanceStudent) bits.push(`${ctx.lowAttendanceStudent} may need a check-in`)
-  if (bits.length) {
-    return `Quick snapshot: ${bits.join(' • ')}. Tap over to the Attendance tab for full details.`
-  }
+  if (bits.length) return `Quick snapshot: ${bits.join(' • ')}. Tap over to the Attendance tab for full details.`
   return "I'm running locally right now — open the Attendance, Marks, or Students screen and I'll give you live insights there."
 }

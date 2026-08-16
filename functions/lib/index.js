@@ -23,13 +23,13 @@ const GEMINI_API_KEY = (0, params_1.defineSecret)('GEMINI_API_KEY');
 const GROQ_API_KEY = (0, params_1.defineSecret)('GROQ_API_KEY');
 const GROQ_API_KEY_2 = (0, params_1.defineSecret)('GROQ_API_KEY_2');
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
-const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-specdec';
 // Pilot defaults (override via secrets or env vars in production)
 // Gemini default left empty on purpose — key provided has quota=0; re-enable
 // by setting a real AIza... secret.
 const DEFAULT_GEMINI_KEY = '';
-const DEFAULT_GROQ_KEY = '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';
-const DEFAULT_GROQ_KEY_2 = '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';
+const DEFAULT_GROQ_KEY = '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';
+const DEFAULT_GROQ_KEY_2 = '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';
 const codePattern = /^EDU-[A-Z0-9]{6,12}$/;
 const clean = (value, max = 120) => String(value ?? '').trim().slice(0, max);
 const id = (prefix) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;

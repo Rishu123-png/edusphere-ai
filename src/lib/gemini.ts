@@ -2,8 +2,8 @@
 // EduSphere AI — Intelligence Brain  (v3.1: dual-Groq-key auto-failover)
 // ----------------------------------------------------------------------------
 // Provider chain (tries in order; auto-falls-over on any failure/timeout/quota):
-//   1. Groq #1 (primary)    VITE_GROQ_API_KEY      model: llama-3.3-70b-versatile
-//   2. Groq #2 (fallback)   VITE_GROQ_API_KEY_2    model: llama-3.3-70b-versatile
+//   1. Groq #1 (primary)    VITE_GROQ_API_KEY      model: llama-3.3-70b-specdec
+//   2. Groq #2 (fallback)   VITE_GROQ_API_KEY_2    model: llama-3.3-70b-specdec
 //
 // Google Gemini support is left in the code (callGemini function exists) but
 // is DISABLED by default because the current Gemini key has quota=0 and OAuth
@@ -23,16 +23,16 @@
 // --- Groq #1 (primary) ------------------------------------------------------
 const GROQ_KEY_1 =
   ((import.meta.env.VITE_GROQ_API_KEY as string | undefined) || '').trim() ||
-  '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'
+  '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'
 
 // --- Groq #2 (fallback — second free Groq account, doubles free-tier quota) -
 const GROQ_KEY_2 =
   ((import.meta.env.VITE_GROQ_API_KEY_2 as string | undefined) || '').trim() ||
-  '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'
+  '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'
 
 const GROQ_MODEL =
   ((import.meta.env.VITE_GROQ_MODEL as string | undefined) || '').trim() ||
-  'llama-3.3-70b-versatile'
+  'llama-3.3-70b-specdec'
 const GROQ_BASE_URL = 'https://api.groq.com/openai/v1'
 
 // --- Google Gemini (disabled by default — kept dormant for future re-enable) -

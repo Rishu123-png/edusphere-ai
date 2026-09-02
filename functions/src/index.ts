@@ -22,14 +22,18 @@ const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY')
 const GROQ_API_KEY = defineSecret('GROQ_API_KEY')
 const GROQ_API_KEY_2 = defineSecret('GROQ_API_KEY_2')
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
-const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-specdec'
+const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
 
-// Pilot defaults (override via secrets or env vars in production)
-// Gemini default left empty on purpose — key provided has quota=0; re-enable
-// by setting a real AIza... secret.
+// No inline key defaults — keys must come from Firebase Secrets or env vars:
+//   firebase functions:secrets:set GROQ_API_KEY
+//   firebase functions:secrets:set GROQ_API_KEY_2
+//   firebase functions:secrets:set GEMINI_API_KEY   (optional)
+// The previously inlined pilot keys were publicly exposed and must be
+// considered revoked. If no key is configured, aiChat returns
+// 'failed-precondition' and the client falls back to local replies.
 const DEFAULT_GEMINI_KEY = ''
-const DEFAULT_GROQ_KEY = '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'
-const DEFAULT_GROQ_KEY_2 = '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'
+const DEFAULT_GROQ_KEY = ''
+const DEFAULT_GROQ_KEY_2 = ''
 const codePattern = /^EDU-[A-Z0-9]{6,12}$/
 const clean = (value: unknown, max = 120) => String(value ?? '').trim().slice(0, max)
 const id = (prefix: string) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`

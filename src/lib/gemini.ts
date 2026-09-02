@@ -1,15 +1,14 @@
 // ============================================================================
-// EduSphere AI — Intelligence Brain  (v3.1: dual-Groq-key auto-failover)
+// EduSphere AI — Intelligence Brain  (v3.2: server-proxy first, zero keys in bundle)
 // ----------------------------------------------------------------------------
 // Provider chain (tries in order; auto-falls-over on any failure/timeout/quota):
-//   1. Groq #1 (primary)    VITE_GROQ_API_KEY      model: llama-3.3-70b-specdec
-//   2. Groq #2 (fallback)   VITE_GROQ_API_KEY_2    model: llama-3.3-70b-specdec
-//
-// Google Gemini support is left in the code (callGemini function exists) but
-// is DISABLED by default because the current Gemini key has quota=0 and OAuth
-// keys don't work on the generativelanguage endpoint. To re-enable later, set
-// VITE_GEMINI_API_KEY to a real AIza... key from aistudio.google.com and
-// prepend `{ kind: 'gemini', key: GEMINI_KEY }` to the PROVIDERS array below.
+//   1. Server proxy — `aiChat` Cloud Function. Keys live ONLY in Firebase
+//      Secrets (GROQ_API_KEY / GROQ_API_KEY_2 / GEMINI_API_KEY). This is the
+//      default and recommended path: nothing secret ships in the JS bundle.
+//   2. (Optional, dev/BYOK only) Direct Groq/Gemini calls — used ONLY if you
+//      explicitly set VITE_GROQ_API_KEY / VITE_GEMINI_API_KEY. WARNING: any
+//      VITE_* value is baked into the public bundle and readable by visitors.
+//      Leave these unset in production.
 //
 // If all providers fail we fall back to calm local replies so the assistant
 // never shows a raw provider error to a teacher.
@@ -20,24 +19,23 @@
 //   errors are swallowed.
 // ============================================================================
 
-// --- Groq #1 (primary) ------------------------------------------------------
-const GROQ_KEY_1 =
-  ((import.meta.env.VITE_GROQ_API_KEY as string | undefined) || '').trim() ||
-  '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'
+import { httpsCallable } from 'firebase/functions'
+import { functions } from './firebase'
 
-// --- Groq #2 (fallback — second free Groq account, doubles free-tier quota) -
+// --- Optional direct-call keys (dev/BYOK only — NOT recommended in prod) ----
+// No inline defaults: if these env vars are unset, the client has no keys at
+// all and everything routes through the aiChat Cloud Function.
+const GROQ_KEY_1 =
+  ((import.meta.env.VITE_GROQ_API_KEY as string | undefined) || '').trim()
 const GROQ_KEY_2 =
-  ((import.meta.env.VITE_GROQ_API_KEY_2 as string | undefined) || '').trim() ||
-  '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'
+  ((import.meta.env.VITE_GROQ_API_KEY_2 as string | undefined) || '').trim()
 
 const GROQ_MODEL =
   ((import.meta.env.VITE_GROQ_MODEL as string | undefined) || '').trim() ||
-  'llama-3.3-70b-specdec'
+  'llama-3.3-70b-versatile'
 const GROQ_BASE_URL = 'https://api.groq.com/openai/v1'
 
 // --- Google Gemini (disabled by default — kept dormant for future re-enable) -
-// To re-enable: get an AIza... key from https://aistudio.google.com/apikey,
-// set VITE_GEMINI_API_KEY, and uncomment the gemini entry in PROVIDERS below.
 const GEMINI_KEY =
   ((import.meta.env.VITE_GEMINI_API_KEY as string | undefined) || '').trim() || ''
 const GEMINI_MODEL =
@@ -46,6 +44,7 @@ const GEMINI_MODEL =
 
 // ----------------------------------------------------------------------------
 // Ordered list of providers — tried in order, first to succeed wins.
+// Server proxy always first; direct keys only if explicitly configured.
 // ----------------------------------------------------------------------------
 interface Provider {
   name: string
@@ -54,6 +53,7 @@ interface Provider {
 
 function buildProviders(): Provider[] {
   const list: Provider[] = []
+  list.push({ name: 'server', call: callServerProxy })
   if (GROQ_KEY_1) list.push({ name: 'groq#1', call: (p, o, t) => callGroqWithKey(GROQ_KEY_1, p, o, t) })
   if (GROQ_KEY_2) list.push({ name: 'groq#2', call: (p, o, t) => callGroqWithKey(GROQ_KEY_2, p, o, t) })
   if (GEMINI_KEY) list.push({ name: 'gemini', call: callGemini })
@@ -72,6 +72,48 @@ export interface GeminiOptions {
   maxTokens?: number
   signal?: AbortSignal
 }
+
+// ----------------------------------------------------------------------------
+// Server proxy — `aiChat` Cloud Function (keys never leave the server)
+// ----------------------------------------------------------------------------
+interface AiChatResponse { text?: string; provider?: string }
+
+async function callServerProxy(
+  prompt: string,
+  opts: GeminiOptions,
+  timeoutMs: number,
+): Promise<string> {
+  const aiChat = httpsCallable<Record<string, unknown>, AiChatResponse>(
+    functions,
+    'aiChat',
+    { timeout: timeoutMs },
+  )
+
+  const invocation = aiChat({
+    prompt,
+    history: (opts.history ?? []).slice(-20),
+    systemInstruction: opts.systemInstruction,
+    temperature: opts.temperature ?? 0.7,
+    maxTokens: opts.maxTokens ?? 900,
+  })
+
+  // httpsCallable has no AbortSignal support — race it against caller cancel.
+  const result = opts.signal
+    ? await Promise.race([
+        invocation,
+        new Promise<never>((_, reject) => {
+          const onAbort = () => reject(new DOMException('Aborted', 'AbortError'))
+          if (opts.signal!.aborted) onAbort()
+          else opts.signal!.addEventListener('abort', onAbort, { once: true })
+        }),
+      ])
+    : await invocation
+
+  const text = (result.data?.text || '').trim()
+  if (!text) throw new Error('server_empty_response')
+  return text
+}
+
 
 // ----------------------------------------------------------------------------
 // Groq implementation  (OpenAI-compatible chat/completions) — takes key param
@@ -222,6 +264,8 @@ async function callModel(prompt: string, opts: GeminiOptions = {}): Promise<stri
       const out = await p.call(prompt, opts, timeoutMs)
       if (out) return out
     } catch (e) {
+      // If the caller cancelled, stop the whole chain immediately.
+      if ((e as Error).name === 'AbortError' && opts.signal?.aborted) throw e
       errors.push(`${p.name}: ${(e as Error).message}`)
     }
   }

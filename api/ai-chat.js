@@ -63,7 +63,15 @@ async function askGroq(key, messages, temperature, maxTokens) {
       signal: controller.signal,
     })
 
-    if (!result.ok) return ''
+    if (!result.ok) {
+      const detail = await result.text().catch(() => '')
+      console.error(
+        '[ai-chat] Groq failed:',
+        result.status,
+        detail.slice(0, 300),
+      )
+      return ''
+    }
 
     const data = await result.json()
     return clean(data?.choices?.[0]?.message?.content, 12000)

@@ -1,5 +1,5 @@
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
-const MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
+const MODEL = 'llama-3.1-8b-instant'
 
 const clean = (value, max = 4000) =>
   String(value ?? '').trim().slice(0, max)

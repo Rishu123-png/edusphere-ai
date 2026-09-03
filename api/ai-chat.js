@@ -4,10 +4,19 @@ const MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
 const clean = (value, max = 4000) =>
   String(value ?? '').trim().slice(0, max)
 
-async function isLoggedIn(req) {
-  const header = String(req.headers?.authorization || '')
-  const idToken = header.startsWith('Bearer ')
-    ? header.slice(7).trim()
+const send = (body, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      'content-type': 'application/json',
+      'cache-control': 'no-store',
+    },
+  })
+
+async function isLoggedIn(request) {
+  const authorization = request.headers.get('authorization') || ''
+  const idToken = authorization.startsWith('Bearer ')
+    ? authorization.slice(7).trim()
     : ''
 
   const apiKey =
@@ -22,10 +31,11 @@ async function isLoggedIn(req) {
       `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ idToken }),
       },
     )
+
     return result.ok
   } catch {
     return false
@@ -34,13 +44,13 @@ async function isLoggedIn(req) {
 
 async function askGroq(key, messages, temperature, maxTokens) {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 20000)
+  const timer = setTimeout(() => controller.abort(), 4500)
 
   try {
     const result = await fetch(GROQ_URL, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'content-type': 'application/json',
         Authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({
@@ -64,81 +74,89 @@ async function askGroq(key, messages, temperature, maxTokens) {
   }
 }
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'method_not_allowed' })
-  }
-
-  if (!(await isLoggedIn(req))) {
-    return res.status(401).json({ error: 'unauthenticated' })
-  }
-
-  let data = req.body || {}
-  if (typeof data === 'string') {
-    try {
-      data = JSON.parse(data || '{}')
-    } catch {
-      return res.status(400).json({ error: 'invalid_json' })
+export default {
+  async fetch(request) {
+    if (request.method !== 'POST') {
+      return send({ error: 'method_not_allowed' }, 405)
     }
-  }
 
-  const prompt = clean(data.prompt)
-  if (!prompt) {
-    return res.status(400).json({ error: 'missing_prompt' })
-  }
+    if (!(await isLoggedIn(request))) {
+      return send({ error: 'unauthenticated' }, 401)
+    }
 
-  const history = Array.isArray(data.history)
-    ? data.history
-        .slice(-20)
-        .filter(turn => turn && typeof turn.text === 'string')
-        .map(turn => ({
-          role: turn.role === 'model' ? 'assistant' : 'user',
-          content: clean(turn.text),
-        }))
-    : []
+    let data
 
-  const messages = []
+    try {
+      data = await request.json()
+    } catch {
+      return send({ error: 'invalid_json' }, 400)
+    }
 
-  if (data.systemInstruction) {
-    messages.push({
-      role: 'system',
-      content: clean(data.systemInstruction, 6000),
-    })
-  }
+    const prompt = clean(data?.prompt)
 
-  messages.push(...history)
-  messages.push({ role: 'user', content: prompt })
+    if (!prompt) {
+      return send({ error: 'missing_prompt' }, 400)
+    }
 
-  const temperature =
-    typeof data.temperature === 'number'
-      ? Math.max(0, Math.min(1, data.temperature))
-      : 0.7
+    const history = Array.isArray(data.history)
+      ? data.history
+          .slice(-20)
+          .filter(turn => turn && typeof turn.text === 'string')
+          .map(turn => ({
+            role: turn.role === 'model' ? 'assistant' : 'user',
+            content: clean(turn.text),
+          }))
+      : []
 
-  const maxTokens =
-    typeof data.maxTokens === 'number'
-      ? Math.max(1, Math.min(2000, Math.floor(data.maxTokens)))
-      : 900
+    const messages = []
 
-  const keys = [
-    process.env.GROQ_API_KEY,
-    process.env.GROQ_API_KEY_2,
-  ]
-    .map(key => String(key || '').trim())
-    .filter(Boolean)
-
-  if (!keys.length) {
-    return res.status(503).json({ error: 'ai_not_configured' })
-  }
-
-  for (let index = 0; index < keys.length; index += 1) {
-    const text = await askGroq(keys[index], messages, temperature, maxTokens)
-
-    if (text) {
-      return res.status(200).json({
-        text,
-        provider: `groq#${index + 1}`,
+    if (data.systemInstruction) {
+      messages.push({
+        role: 'system',
+        content: clean(data.systemInstruction, 6000),
       })
     }
-  }
 
-  return res.status(503).json({ error: 'ai_unavailable' })
+    messages.push(...history)
+    messages.push({ role: 'user', content: prompt })
+
+    const temperature =
+      typeof data.temperature === 'number'
+        ? Math.max(0, Math.min(1, data.temperature))
+        : 0.7
+
+    const maxTokens =
+      typeof data.maxTokens === 'number'
+        ? Math.max(1, Math.min(1200, Math.floor(data.maxTokens)))
+        : 900
+
+    const keys = [
+      process.env.GROQ_API_KEY,
+      process.env.GROQ_API_KEY_2,
+    ]
+      .map(key => String(key || '').trim())
+      .filter(Boolean)
+
+    if (!keys.length) {
+      return send({ error: 'ai_not_configured' }, 503)
+    }
+
+    for (let index = 0; index < keys.length; index += 1) {
+      const text = await askGroq(
+        keys[index],
+        messages,
+        temperature,
+        maxTokens,
+      )
+
+      if (text) {
+        return send({
+          text,
+          provider: `groq#${index + 1}`,
+        })
+      }
+    }
+
+    return send({ error: 'ai_unavailable' }, 503)
+  },
+}

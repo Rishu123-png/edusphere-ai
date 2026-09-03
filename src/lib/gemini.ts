@@ -19,8 +19,7 @@
 //   errors are swallowed.
 // ============================================================================
 
-import { httpsCallable } from 'firebase/functions'
-import { functions } from './firebase'
+import { auth } from './firebase'
 
 // --- Optional direct-call keys (dev/BYOK only — NOT recommended in prod) ----
 // No inline defaults: if these env vars are unset, the client has no keys at
@@ -83,36 +82,42 @@ async function callServerProxy(
   opts: GeminiOptions,
   timeoutMs: number,
 ): Promise<string> {
-  const aiChat = httpsCallable<Record<string, unknown>, AiChatResponse>(
-    functions,
-    'aiChat',
-    { timeout: timeoutMs },
-  )
+  const token = await auth.currentUser?.getIdToken()
+  if (!token) throw new Error('not_authenticated')
 
-  const invocation = aiChat({
-    prompt,
-    history: (opts.history ?? []).slice(-20),
-    systemInstruction: opts.systemInstruction,
-    temperature: opts.temperature ?? 0.7,
-    maxTokens: opts.maxTokens ?? 900,
-  })
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
+  const signal = chainSignal(controller.signal, opts.signal)
 
-  // httpsCallable has no AbortSignal support — race it against caller cancel.
-  const result = opts.signal
-    ? await Promise.race([
-        invocation,
-        new Promise<never>((_, reject) => {
-          const onAbort = () => reject(new DOMException('Aborted', 'AbortError'))
-          if (opts.signal!.aborted) onAbort()
-          else opts.signal!.addEventListener('abort', onAbort, { once: true })
-        }),
-      ])
-    : await invocation
+  try {
+    const response = await fetch('/api/ai-chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        prompt,
+        history: (opts.history ?? []).slice(-20),
+        systemInstruction: opts.systemInstruction,
+        temperature: opts.temperature ?? 0.7,
+        maxTokens: opts.maxTokens ?? 900,
+      }),
+      signal,
+    })
 
-  const text = (result.data?.text || '').trim()
-  if (!text) throw new Error('server_empty_response')
-  return text
+    if (!response.ok) throw new Error(`server_failed_${response.status}`)
+
+    const result = await response.json() as AiChatResponse
+    const text = (result.text || '').trim()
+
+    if (!text) throw new Error('server_empty_response')
+    return text
+  } finally {
+    window.clearTimeout(timeout)
+  }
 }
+
 
 
 // ----------------------------------------------------------------------------

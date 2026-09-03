@@ -22,7 +22,7 @@ const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY')
 const GROQ_API_KEY = defineSecret('GROQ_API_KEY')
 const GROQ_API_KEY_2 = defineSecret('GROQ_API_KEY_2')
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
-const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
+const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-20b'
 
 // No inline key defaults — keys must come from Firebase Secrets or env vars:
 //   firebase functions:secrets:set GROQ_API_KEY
@@ -232,6 +232,8 @@ async function tryGemini(params: {
   }
 }
 
+const REASONING_MODEL = /gpt-oss|compound|qwen3\.[68]/i
+
 async function tryGroq(params: {
   key: string
   prompt: string
@@ -263,7 +265,9 @@ async function tryGroq(params: {
         messages,
         temperature,
         max_tokens: maxTokens,
-        top_p: 0.9,
+        // GPT-OSS is a reasoning model: sending top_p alongside
+        // temperature is rejected on some Groq catalogs.
+        ...(REASONING_MODEL.test(GROQ_MODEL) ? {} : { top_p: 0.9 }),
       }),
       signal: controller.signal as unknown as never,
     })

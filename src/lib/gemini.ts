@@ -31,8 +31,11 @@ const GROQ_KEY_2 =
 
 const GROQ_MODEL =
   ((import.meta.env.VITE_GROQ_MODEL as string | undefined) || '').trim() ||
-  'llama-3.3-70b-versatile'
+  'openai/gpt-oss-20b'
 const GROQ_BASE_URL = 'https://api.groq.com/openai/v1'
+
+// Models whose sampling knobs must not be combined (see callGroqWithKey).
+const REASONING_MODEL = /gpt-oss|compound|qwen3\.[68]/i
 
 // --- Google Gemini (disabled by default — kept dormant for future re-enable) -
 const GEMINI_KEY =
@@ -154,7 +157,9 @@ async function callGroqWithKey(
         messages,
         temperature: opts.temperature ?? 0.7,
         max_tokens: opts.maxTokens ?? 900,
-        top_p: 0.9,
+        // GPT-OSS is a reasoning model: sending top_p alongside
+        // temperature is rejected on some Groq catalogs.
+        ...(REASONING_MODEL.test(GROQ_MODEL) ? {} : { top_p: 0.9 }),
       }),
       signal: chained,
     })

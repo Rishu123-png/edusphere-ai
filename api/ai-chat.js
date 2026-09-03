@@ -1,5 +1,8 @@
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
-const MODEL = 'openai/gpt-oss-20b'
+// Groq shut down llama-3.1-8b-instant and llama-3.3-70b-versatile on 2026-08-16
+// (free/developer tier). Keep this overridable so a catalog change is an env edit,
+// not a code deploy.
+const MODEL = (process.env.GROQ_MODEL || 'openai/gpt-oss-20b').trim()
 
 const clean = (value, max = 4000) =>
   String(value ?? '').trim().slice(0, max)
@@ -42,9 +45,18 @@ async function isLoggedIn(request) {
   }
 }
 
+const REASONING_MODEL = /gpt-oss|compound|qwen3\.[68]/i
+
+// Last upstream failure, surfaced to the client as `detail` so a teacher's
+// "running locally" bubble is debuggable. One request per isolate, so a
+// module-scoped slot is safe here.
+let lastError = 'no_attempt'
+
 async function askGroq(key, messages, temperature, maxTokens) {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 4500)
+  // 12s per key, inside the 30s maxDuration in vercel.json, so a slow
+// first key still leaves the second Groq key a real chance to answer.
+const timer = setTimeout(() => controller.abort(), 12000)
 
   try {
     const result = await fetch(GROQ_URL, {
@@ -58,24 +70,33 @@ async function askGroq(key, messages, temperature, maxTokens) {
         messages,
         temperature,
         max_tokens: maxTokens,
-        top_p: 0.9,
+        // GPT-OSS is a reasoning model: OpenAI recommends temp=1.0/top_p=1.0,
+        // and sending both knobs together is rejected on some catalogs.
+        ...(REASONING_MODEL.test(MODEL) ? {} : { top_p: 0.9 }),
       }),
       signal: controller.signal,
     })
 
     if (!result.ok) {
       const detail = await result.text().catch(() => '')
-      console.error(
-        '[ai-chat] Groq failed:',
-        result.status,
-        detail.slice(0, 300),
-      )
+      let reason = ''
+      try {
+        reason = JSON.parse(detail)?.error?.message || ''
+      } catch {
+        /* non-json body */
+      }
+      lastError = `groq_${result.status}${reason ? `: ${reason.slice(0, 160)}` : ''}`
+      console.error('[ai-chat] Groq failed:', result.status, detail.slice(0, 300))
       return ''
     }
 
     const data = await result.json()
     return clean(data?.choices?.[0]?.message?.content, 12000)
-  } catch {
+  } catch (err) {
+    lastError =
+      err?.name === 'AbortError'
+        ? 'groq_timeout'
+        : `groq_fetch_error: ${err?.message}`
     return ''
   } finally {
     clearTimeout(timer)
@@ -165,6 +186,6 @@ export default {
       }
     }
 
-    return send({ error: 'ai_unavailable' }, 503)
+    return send({ error: 'ai_unavailable', detail: lastError }, 503)
   },
 }

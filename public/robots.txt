@@ -1,0 +1,8 @@
+# EduSphere AI — search engine directives
+# https://edusphere-ai-theta.vercel.app/
+
+User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: https://edusphere-ai-theta.vercel.app/sitemap.xml

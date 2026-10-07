@@ -419,3 +419,7 @@ The repo is kept green on all three gates; CI can wire them directly.
   <b>Built for schools, powered by AI.</b><br/>
   <sub>Face-recognition attendance · AI assistant · Report cards · WhatsApp updates — one mobile-first PWA.</sub>
 </p>
+
+<p align="center">
+  <sub>Made by <strong>Rishu Jaswar</strong> · Edusphere-AI · open it, Start using, Discovery all the Features, https://edusphere-ai-theta.vercel.app/.</sub>
+</p>

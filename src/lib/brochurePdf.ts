@@ -163,7 +163,8 @@ function barChart(doc:jsPDF,x:number,y:number,w:number,h:number,bars:{label:stri
 }
 function whatsappBubble(doc:jsPDF,x:number,y:number,w:number,text:string){
   fill(doc,[18,48,32]); rr(doc,x,y,w,14,4)
-  fill(doc,[36,90,60]); doc.triangle?.(x+8,y+14,x+12,y+14,x+8,y+18,'F') || (()=>{ doc.setFillColor(36,90,60); doc.rect(x+8,y+14,4,4,'F')})()
+  // jsPDF has no triangle() — the bubble "tail" is a small filled rect.
+  fill(doc,[36,90,60]); doc.rect(x+8,y+14,4,4,'F')
   txt(doc,text,x+6,y+8,8,[220,245,230])
 }
 function sectionLabel(doc:jsPDF,text:string,x:number,y:number,color:RGB=C.cyan){

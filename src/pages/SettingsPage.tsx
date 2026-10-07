@@ -118,7 +118,7 @@ export default function SettingsPage(){
         dob: s.dob || s.dateOfBirth,
         guardianName: s.guardianName, guardianPhone: s.guardianPhone,
         bloodGroup: s.bloodGroup || s.blood,
-      })), school?.name || 'EduSphere AI', `${(school?.name||'School').replace(/[^\w\-]+/g,'_')}-ID-cards-${idClassSel||'all'}.pdf`)
+      })), school?.name || 'EduSphere AI', `${(school?.name||'School').replace(/[^w-]+/g,'_')}-ID-cards-${idClassSel||'all'}.pdf`)
       toast.success(`ID cards PDF for ${filtered.length} student(s) downloaded.`)
     } catch(e){ console.error(e); toast.error('Could not generate ID cards PDF.') }
   }
@@ -139,7 +139,7 @@ export default function SettingsPage(){
       rows.forEach((r,i)=>r.rank=i+1)
       if (!rows.length) { toast.error('No published marks found yet.'); return }
       try {
-        generateMeritListPdf(rows.slice(0,50), school?.name||'EduSphere AI', 'Top Performers - Overall Merit', `${(school?.name||'School').replace(/[^\w\-]+/g,'_')}-Merit-list.pdf`)
+        generateMeritListPdf(rows.slice(0,50), school?.name||'EduSphere AI', 'Top Performers - Overall Merit', `${(school?.name||'School').replace(/[^w-]+/g,'_')}-Merit-list.pdf`)
         toast.success('Merit list PDF downloaded.')
       } catch(e){ console.error(e); toast.error('Could not generate merit list.') }
     }).catch(()=>toast.error('Could not load marks data.'))
@@ -234,7 +234,7 @@ export default function SettingsPage(){
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       const stamp = new Date().toISOString().slice(0, 10)
-      const safe = (school?.name || 'edusphere').replace(/[^\w\-]+/g, '_')
+      const safe = (school?.name || 'edusphere').replace(/[^w-]+/g, '_')
       a.href = url
       a.download = `${safe}-backup-${stamp}.json`
       document.body.appendChild(a); a.click(); a.remove()
@@ -522,7 +522,7 @@ export default function SettingsPage(){
             <Button variant="gradient" size="sm" className="rounded-full justify-start"
               onClick={() => {
                 try {
-                  const safeName = (school?.name || 'EduSphere-AI').replace(/[^\w\-]+/g, '_')
+                  const safeName = (school?.name || 'EduSphere-AI').replace(/[^w-]+/g, '_')
                   generateFeatureBrochure(`${safeName}-EduSphere-Features.pdf`)
                   toast.success('Feature brochure downloaded — share it with your principal!')
                 } catch { toast.error('Could not generate PDF right now.') }

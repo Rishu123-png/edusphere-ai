@@ -103,6 +103,7 @@ export default function ReportsPage() {
     })
   }, [allAttendance.length, totalPresent, totalAbsent, totalLate])
 
+  // eslint-disable-next-line no-control-regex -- intentional: strips ASCII control chars from report cells
   const cleanReportText = (value: unknown) => String(value ?? '').replace(/[\u0000-\u001f<>]+/g, ' ').trim()
 
   const generatePDFReport = async (type: 'Comprehensive' | 'Weekly' | 'Monthly' = 'Comprehensive') => {

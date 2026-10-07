@@ -520,12 +520,11 @@ export default function StudentsPage(){
 
   const runImport = async () => {
     if (!canManage) { toast.error('You cannot add students'); return }
-    if (!schoolId && profile?.schoolId) {}
     const sid = schoolId || profile?.schoolId || 'global'
     const toAdd = importPreview.filter(r => r._valid && !r._duplicate)
     if (!toAdd.length) { toast.error('No valid new students to import'); return }
     setImporting(true)
-    let ok = 0, fail = 0
+    let ok = 0
     const now = Date.now()
     try {
       const updates: Record<string, any> = {}
@@ -557,7 +556,7 @@ export default function StudentsPage(){
         ok++
       }
       await update(ref(db), updates)
-      toast.success(`Imported ${ok} student${ok===1?'':'s'} successfully.${fail?` ${fail} skipped.`:''}`)
+      toast.success(`Imported ${ok} student${ok===1?'':'s'} successfully.`)
       setImportOpen(false)
       setImportPreview([])
     } catch (err: any) {

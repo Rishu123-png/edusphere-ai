@@ -4,6 +4,33 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <!-- ===== Primary SEO ===== -->
+    <title>EduSphere AI – Smart School Management, AI Attendance &amp; Reports</title>
+    <meta name="description" content="EduSphere AI is an AI-powered school management and attendance system: face-recognition attendance, an AI assistant for teachers, marks & report cards, WhatsApp parent updates, and one-tap reports — a fast, mobile-first PWA for schools." />
+    <meta name="keywords" content="EduSphere AI, school management system, AI attendance system, face recognition attendance, smart classroom, school PWA, report card software, teacher app, attendance management" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="author" content="EduSphere AI" />
+    <link rel="canonical" href="https://edusphere-ai-theta.vercel.app/" />
+
+    <!-- ===== Open Graph (Facebook / WhatsApp / LinkedIn) ===== -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="EduSphere AI" />
+    <meta property="og:url" content="https://edusphere-ai-theta.vercel.app/" />
+    <meta property="og:title" content="EduSphere AI – Smart School Management, AI Attendance &amp; Reports" />
+    <meta property="og:description" content="AI-powered school management: face-recognition attendance, AI assistant, marks, report cards, WhatsApp parent updates and reports in one mobile-first PWA." />
+    <meta property="og:image" content="https://edusphere-ai-theta.vercel.app/icons/icon-512.png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:locale" content="en_IN" />
+
+    <!-- ===== Twitter / X ===== -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="EduSphere AI – Smart School Management, AI Attendance &amp; Reports" />
+    <meta name="twitter:description" content="AI-powered school management: face-recognition attendance, AI assistant, marks, report cards, WhatsApp parent updates and reports in one mobile-first PWA." />
+    <meta name="twitter:image" content="https://edusphere-ai-theta.vercel.app/icons/icon-512.png" />
+
+    <!-- ===== PWA ===== -->
     <meta name="theme-color" content="#4f46e5" />
     <meta name="theme-color" content="#0b0f1a" media="(prefers-color-scheme: dark)">
     <!-- Standard meta (Chrome) — removes the "apple-mobile-web-app-capable is deprecated" warning -->
@@ -13,12 +40,49 @@
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="EduSphere AI" />
-    <title>EduSphere AI – Smart School Management</title>
     <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- ===== Structured data (Google rich results) ===== -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "EduSphere AI",
+      "alternateName": "EduSphere AI School Management System",
+      "url": "https://edusphere-ai-theta.vercel.app/",
+      "description": "AI-powered school management and attendance system with face recognition, an AI assistant for teachers, marks and report cards, WhatsApp parent updates, and one-tap PDF reports. A fast, offline-capable, mobile-first progressive web app for schools.",
+      "applicationCategory": "EducationalApplication",
+      "operatingSystem": "Any",
+      "browserRequirements": "Requires JavaScript",
+      "isAccessibleForFree": true,
+      "softwareVersion": "2.1.0",
+      "image": "https://edusphere-ai-theta.vercel.app/icons/icon-512.png",
+      "featureList": [
+        "Face-recognition attendance",
+        "AI school assistant for teachers",
+        "Student and teacher management",
+        "Marks, report cards and merit lists",
+        "WhatsApp parent updates",
+        "Timetables and academic calendar",
+        "One-tap PDF reports and ID cards",
+        "Offline-first progressive web app"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "INR"
+      },
+      "publisher": {
+        "@type": "Organization",
+        "name": "EduSphere AI",
+        "url": "https://edusphere-ai-theta.vercel.app/"
+      }
+    }
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <meta name="description" content="AI-Powered Smart School Management & Attendance System - Mobile First Premium PWA" />
     <style>
       html { -webkit-text-size-adjust: 100%; }
       body { overscroll-behavior-y: none; -webkit-tap-highlight-color: transparent; }
@@ -39,6 +103,17 @@
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <div style="font-family: system-ui, sans-serif; max-width: 640px; margin: 48px auto; padding: 0 20px; line-height: 1.6;">
+        <h1>EduSphere AI – Smart School Management &amp; Attendance</h1>
+        <p>EduSphere AI is an AI-powered school management and attendance system. It brings
+        face-recognition attendance, an AI assistant for teachers, student and teacher records,
+        marks with printable report cards and merit lists, WhatsApp parent updates, timetables,
+        an academic calendar, and one-tap PDF reports — all in a fast, offline-capable,
+        mobile-first progressive web app that runs on any device.</p>
+        <p>EduSphere AI is a JavaScript application. Please enable JavaScript and reload the page to continue.</p>
+      </div>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
-  <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1daa4d06d3b4bda',t:'MTc4NDQ3MzczMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+  </body>
 </html>
